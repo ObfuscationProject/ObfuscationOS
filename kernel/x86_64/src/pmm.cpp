@@ -113,6 +113,12 @@ void init(std::uintptr_t mb2_info) noexcept
     // Mark multiboot info itself as used (don’t overwrite it while parsing).
     auto *info = reinterpret_cast<const kern::mb2::InfoHeader *>(mb2_info);
     mark_range_used(mb2_info, info->total_size);
+
+    // Never allocate from the real-mode / BIOS area.
+    mark_range_used(0, 0x00100000);
+
+    // Also reserve the trampoline/params area you use for SMP (low memory).
+    mark_range_used(0x7000, 0x3000); // covers 0x7000..0x9FFF (trampoline + temp stacks/params)
 }
 
 std::uintptr_t alloc_frame() noexcept

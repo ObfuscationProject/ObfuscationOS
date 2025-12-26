@@ -7,19 +7,15 @@
 
 static void worker1() noexcept
 {
-    for (;;)
-    {
-        hal::console::write("[T1] hello\n");
-        kern::sched::yield();
-    }
+
+    hal::console::write("[T1] hello\n");
+    kern::sched::yield();
 }
 static void worker2() noexcept
 {
-    for (;;)
-    {
-        hal::console::write("[T2] world\n");
-        kern::sched::yield();
-    }
+
+    hal::console::write("[T2] world\n");
+    kern::sched::yield();
 }
 
 extern "C" void kernel_main(std::uint32_t mb_magic, std::uintptr_t mb_info) noexcept
@@ -45,8 +41,14 @@ extern "C" void kernel_main(std::uint32_t mb_magic, std::uintptr_t mb_info) noex
     kern::smp::init(mb_info);
     hal::console::write("-> smp::init OK\n");
 
-    kern::sched::create(worker1);
-    kern::sched::create(worker2);
+    auto *t1 = kern::sched::create(worker1);
+    auto *t2 = kern::sched::create(worker2);
+    if (!t1 || !t2)
+    {
+        hal::console::write("ERROR: thread create failed (heap/pmem)\n");
+        for (;;)
+            asm volatile("hlt");
+    }
 
     hal::console::write("Starting scheduler...\n");
     kern::sched::yield();

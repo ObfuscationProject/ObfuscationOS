@@ -74,6 +74,11 @@ Thread *create(ThreadFn fn, std::size_t stack_size) noexcept
     std::uintptr_t sp = reinterpret_cast<std::uintptr_t>(stack + stack_size);
     sp &= ~std::uintptr_t(0xF);
 
+    // We jump into a normal C++ function (not call), so emulate a call frame:
+    // place a fake return address and make RSP % 16 == 8 on function entry.
+    sp -= 8;
+    *reinterpret_cast<std::uint64_t *>(sp) = 0;
+
     t->ctx.rsp = sp;
     t->ctx.rip = reinterpret_cast<std::uint64_t>(&thread_entry_trampoline);
 
@@ -94,7 +99,7 @@ void yield() noexcept
     Thread *next = pop_runq();
     if (!next)
     {
-        // No runnable threads; just halt.
+        hal::console::write("No runnable threads; halting.\n");
         for (;;)
             asm volatile("hlt");
     }
