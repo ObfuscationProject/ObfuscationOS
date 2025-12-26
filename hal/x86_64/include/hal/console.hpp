@@ -18,7 +18,7 @@ template <typename dtype> void write_hex(dtype) noexcept
 {
     static_assert(sizeof(dtype) == 0, "dtype is not implement");
 }
-template <> void write_hex<std::uint64_t>(std::uint64_t v) noexcept;
-template <> void write_hex<std::uint32_t>(std::uint32_t v) noexcept;
+template <> void write_hex<std::uint64_t>(std::uint64_t) noexcept;
+template <> void write_hex<std::uint32_t>(std::uint32_t) noexcept;
 
 } // namespace hal::console
