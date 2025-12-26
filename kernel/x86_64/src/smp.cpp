@@ -63,8 +63,7 @@ extern "C" void ap_entry(std::uint32_t apic_id) noexcept
 {
     // Basic proof: AP is alive.
     hal::console::write("AP online, apic_id=");
-    // (No printf yet, keep it simple)
-    (void)apic_id;
+    hal::console::write_hex<std::uint32_t>(apic_id);
     hal::console::write("\n");
 
     kern_smp_ap_online();

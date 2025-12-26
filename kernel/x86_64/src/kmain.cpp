@@ -5,6 +5,23 @@
 #include "kern/smp.hpp"
 #include <cstdint>
 
+static void worker1() noexcept
+{
+    for (;;)
+    {
+        hal::console::write("[T1] hello\n");
+        kern::sched::yield();
+    }
+}
+static void worker2() noexcept
+{
+    for (;;)
+    {
+        hal::console::write("[T2] world\n");
+        kern::sched::yield();
+    }
+}
+
 extern "C" void kernel_main(std::uint32_t mb_magic, std::uintptr_t mb_info) noexcept
 {
     (void)mb_magic;
@@ -27,6 +44,12 @@ extern "C" void kernel_main(std::uint32_t mb_magic, std::uintptr_t mb_info) noex
     hal::console::write("-> smp::init\n");
     kern::smp::init(mb_info);
     hal::console::write("-> smp::init OK\n");
+
+    kern::sched::create(worker1);
+    kern::sched::create(worker2);
+
+    hal::console::write("Starting scheduler...\n");
+    kern::sched::yield();
 
     hal::console::write("DONE\n");
     for (;;)

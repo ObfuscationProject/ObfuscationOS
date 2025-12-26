@@ -108,10 +108,20 @@ void write(const char *s, std::size_t n) noexcept
     }
 }
 
-void write_hex_u64(std::uint64_t v) noexcept
+template <> void write_hex<std::uint64_t>(std::uint64_t v) noexcept
 {
     const char *hex = "0123456789ABCDEF";
     for (int i = 15; i >= 0; --i)
+    {
+        char c = hex[(v >> (i * 4)) & 0xF];
+        put_char(c);
+    }
+}
+
+template <> void write_hex<std::uint32_t>(std::uint32_t v) noexcept
+{
+    const char *hex = "0123456789ABCDEF";
+    for (int i = 7; i >= 0; --i)
     {
         char c = hex[(v >> (i * 4)) & 0xF];
         put_char(c);
