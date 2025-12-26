@@ -14,7 +14,7 @@ void write(const char *s) noexcept;
 // Writes a buffer with explicit length.
 void write(const char *s, std::size_t n) noexcept;
 
-template <typename dtype> void write_hex(dtype v) noexcept
+template <typename dtype> void write_hex(dtype) noexcept
 {
     static_assert(sizeof(dtype) == 0, "dtype is not implement");
 }
