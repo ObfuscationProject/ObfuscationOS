@@ -6,15 +6,21 @@ namespace kern::acpi
 {
 
 #pragma pack(push, 1)
-struct Rsdp2
+
+struct RsdpV1
 {
     char signature[8]; // "RSD PTR "
     std::uint8_t checksum;
     char oem_id[6];
-    std::uint8_t revision;
-    std::uint32_t rsdt_addr;
-    std::uint32_t length;
-    std::uint64_t xsdt_addr;
+    std::uint8_t revision;   // 0 for ACPI 1.0
+    std::uint32_t rsdt_addr; // physical
+};
+
+struct RsdpV2
+{
+    RsdpV1 v1;
+    std::uint32_t length;    // total length of RSDP (>= 36)
+    std::uint64_t xsdt_addr; // physical
     std::uint8_t ext_checksum;
     std::uint8_t reserved[3];
 };
@@ -53,9 +59,17 @@ struct MadtLocalApic
     std::uint8_t apic_id;
     std::uint32_t flags; // bit0 = enabled
 };
+
 #pragma pack(pop)
 
-const Rsdp2 *find_rsdp_from_mb2(std::uintptr_t mb2_info) noexcept;
-const Madt *find_madt(const Rsdp2 *rsdp) noexcept;
+struct Root
+{
+    std::uint8_t revision;    // 0 => ACPI 1.0 (RSDT), >=2 => XSDT preferred
+    std::uintptr_t rsdt_phys; // 0 if unavailable
+    std::uintptr_t xsdt_phys; // 0 if unavailable
+};
+
+Root find_root_from_mb2(std::uintptr_t mb2_info) noexcept;
+const Madt *find_madt(const Root &root) noexcept;
 
 } // namespace kern::acpi

@@ -87,5 +87,5 @@ task("qemu")
     on_run(function ()
 
         local isofile = path.join("build", "ObfuscationOS.iso")
-        os.exec("qemu-system-x86_64 -m 256M -smp 4 -cdrom %s -no-reboot -no-shutdown", isofile)
+        os.exec("qemu-system-x86_64 -m 256M -smp 4 -cdrom %s -no-reboot -no-shutdown -d int,cpu_reset -D qemu.log -debugcon stdio -global isa-debugcon.iobase=0xe9", isofile)
     end)

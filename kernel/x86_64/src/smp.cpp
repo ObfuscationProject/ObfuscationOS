@@ -24,7 +24,7 @@ struct ApBootParams
 };
 
 constexpr std::uintptr_t kTrampolinePhys = 0x7000;
-constexpr std::uintptr_t kParamsPhys = 0x7100;
+constexpr std::uintptr_t kParamsPhys = 0x8000;
 
 static volatile std::uint32_t g_ap_online = 0;
 
@@ -74,8 +74,9 @@ extern "C" void ap_entry(std::uint32_t apic_id) noexcept
 
 void init(std::uintptr_t mb2_info) noexcept
 {
-    auto *rsdp = kern::acpi::find_rsdp_from_mb2(mb2_info);
-    auto *madt = kern::acpi::find_madt(rsdp);
+    auto root = kern::acpi::find_root_from_mb2(mb2_info);
+    auto *madt = kern::acpi::find_madt(root);
+
     if (!madt)
     {
         hal::console::write("SMP: MADT not found, staying single-core.\n");
