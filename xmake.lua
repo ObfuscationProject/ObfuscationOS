@@ -8,10 +8,12 @@ target("kernel")
     set_kind("binary")
     set_filename("kernel.elf")
 
-    add_includedirs("hal/x86_64/include", {public = true})
+    add_includedirs("hal/x86_64/include", "kernel/include", {public = true})
 
     add_files("kernel/x86_64/boot.S")
+    add_files("kernel/x86_64/ap_trampoline.S")
     add_files("kernel/x86_64/src/**.cpp")
+    add_files("kernel/x86_64/src/**.S")
 
     -- C++ freestanding kernel flags
     add_cxflags(
@@ -85,5 +87,5 @@ task("qemu")
     on_run(function ()
 
         local isofile = path.join("build", "ObfuscationOS.iso")
-        os.exec("qemu-system-x86_64 -m 256M -cdrom %s -no-reboot -no-shutdown", isofile)
+        os.exec("qemu-system-x86_64 -m 256M -smp 4 -cdrom %s -no-reboot -no-shutdown", isofile)
     end)

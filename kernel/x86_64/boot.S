@@ -56,6 +56,7 @@ _start:
 
 /* -------------------- 32-bit helpers -------------------- */
 
+/* --- replace setup_page_tables with 4GiB identity map --- */
 setup_page_tables:
     /* pml4[0] = pdpt | present|write */
     mov eax, offset pdpt
@@ -63,23 +64,68 @@ setup_page_tables:
     mov dword ptr [pml4 + 0], eax
     mov dword ptr [pml4 + 4], 0
 
-    /* pdpt[0] = pd | present|write */
-    mov eax, offset pd
+    /* pdpt[i] = pdi | present|write for i=0..3 */
+    mov eax, offset pd0
     or eax, 0x3
-    mov dword ptr [pdpt + 0], eax
-    mov dword ptr [pdpt + 4], 0
+    mov dword ptr [pdpt + 0*8 + 0], eax
+    mov dword ptr [pdpt + 0*8 + 4], 0
 
-    /* Fill pd with 512 entries, each mapping 2MiB (identity map 1GiB) */
+    mov eax, offset pd1
+    or eax, 0x3
+    mov dword ptr [pdpt + 1*8 + 0], eax
+    mov dword ptr [pdpt + 1*8 + 4], 0
+
+    mov eax, offset pd2
+    or eax, 0x3
+    mov dword ptr [pdpt + 2*8 + 0], eax
+    mov dword ptr [pdpt + 2*8 + 4], 0
+
+    mov eax, offset pd3
+    or eax, 0x3
+    mov dword ptr [pdpt + 3*8 + 0], eax
+    mov dword ptr [pdpt + 3*8 + 4], 0
+
+    /* Fill each PD with 512 x 2MiB entries (1GiB per PD) */
+    push ebx
+    push edi
+
+    xor ebx, ebx            /* which PD: 0..3 */
+.fill_each_pd:
+    mov edi, offset pd0
+    cmp ebx, 0
+    je .got_pd
+    mov edi, offset pd1
+    cmp ebx, 1
+    je .got_pd
+    mov edi, offset pd2
+    cmp ebx, 2
+    je .got_pd
+    mov edi, offset pd3
+.got_pd:
+
     xor ecx, ecx
 .fill_pd:
     mov eax, ecx
-    shl eax, 21                /* eax = ecx * 2MiB */
-    or eax, 0x83               /* present|write|huge(2MiB) */
-    mov dword ptr [pd + ecx*8 + 0], eax
-    mov dword ptr [pd + ecx*8 + 4], 0
+    shl eax, 21                 /* 2MiB page index */
+    /* add base = ebx * 1GiB */
+    mov edx, ebx
+    shl edx, 30                 /* 1GiB = 1<<30 */
+    add eax, edx
+    or eax, 0x83                /* present|write|huge(2MiB) */
+
+    mov dword ptr [edi + ecx*8 + 0], eax
+    mov dword ptr [edi + ecx*8 + 4], 0
+
     inc ecx
     cmp ecx, 512
     jne .fill_pd
+
+    inc ebx
+    cmp ebx, 4
+    jne .fill_each_pd
+
+    pop edi
+    pop ebx
     ret
 
 enable_long_mode:
@@ -121,10 +167,12 @@ long_mode_start:
     mov fs, ax
     mov gs, ax
 
-    /* Switch to 64-bit stack, keep 16-byte alignment before call */
-    mov rsp, offset stack64_top
-    and rsp, -16
-
+    /* Pass multiboot2 magic/info to C++:
+     * kernel_main(uint32_t magic, uintptr_t info)
+     * SysV: RDI, RSI
+     */
+    mov edi, dword ptr [mb2_magic]
+    mov esi, dword ptr [mb2_info]
     call kernel_main
 
 .hang:
@@ -152,7 +200,13 @@ pml4:
     .skip 4096
 pdpt:
     .skip 4096
-pd:
+pd0:
+    .skip 4096
+pd1:
+    .skip 4096
+pd2:
+    .skip 4096
+pd3:
     .skip 4096
 
 .align 16
@@ -171,3 +225,5 @@ stack32_top:
 stack64_bottom:
     .skip 16384
 stack64_top:
+
+.section .note.GNU-stack,"",@progbits
