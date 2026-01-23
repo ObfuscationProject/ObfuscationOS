@@ -27,6 +27,10 @@ target("kernel")
         "-fno-unwind-tables",
         "-m64",
         "-mno-red-zone",
+        "-mno-sse",
+        "-mno-sse2",
+        "-mno-mmx",
+        "-mno-80387",
         "-mcmodel=kernel",
         "-Wall", "-Wextra",
         {force = true}

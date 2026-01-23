@@ -1,6 +1,7 @@
 #include "hal/console.hpp"
 #include "kern/mem/heap.hpp"
 #include "kern/mem/pmm.hpp"
+#include "kern/interrupts.hpp"
 #include "kern/sched.hpp"
 #include "kern/smp.hpp"
 #include <cstdint>
@@ -41,6 +42,10 @@ extern "C" void kernel_main(std::uint32_t mb_magic, std::uintptr_t mb_info) noex
     kern::smp::init(mb_info);
     hal::console::write("-> smp::init OK\n");
 
+    hal::console::write("-> interrupts::init\n");
+    kern::interrupts::init();
+    hal::console::write("-> interrupts::init OK\n");
+
     auto *t1 = kern::sched::create(worker1);
     auto *t2 = kern::sched::create(worker2);
     if (!t1 || !t2)
@@ -50,6 +55,7 @@ extern "C" void kernel_main(std::uint32_t mb_magic, std::uintptr_t mb_info) noex
             asm volatile("hlt");
     }
 
+    kern::interrupts::enable();
     hal::console::write("Starting scheduler...\n");
     kern::sched::yield();
 

@@ -1,6 +1,7 @@
 #pragma once
 #include <cstddef>
 #include <cstdint>
+#include "kern/interrupts.hpp"
 
 namespace kern::sched
 {
@@ -29,5 +30,6 @@ extern "C" void context_switch(Context *oldc, Context *newc) noexcept;
 void init() noexcept;
 Thread *create(ThreadFn fn, std::size_t stack_size = 16 * 1024) noexcept;
 void yield() noexcept;
+void yield_from_irq(kern::interrupts::Frame *frame) noexcept;
 
 } // namespace kern::sched

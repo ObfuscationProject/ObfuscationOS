@@ -1,5 +1,6 @@
 #include "kern/sched.hpp"
 #include "hal/console.hpp"
+#include "kern/interrupts.hpp"
 #include "kern/mem/heap.hpp"
 #include <cstdint>
 
@@ -10,6 +11,7 @@ static Thread *g_runq = nullptr;
 static Thread *g_current = nullptr;
 
 extern "C" void thread_entry_trampoline() noexcept;
+extern "C" void irq_return_trampoline() noexcept;
 
 static Thread *pop_runq() noexcept
 {
@@ -42,6 +44,7 @@ extern "C" void thread_entry_trampoline() noexcept
         for (;;)
             asm volatile("hlt");
     }
+    kern::interrupts::enable();
     g_current->entry();
     g_current->finished = true;
     yield();
@@ -88,6 +91,7 @@ Thread *create(ThreadFn fn, std::size_t stack_size) noexcept
 
 void yield() noexcept
 {
+    kern::interrupts::disable();
     Thread *prev = g_current;
 
     // Put current back if it is a real thread and not finished.
@@ -106,6 +110,29 @@ void yield() noexcept
 
     g_current = next;
     context_switch(&prev->ctx, &next->ctx);
+}
+
+void yield_from_irq(kern::interrupts::Frame *frame) noexcept
+{
+    Thread *prev = g_current;
+
+    if (!prev || !prev->entry || prev->finished)
+        return;
+
+    if (!g_runq)
+        return;
+
+    prev->ctx.rsp = reinterpret_cast<std::uint64_t>(frame);
+    prev->ctx.rip = reinterpret_cast<std::uint64_t>(&irq_return_trampoline);
+
+    push_runq(prev);
+    Thread *next = pop_runq();
+    if (!next)
+        return;
+
+    g_current = next;
+    Context tmp{};
+    context_switch(&tmp, &next->ctx);
 }
 
 } // namespace kern::sched

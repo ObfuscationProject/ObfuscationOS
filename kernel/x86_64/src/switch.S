@@ -27,6 +27,7 @@ context_switch:
     jmp qword ptr [rsi + 0x38]
 
 .resume:
+    sti
     ret
 
 .section .note.GNU-stack,"",@progbits

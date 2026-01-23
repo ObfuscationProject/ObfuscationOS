@@ -74,13 +74,34 @@ void init(std::uintptr_t lapic_phys) noexcept
     enable_apic_msr(lapic_phys);
     g_lapic = reinterpret_cast<volatile std::uint32_t *>(lapic_phys);
 
-    // SVR (0xF0) bit8 = enable local APIC
-    wr(0xF0, rd(0xF0) | 0x100);
+    // SVR (0xF0): bit8 = enable local APIC, low 8 bits = spurious vector
+    constexpr std::uint32_t kSpuriousVector = 0xFF;
+    wr(0xF0, (rd(0xF0) & 0xFFFFFF00u) | kSpuriousVector | 0x100);
 }
 
 std::uint32_t lapic_id() noexcept
 {
     return rd(0x20) >> 24;
+}
+
+void eoi() noexcept
+{
+    wr(0xB0, 0);
+}
+
+void timer_init(std::uint8_t vector, std::uint32_t initial_count, std::uint8_t divide, bool periodic) noexcept
+{
+    // Divide Configuration Register (0x3E0)
+    wr(0x3E0, divide & 0x0Fu);
+
+    // LVT Timer (0x320): vector + periodic
+    std::uint32_t lvt = vector;
+    if (periodic)
+        lvt |= (1u << 17);
+    wr(0x320, lvt);
+
+    // Initial Count (0x380)
+    wr(0x380, initial_count);
 }
 
 void send_init_ipi(std::uint32_t apic_id) noexcept

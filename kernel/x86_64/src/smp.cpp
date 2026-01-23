@@ -79,6 +79,8 @@ void init(std::uintptr_t mb2_info) noexcept
     if (!madt)
     {
         hal::console::write("SMP: MADT not found, staying single-core.\n");
+        // Fallback: try default LAPIC base so the timer can still work.
+        hal::apic::init(0xFEE00000);
         return;
     }
 
