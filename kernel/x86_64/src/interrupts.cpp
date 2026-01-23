@@ -1,5 +1,6 @@
 #include "kern/interrupts.hpp"
 #include "hal/apic.hpp"
+#include "hal/console.hpp"
 #include "kern/sched.hpp"
 
 namespace kern::interrupts
@@ -25,8 +26,19 @@ struct IdtPtr
 static IdtEntry g_idt[256] = {};
 static Handler g_handlers[256] = {};
 
-extern "C" void isr_timer_stub() noexcept;
-extern "C" void isr_spurious_stub() noexcept;
+extern "C" void (*isr_stub_table[256])() noexcept;
+
+static inline void outb(std::uint16_t port, std::uint8_t v) noexcept
+{
+    asm volatile("outb %0, %1" ::"a"(v), "Nd"(port));
+}
+
+static void disable_legacy_pic() noexcept
+{
+    // Mask all IRQs on both PICs.
+    outb(0x21, 0xFF);
+    outb(0xA1, 0xFF);
+}
 
 static void set_gate(std::uint8_t vec, void (*isr)() noexcept) noexcept
 {
@@ -73,13 +85,31 @@ extern "C" void isr_dispatch(Frame *frame) noexcept
 
     auto handler = g_handlers[static_cast<std::uint8_t>(frame->vector)];
     if (handler)
+    {
         handler(frame);
+        return;
+    }
+
+    // Unhandled vector: halt on exceptions, EOI on external IRQs.
+    if (frame->vector < 0x20)
+    {
+        hal::console::write("Unhandled exception, vector=");
+        hal::console::write_hex<std::uint32_t>(static_cast<std::uint32_t>(frame->vector));
+        hal::console::write(" error=");
+        hal::console::write_hex<std::uint32_t>(static_cast<std::uint32_t>(frame->error));
+        hal::console::write("\\n");
+        for (;;)
+            asm volatile("hlt");
+    }
+    hal::apic::eoi();
 }
 
 void init() noexcept
 {
-    set_gate(kTimerVector, isr_timer_stub);
-    set_gate(kSpuriousVector, isr_spurious_stub);
+    disable_legacy_pic();
+
+    for (std::size_t i = 0; i < 256; ++i)
+        set_gate(static_cast<std::uint8_t>(i), isr_stub_table[i]);
 
     register_handler(kTimerVector, timer_handler);
     register_handler(kSpuriousVector, spurious_handler);
