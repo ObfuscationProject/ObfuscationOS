@@ -3,6 +3,8 @@
 #include "hal/apic.hpp"
 #include "hal/console.hpp"
 #include "kern/acpi.hpp"
+#include "kern/interrupts.hpp"
+#include "kern/sched.hpp"
 
 extern "C"
 {
@@ -67,8 +69,10 @@ extern "C" void ap_entry(std::uint32_t apic_id) noexcept
     hal::console::write("\n");
 
     kern_smp_ap_online();
-    for (;;)
-        asm volatile("hlt");
+    kern::interrupts::init();
+    kern::sched::init_cpu();
+    kern::interrupts::enable();
+    kern::sched::run();
 }
 
 void init(std::uintptr_t mb2_info) noexcept
@@ -81,10 +85,12 @@ void init(std::uintptr_t mb2_info) noexcept
         hal::console::write("SMP: MADT not found, staying single-core.\n");
         // Fallback: try default LAPIC base so the timer can still work.
         hal::apic::init(0xFEE00000);
+        kern::sched::apic_ready();
         return;
     }
 
     hal::apic::init(madt->lapic_addr);
+    kern::sched::apic_ready();
     auto bsp_id = hal::apic::lapic_id();
 
     // Copy trampoline blob to 0x7000

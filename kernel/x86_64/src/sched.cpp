@@ -1,19 +1,44 @@
 #include "kern/sched.hpp"
+#include "hal/apic.hpp"
 #include "hal/console.hpp"
 #include "kern/interrupts.hpp"
 #include "kern/mem/heap.hpp"
+#include <atomic>
 #include <cstdint>
 
 namespace kern::sched
 {
 
+constexpr std::size_t kMaxCpus = 256;
+
 static Thread *g_runq = nullptr;
-static Thread *g_current = nullptr;
+static Thread *g_current[kMaxCpus] = {};
+static Thread g_bootstrap[kMaxCpus] = {};
+static std::atomic_flag g_runq_lock = ATOMIC_FLAG_INIT;
+static bool g_apic_ready = false;
 
 extern "C" void thread_entry_trampoline() noexcept;
 extern "C" void irq_return_trampoline() noexcept;
 
-static Thread *pop_runq() noexcept
+static inline void runq_lock() noexcept
+{
+    while (g_runq_lock.test_and_set(std::memory_order_acquire))
+        asm volatile("pause");
+}
+
+static inline void runq_unlock() noexcept
+{
+    g_runq_lock.clear(std::memory_order_release);
+}
+
+static inline std::size_t cpu_index() noexcept
+{
+    if (!g_apic_ready)
+        return 0;
+    return static_cast<std::size_t>(hal::apic::lapic_id());
+}
+
+static Thread *pop_runq_locked() noexcept
 {
     if (!g_runq)
         return nullptr;
@@ -23,7 +48,7 @@ static Thread *pop_runq() noexcept
     return t;
 }
 
-static void push_runq(Thread *t) noexcept
+static void push_runq_locked(Thread *t) noexcept
 {
     t->next = nullptr;
     if (!g_runq)
@@ -37,16 +62,32 @@ static void push_runq(Thread *t) noexcept
     p->next = t;
 }
 
+static Thread *pop_runq() noexcept
+{
+    runq_lock();
+    Thread *t = pop_runq_locked();
+    runq_unlock();
+    return t;
+}
+
+static void push_runq(Thread *t) noexcept
+{
+    runq_lock();
+    push_runq_locked(t);
+    runq_unlock();
+}
+
 extern "C" void thread_entry_trampoline() noexcept
 {
-    if (!g_current || !g_current->entry)
+    auto *cur = g_current[cpu_index()];
+    if (!cur || !cur->entry)
     {
         for (;;)
             asm volatile("hlt");
     }
     kern::interrupts::enable();
-    g_current->entry();
-    g_current->finished = true;
+    cur->entry();
+    cur->finished = true;
     yield();
     for (;;)
         asm volatile("hlt");
@@ -55,8 +96,20 @@ extern "C" void thread_entry_trampoline() noexcept
 void init() noexcept
 {
     // Create a dummy "current" thread for BSP context.
-    static Thread bootstrap{};
-    g_current = &bootstrap;
+    g_current[0] = &g_bootstrap[0];
+}
+
+void init_cpu() noexcept
+{
+    g_current[cpu_index()] = &g_bootstrap[cpu_index()];
+}
+
+void apic_ready() noexcept
+{
+    g_apic_ready = true;
+    std::size_t id = cpu_index();
+    if (!g_current[id])
+        g_current[id] = g_current[0];
 }
 
 Thread *create(ThreadFn fn, std::size_t stack_size) noexcept
@@ -92,47 +145,55 @@ Thread *create(ThreadFn fn, std::size_t stack_size) noexcept
 void yield() noexcept
 {
     kern::interrupts::disable();
-    Thread *prev = g_current;
+    Thread *prev = g_current[cpu_index()];
 
     // Put current back if it is a real thread and not finished.
     if (prev && prev->entry && !prev->finished)
     {
-        push_runq(prev);
+        runq_lock();
+        push_runq_locked(prev);
+        runq_unlock();
     }
 
     Thread *next = pop_runq();
-    if (!next)
+    while (!next)
     {
-        hal::console::write("No runnable threads; halting.\n");
-        for (;;)
-            asm volatile("hlt");
+        kern::interrupts::enable();
+        asm volatile("hlt");
+        kern::interrupts::disable();
+        next = pop_runq();
     }
 
-    g_current = next;
+    g_current[cpu_index()] = next;
     context_switch(&prev->ctx, &next->ctx);
 }
 
 void yield_from_irq(kern::interrupts::Frame *frame) noexcept
 {
-    Thread *prev = g_current;
+    Thread *prev = g_current[cpu_index()];
 
     if (!prev || !prev->entry || prev->finished)
-        return;
-
-    if (!g_runq)
         return;
 
     prev->ctx.rsp = reinterpret_cast<std::uint64_t>(frame);
     prev->ctx.rip = reinterpret_cast<std::uint64_t>(&irq_return_trampoline);
 
-    push_runq(prev);
-    Thread *next = pop_runq();
+    runq_lock();
+    push_runq_locked(prev);
+    Thread *next = pop_runq_locked();
+    runq_unlock();
     if (!next)
         return;
 
-    g_current = next;
+    g_current[cpu_index()] = next;
     Context tmp{};
     context_switch(&tmp, &next->ctx);
+}
+
+void run() noexcept
+{
+    for (;;)
+        yield();
 }
 
 } // namespace kern::sched
