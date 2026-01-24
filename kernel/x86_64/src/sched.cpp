@@ -20,9 +20,10 @@ static Thread *g_all_threads = nullptr;
 static std::atomic_flag g_all_lock = ATOMIC_FLAG_INIT;
 
 static std::uint32_t g_cpu_list[kMaxCpus] = {};
+static std::atomic_flag g_cpu_lock = ATOMIC_FLAG_INIT;
 static std::atomic_uint g_cpu_count = 0;
 static std::atomic_uint g_rr_counter = 0;
-static bool g_apic_ready = false;
+static std::atomic_bool g_apic_ready = false;
 
 extern "C" void thread_entry_trampoline() noexcept;
 extern "C" void irq_return_trampoline() noexcept;
@@ -49,9 +50,20 @@ static inline void all_unlock() noexcept
     g_all_lock.clear(std::memory_order_release);
 }
 
+static inline void cpu_list_lock() noexcept
+{
+    while (g_cpu_lock.test_and_set(std::memory_order_acquire))
+        asm volatile("pause");
+}
+
+static inline void cpu_list_unlock() noexcept
+{
+    g_cpu_lock.clear(std::memory_order_release);
+}
+
 static inline std::size_t cpu_index() noexcept
 {
-    if (!g_apic_ready)
+    if (!g_apic_ready.load(std::memory_order_acquire))
         return 0;
     auto id = static_cast<std::size_t>(hal::apic::lapic_id());
     if (id >= kMaxCpus)
@@ -113,8 +125,12 @@ static std::size_t pick_target_cpu() noexcept
         return cpu_index();
     if (count > kMaxCpus)
         count = kMaxCpus;
+
+    cpu_list_lock();
     std::size_t idx = static_cast<std::size_t>(g_rr_counter.fetch_add(1, std::memory_order_relaxed)) % count;
-    return static_cast<std::size_t>(g_cpu_list[idx]);
+    std::size_t apic_id = static_cast<std::size_t>(g_cpu_list[idx]);
+    cpu_list_unlock();
+    return apic_id;
 }
 
 extern "C" void thread_entry_trampoline() noexcept
@@ -143,6 +159,8 @@ void init() noexcept
     g_all_lock.clear(std::memory_order_release);
     g_rr_counter.store(0, std::memory_order_relaxed);
     g_cpu_count.store(0, std::memory_order_relaxed);
+    g_cpu_lock.clear(std::memory_order_release);
+    g_apic_ready.store(false, std::memory_order_release);
 }
 
 void init_cpu() noexcept
@@ -152,7 +170,7 @@ void init_cpu() noexcept
 
 void apic_ready() noexcept
 {
-    g_apic_ready = true;
+    g_apic_ready.store(true, std::memory_order_release);
     std::size_t id = cpu_index();
     if (!g_current[id])
         g_current[id] = g_current[0];
@@ -163,17 +181,25 @@ void register_cpu(std::uint32_t apic_id) noexcept
     if (apic_id >= kMaxCpus)
         return;
 
+    cpu_list_lock();
     std::size_t count = g_cpu_count.load(std::memory_order_relaxed);
     for (std::size_t i = 0; i < count; ++i)
     {
         if (g_cpu_list[i] == apic_id)
+        {
+            cpu_list_unlock();
             return;
+        }
     }
     if (count >= kMaxCpus)
+    {
+        cpu_list_unlock();
         return;
+    }
 
     g_cpu_list[count] = apic_id;
     g_cpu_count.store(static_cast<unsigned>(count + 1), std::memory_order_relaxed);
+    cpu_list_unlock();
 }
 
 Thread *create(ThreadFn fn, std::size_t stack_size) noexcept

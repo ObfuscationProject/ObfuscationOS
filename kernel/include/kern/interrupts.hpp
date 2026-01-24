@@ -33,6 +33,8 @@ struct Frame
     std::uint64_t rip;
     std::uint64_t cs;
     std::uint64_t rflags;
+    std::uint64_t rsp;
+    std::uint64_t ss;
 };
 
 using Handler = void (*)(Frame *) noexcept;

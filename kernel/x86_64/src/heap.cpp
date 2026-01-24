@@ -4,6 +4,7 @@
 #include <atomic>
 #include <cstddef>
 #include <cstdint>
+#include <limits>
 
 namespace kern::mem::heap
 {
@@ -33,9 +34,22 @@ static inline void unlock() noexcept
     g_lock.clear(std::memory_order_release);
 }
 
-static inline std::uintptr_t align_up(std::uintptr_t v, std::size_t align) noexcept
+static inline bool align_up_checked(std::uintptr_t v, std::size_t align, std::uintptr_t &out) noexcept
 {
-    return (v + (align - 1)) & ~(align - 1);
+    if (align == 0)
+        return false;
+    if (v > (std::numeric_limits<std::uintptr_t>::max() - (align - 1)))
+        return false;
+    out = (v + (align - 1)) & ~(align - 1);
+    return true;
+}
+
+static inline bool add_checked(std::uintptr_t a, std::uintptr_t b, std::uintptr_t &out) noexcept
+{
+    if (a > (std::numeric_limits<std::uintptr_t>::max() - b))
+        return false;
+    out = a + b;
+    return true;
 }
 
 static inline std::uintptr_t block_base(const Block *b) noexcept
@@ -57,21 +71,41 @@ void init(std::size_t initial_pages) noexcept
 
     // Reserve N pages physically, identity-mapped, used as heap.
     std::uintptr_t first = 0;
+    std::uintptr_t prev = 0;
+    std::size_t pages = 0;
     for (std::size_t i = 0; i < initial_pages; ++i)
     {
         std::uintptr_t p = kern::mem::pmm::alloc_frame();
         if (!p)
             break;
         if (i == 0)
+        {
             first = p;
-        // NOTE: this assumes frames returned are contiguous; on QEMU it often is,
-        // but for correctness you will later build a VMM and map pages properly.
+        }
+        else
+        {
+            if (p != prev + kern::mem::pmm::kPageSize)
+            {
+                kern::mem::pmm::free_frame(p);
+                break;
+            }
+        }
+        prev = p;
+        ++pages;
     }
-    if (!first)
+    if (!first || pages == 0)
         return;
 
     g_heap_base = first;
-    g_heap_end = first + initial_pages * kern::mem::pmm::kPageSize;
+    g_heap_end = first + pages * kern::mem::pmm::kPageSize;
+
+    if (g_heap_end <= g_heap_base + sizeof(Block))
+    {
+        g_heap_base = 0;
+        g_heap_end = 0;
+        g_head = nullptr;
+        return;
+    }
 
     g_head = reinterpret_cast<Block *>(g_heap_base);
     g_head->size = g_heap_end - g_heap_base - sizeof(Block);
@@ -87,6 +121,15 @@ void *kmalloc(std::size_t bytes, std::size_t align) noexcept
 
     if (align < alignof(std::max_align_t))
         align = alignof(std::max_align_t);
+    if ((align & (align - 1)) != 0)
+    {
+        std::size_t a = 1;
+        while (a < align && a != 0)
+            a <<= 1;
+        if (a == 0)
+            return nullptr;
+        align = a;
+    }
 
     lock();
 
@@ -96,16 +139,26 @@ void *kmalloc(std::size_t bytes, std::size_t align) noexcept
             continue;
 
         std::uintptr_t base = block_base(b);
-        std::uintptr_t raw = base + sizeof(std::uintptr_t);
-        std::uintptr_t payload = align_up(raw, align);
-        std::uintptr_t alloc_end = payload + bytes;
+        std::uintptr_t raw = 0;
+        if (!add_checked(base, sizeof(std::uintptr_t), raw))
+            continue;
+        std::uintptr_t payload = 0;
+        if (!align_up_checked(raw, align, payload))
+            continue;
+        std::uintptr_t alloc_end = 0;
+        if (!add_checked(payload, bytes, alloc_end))
+            continue;
         std::uintptr_t end = block_end(b);
+        if (end < base)
+            continue;
 
         if (alloc_end > end)
             continue;
 
-        std::uintptr_t split = align_up(alloc_end, alignof(Block));
-        if (end >= split + sizeof(Block) + 16)
+        std::uintptr_t split = 0;
+        if (!align_up_checked(alloc_end, alignof(Block), split))
+            continue;
+        if (end - split >= sizeof(Block) + 16)
         {
             auto *nb = reinterpret_cast<Block *>(split);
             nb->size = end - split - sizeof(Block);
@@ -157,12 +210,50 @@ void kfree(void *p) noexcept
     if (!p)
         return;
 
+    auto up = reinterpret_cast<std::uintptr_t>(p);
+    if (up < g_heap_base || up >= g_heap_end)
+        return;
+
     lock();
 
-    auto *b = reinterpret_cast<Block *>(
-        *reinterpret_cast<std::uintptr_t *>(reinterpret_cast<std::uintptr_t>(p) - sizeof(std::uintptr_t)));
+    if (up < g_heap_base + sizeof(Block) + sizeof(std::uintptr_t))
+    {
+        unlock();
+        return;
+    }
+
+    auto meta = up - sizeof(std::uintptr_t);
+    auto *b = reinterpret_cast<Block *>(*reinterpret_cast<std::uintptr_t *>(meta));
     if (b)
     {
+        auto baddr = reinterpret_cast<std::uintptr_t>(b);
+        if (baddr < g_heap_base || baddr + sizeof(Block) > g_heap_end)
+        {
+            unlock();
+            return;
+        }
+        auto base = block_base(b);
+        if (base > up || base < g_heap_base)
+        {
+            unlock();
+            return;
+        }
+        if (b->size > g_heap_end - base)
+        {
+            unlock();
+            return;
+        }
+        auto end = base + b->size;
+        if (meta < base || meta + sizeof(std::uintptr_t) > end)
+        {
+            unlock();
+            return;
+        }
+        if (b->free)
+        {
+            unlock();
+            return;
+        }
         b->free = true;
         coalesce(b);
     }

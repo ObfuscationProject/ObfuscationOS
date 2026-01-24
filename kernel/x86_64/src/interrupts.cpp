@@ -2,6 +2,7 @@
 #include "hal/apic.hpp"
 #include "hal/console.hpp"
 #include "kern/sched.hpp"
+#include <atomic>
 
 namespace kern::interrupts
 {
@@ -25,8 +26,13 @@ struct IdtPtr
 
 static IdtEntry g_idt[256] = {};
 static Handler g_handlers[256] = {};
+static std::atomic_flag g_idt_lock = ATOMIC_FLAG_INIT;
+static std::atomic_bool g_idt_built = false;
 
 extern "C" void (*isr_stub_table[256])() noexcept;
+
+static void timer_handler(Frame *frame) noexcept;
+static void spurious_handler(Frame *frame) noexcept;
 
 static inline void outb(std::uint16_t port, std::uint8_t v) noexcept
 {
@@ -61,6 +67,30 @@ static void load_idt() noexcept
     asm volatile("lidt %0" : : "m"(idtr));
 }
 
+static void build_idt_once() noexcept
+{
+    if (g_idt_built.load(std::memory_order_acquire))
+        return;
+
+    while (g_idt_lock.test_and_set(std::memory_order_acquire))
+        asm volatile("pause");
+
+    if (!g_idt_built.load(std::memory_order_relaxed))
+    {
+        disable_legacy_pic();
+
+        for (std::size_t i = 0; i < 256; ++i)
+            set_gate(static_cast<std::uint8_t>(i), isr_stub_table[i]);
+
+        register_handler(kTimerVector, timer_handler);
+        register_handler(kSpuriousVector, spurious_handler);
+
+        g_idt_built.store(true, std::memory_order_release);
+    }
+
+    g_idt_lock.clear(std::memory_order_release);
+}
+
 void register_handler(std::uint8_t vector, Handler handler) noexcept
 {
     g_handlers[vector] = handler;
@@ -78,7 +108,7 @@ static void spurious_handler(Frame *frame) noexcept
     hal::apic::eoi();
 }
 
-extern "C" void isr_dispatch(Frame *frame) noexcept
+extern "C" __attribute__((force_align_arg_pointer)) void isr_dispatch(Frame *frame) noexcept
 {
     if (!frame)
         return;
@@ -106,14 +136,7 @@ extern "C" void isr_dispatch(Frame *frame) noexcept
 
 void init() noexcept
 {
-    disable_legacy_pic();
-
-    for (std::size_t i = 0; i < 256; ++i)
-        set_gate(static_cast<std::uint8_t>(i), isr_stub_table[i]);
-
-    register_handler(kTimerVector, timer_handler);
-    register_handler(kSpuriousVector, spurious_handler);
-
+    build_idt_once();
     load_idt();
 
     // Configure LAPIC timer for periodic interrupts.

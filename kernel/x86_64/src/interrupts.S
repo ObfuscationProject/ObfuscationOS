@@ -395,7 +395,7 @@ isr_stub_8:
     pop rcx
     pop rax
 
-    add rsp, 8             /* vector only */
+    add rsp, 16            /* vector + error */
     iretq
 
 .global isr_stub_9
@@ -482,7 +482,7 @@ isr_stub_10:
     pop rcx
     pop rax
 
-    add rsp, 8             /* vector only */
+    add rsp, 16            /* vector + error */
     iretq
 
 .global isr_stub_11
@@ -525,7 +525,7 @@ isr_stub_11:
     pop rcx
     pop rax
 
-    add rsp, 8             /* vector only */
+    add rsp, 16            /* vector + error */
     iretq
 
 .global isr_stub_12
@@ -568,7 +568,7 @@ isr_stub_12:
     pop rcx
     pop rax
 
-    add rsp, 8             /* vector only */
+    add rsp, 16            /* vector + error */
     iretq
 
 .global isr_stub_13
@@ -611,7 +611,7 @@ isr_stub_13:
     pop rcx
     pop rax
 
-    add rsp, 8             /* vector only */
+    add rsp, 16            /* vector + error */
     iretq
 
 .global isr_stub_14
@@ -654,7 +654,7 @@ isr_stub_14:
     pop rcx
     pop rax
 
-    add rsp, 8             /* vector only */
+    add rsp, 16            /* vector + error */
     iretq
 
 .global isr_stub_15
@@ -785,7 +785,7 @@ isr_stub_17:
     pop rcx
     pop rax
 
-    add rsp, 8             /* vector only */
+    add rsp, 16            /* vector + error */
     iretq
 
 .global isr_stub_18

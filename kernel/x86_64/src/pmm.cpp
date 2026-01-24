@@ -1,5 +1,6 @@
 #include "kern/mem/pmm.hpp"
 #include "kern/mb2.hpp"
+#include <atomic>
 
 extern "C" char _kernel_end;
 
@@ -10,6 +11,19 @@ static std::uint8_t *g_bitmap = nullptr;
 static std::size_t g_bitmap_bytes = 0;
 static std::size_t g_frames_total = 0;
 static std::size_t g_frames_free = 0;
+static std::atomic_flag g_lock = ATOMIC_FLAG_INIT;
+static std::atomic_bool g_ready = false;
+
+static inline void lock() noexcept
+{
+    while (g_lock.test_and_set(std::memory_order_acquire))
+        asm volatile("pause");
+}
+
+static inline void unlock() noexcept
+{
+    g_lock.clear(std::memory_order_release);
+}
 
 static inline std::size_t addr_to_frame(std::uintptr_t addr)
 {
@@ -67,6 +81,12 @@ static void mark_range_used(std::uintptr_t base, std::uintptr_t len)
 
 void init(std::uintptr_t mb2_info) noexcept
 {
+    g_ready.store(false, std::memory_order_release);
+    g_bitmap = nullptr;
+    g_bitmap_bytes = 0;
+    g_frames_total = 0;
+    g_frames_free = 0;
+
     // Find the highest address from mmap to size bitmap.
     auto *tag = kern::mb2::find_tag(mb2_info, kern::mb2::TAG_MMAP);
     if (!tag)
@@ -119,41 +139,62 @@ void init(std::uintptr_t mb2_info) noexcept
 
     // Also reserve the trampoline/params area you use for SMP (low memory).
     mark_range_used(0x7000, 0x3000); // covers 0x7000..0x9FFF (trampoline + temp stacks/params)
+
+    g_ready.store(true, std::memory_order_release);
 }
 
 std::uintptr_t alloc_frame() noexcept
 {
+    if (!g_ready.load(std::memory_order_acquire) || !g_bitmap)
+        return 0;
+    lock();
     for (std::size_t f = 0; f < g_frames_total; ++f)
     {
         if (!bit_get(f))
         {
             bit_set(f);
             --g_frames_free;
-            return static_cast<std::uintptr_t>(f) * kPageSize;
+            auto phys = static_cast<std::uintptr_t>(f) * kPageSize;
+            unlock();
+            return phys;
         }
     }
+    unlock();
     return 0;
 }
 
 void free_frame(std::uintptr_t phys) noexcept
 {
+    if (!g_ready.load(std::memory_order_acquire) || !g_bitmap)
+        return;
+    lock();
     auto f = addr_to_frame(phys);
     if (f >= g_frames_total)
+    {
+        unlock();
         return;
+    }
     if (bit_get(f))
     {
         bit_clr(f);
         ++g_frames_free;
     }
+    unlock();
 }
 
 std::size_t total_frames() noexcept
 {
-    return g_frames_total;
+    lock();
+    auto v = g_frames_total;
+    unlock();
+    return v;
 }
 std::size_t free_frames() noexcept
 {
-    return g_frames_free;
+    lock();
+    auto v = g_frames_free;
+    unlock();
+    return v;
 }
 
 } // namespace kern::mem::pmm

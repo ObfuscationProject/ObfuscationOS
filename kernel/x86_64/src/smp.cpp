@@ -5,6 +5,7 @@
 #include "kern/acpi.hpp"
 #include "kern/interrupts.hpp"
 #include "kern/sched.hpp"
+#include <atomic>
 
 extern "C"
 {
@@ -28,7 +29,7 @@ struct ApBootParams
 constexpr std::uintptr_t kTrampolinePhys = 0x7000;
 constexpr std::uintptr_t kParamsPhys = 0x8000;
 
-static volatile std::uint32_t g_ap_online = 0;
+static std::atomic_uint g_ap_online = 0;
 
 static void mem_copy(std::uintptr_t dst, std::uintptr_t src, std::size_t n)
 {
@@ -55,7 +56,7 @@ static std::uintptr_t read_cr3()
 
 extern "C" void kern_smp_ap_online() noexcept
 {
-    g_ap_online++;
+    g_ap_online.fetch_add(1, std::memory_order_relaxed);
 }
 
 namespace kern::smp
@@ -141,7 +142,7 @@ void init(std::uintptr_t mb2_info) noexcept
                     // Wait for AP online flag (simple, with timeout later)
                     for (volatile int spin = 0; spin < 2000000; ++spin)
                     {
-                        if (g_ap_online == started + 1)
+                        if (g_ap_online.load(std::memory_order_relaxed) == started + 1)
                             break;
                         asm volatile("pause");
                     }

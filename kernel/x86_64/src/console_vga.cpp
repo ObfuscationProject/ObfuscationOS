@@ -1,4 +1,5 @@
 #include "hal/console.hpp"
+#include <atomic>
 #include <cstddef>
 #include <cstdint>
 
@@ -12,6 +13,7 @@ volatile std::uint16_t *const kVgaBuffer = reinterpret_cast<volatile std::uint16
 
 std::size_t g_row = 0;
 std::size_t g_col = 0;
+std::atomic_flag g_console_lock = ATOMIC_FLAG_INIT;
 
 // Light gray on black.
 constexpr std::uint8_t kAttr = 0x07;
@@ -70,6 +72,29 @@ void put_char(char ch) noexcept
     }
 }
 
+static inline std::uint64_t irq_save() noexcept
+{
+    std::uint64_t flags = 0;
+    asm volatile("pushfq; pop %0; cli" : "=r"(flags) :: "memory");
+    return flags;
+}
+
+static inline void irq_restore(std::uint64_t flags) noexcept
+{
+    asm volatile("push %0; popfq" : : "r"(flags) : "memory", "cc");
+}
+
+static inline void lock() noexcept
+{
+    while (g_console_lock.test_and_set(std::memory_order_acquire))
+        asm volatile("pause");
+}
+
+static inline void unlock() noexcept
+{
+    g_console_lock.clear(std::memory_order_release);
+}
+
 } // namespace
 
 namespace hal::console
@@ -77,6 +102,8 @@ namespace hal::console
 
 void clear() noexcept
 {
+    auto flags = irq_save();
+    lock();
     for (std::size_t r = 0; r < kVgaHeight; ++r)
     {
         for (std::size_t c = 0; c < kVgaWidth; ++c)
@@ -86,46 +113,64 @@ void clear() noexcept
     }
     g_row = 0;
     g_col = 0;
+    unlock();
+    irq_restore(flags);
 }
 
 void write(const char *s) noexcept
 {
     if (!s)
         return;
+    auto flags = irq_save();
+    lock();
     while (*s)
     {
         put_char(*s++);
     }
+    unlock();
+    irq_restore(flags);
 }
 
 void write(const char *s, std::size_t n) noexcept
 {
     if (!s)
         return;
+    auto flags = irq_save();
+    lock();
     for (std::size_t i = 0; i < n; ++i)
     {
         put_char(s[i]);
     }
+    unlock();
+    irq_restore(flags);
 }
 
 template <> void write_hex<std::uint64_t>(std::uint64_t v) noexcept
 {
+    auto flags = irq_save();
+    lock();
     const char *hex = "0123456789ABCDEF";
     for (int i = 15; i >= 0; --i)
     {
         char c = hex[(v >> (i * 4)) & 0xF];
         put_char(c);
     }
+    unlock();
+    irq_restore(flags);
 }
 
 template <> void write_hex<std::uint32_t>(std::uint32_t v) noexcept
 {
+    auto flags = irq_save();
+    lock();
     const char *hex = "0123456789ABCDEF";
     for (int i = 7; i >= 0; --i)
     {
         char c = hex[(v >> (i * 4)) & 0xF];
         put_char(c);
     }
+    unlock();
+    irq_restore(flags);
 }
 
 } // namespace hal::console
