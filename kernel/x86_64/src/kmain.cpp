@@ -1,21 +1,34 @@
+#include "hal/apic.hpp"
 #include "hal/console.hpp"
+#include "kern/interrupts.hpp"
 #include "kern/mem/heap.hpp"
 #include "kern/mem/pmm.hpp"
-#include "kern/interrupts.hpp"
 #include "kern/sched.hpp"
 #include "kern/smp.hpp"
 #include <cstdint>
 
 static void worker1() noexcept
 {
-
-    hal::console::write("[T1] hello\n");
+    hal::console::write("[T1] cpu=");
+    hal::console::write_hex<std::uint32_t>(hal::apic::lapic_id());
+    hal::console::write(" hello\n");
     kern::sched::yield();
 }
 static void worker2() noexcept
 {
-
-    hal::console::write("[T2] world\n");
+    hal::console::write("[T2] cpu=");
+    hal::console::write_hex<std::uint32_t>(hal::apic::lapic_id());
+    hal::console::write(" world\n");
+    kern::sched::yield();
+}
+static void worker_heap() noexcept
+{
+    auto *p = kern::mem::heap::kmalloc(64);
+    if (p)
+        kern::mem::heap::kfree(p);
+    hal::console::write("[TH] cpu=");
+    hal::console::write_hex<std::uint32_t>(hal::apic::lapic_id());
+    hal::console::write(" heap ok\n");
     kern::sched::yield();
 }
 
@@ -46,9 +59,22 @@ extern "C" void kernel_main(std::uint32_t mb_magic, std::uintptr_t mb_info) noex
     kern::interrupts::init();
     hal::console::write("-> interrupts::init OK\n");
 
+    // Heap free test (single-threaded)
+    auto *test = kern::mem::heap::kmalloc(32);
+    if (test)
+    {
+        kern::mem::heap::kfree(test);
+        hal::console::write("heap: kfree OK\n");
+    }
+    else
+    {
+        hal::console::write("heap: kfree FAILED\n");
+    }
+
     auto *t1 = kern::sched::create(worker1);
     auto *t2 = kern::sched::create(worker2);
-    if (!t1 || !t2)
+    auto *t3 = kern::sched::create(worker_heap);
+    if (!t1 || !t2 || !t3)
     {
         hal::console::write("ERROR: thread create failed (heap/pmem)\n");
         for (;;)

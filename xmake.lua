@@ -4,6 +4,28 @@ set_languages("c++23")
 
 add_rules("mode.debug", "mode.release")
 
+option("disable_exceptions")
+    set_default(true)
+    set_showmenu(true)
+option("disable_rtti")
+    set_default(true)
+    set_showmenu(true)
+option("disable_stack_protector")
+    set_default(true)
+    set_showmenu(true)
+option("disable_unwind")
+    set_default(true)
+    set_showmenu(true)
+option("disable_pie")
+    set_default(true)
+    set_showmenu(true)
+option("disable_redzone")
+    set_default(true)
+    set_showmenu(true)
+option("disable_simd")
+    set_default(true)
+    set_showmenu(true)
+
 target("kernel")
     set_kind("binary")
     set_filename("kernel.elf")
@@ -18,23 +40,33 @@ target("kernel")
     -- C++ freestanding kernel flags
     add_cxflags(
         "-ffreestanding",
-        "-fno-exceptions",
-        "-fno-rtti",
-        "-fno-stack-protector",
-        "-fno-pic",
-        "-fno-pie",
-        "-fno-asynchronous-unwind-tables",
-        "-fno-unwind-tables",
         "-m64",
-        "-mno-red-zone",
-        "-mno-sse",
-        "-mno-sse2",
-        "-mno-mmx",
-        "-mno-80387",
         "-mcmodel=kernel",
         "-Wall", "-Wextra",
         {force = true}
     )
+
+    if has_config("disable_exceptions") then
+        add_cxflags("-fno-exceptions", {force = true})
+    end
+    if has_config("disable_rtti") then
+        add_cxflags("-fno-rtti", {force = true})
+    end
+    if has_config("disable_stack_protector") then
+        add_cxflags("-fno-stack-protector", {force = true})
+    end
+    if has_config("disable_unwind") then
+        add_cxflags("-fno-asynchronous-unwind-tables", "-fno-unwind-tables", {force = true})
+    end
+    if has_config("disable_pie") then
+        add_cxflags("-fno-pic", "-fno-pie", {force = true})
+    end
+    if has_config("disable_redzone") then
+        add_cxflags("-mno-red-zone", {force = true})
+    end
+    if has_config("disable_simd") then
+        add_cxflags("-mno-sse", "-mno-sse2", "-mno-mmx", "-mno-80387", {force = true})
+    end
 
     add_asflags("-m64", {force = true})
 

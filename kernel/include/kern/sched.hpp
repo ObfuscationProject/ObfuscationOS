@@ -19,6 +19,7 @@ struct Thread
 {
     Context ctx{};
     Thread *next{nullptr};
+    Thread *all_next{nullptr};
     ThreadFn entry{nullptr};
     bool finished{false};
     std::uint8_t *stack{nullptr};
@@ -30,6 +31,7 @@ extern "C" void context_switch(Context *oldc, Context *newc) noexcept;
 void init() noexcept;
 void init_cpu() noexcept;
 void apic_ready() noexcept;
+void register_cpu(std::uint32_t apic_id) noexcept;
 Thread *create(ThreadFn fn, std::size_t stack_size = 16 * 1024) noexcept;
 void yield() noexcept;
 void yield_from_irq(kern::interrupts::Frame *frame) noexcept;

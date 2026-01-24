@@ -1,6 +1,5 @@
 #include "kern/sched.hpp"
 #include "hal/apic.hpp"
-#include "hal/console.hpp"
 #include "kern/interrupts.hpp"
 #include "kern/mem/heap.hpp"
 #include <atomic>
@@ -11,70 +10,111 @@ namespace kern::sched
 
 constexpr std::size_t kMaxCpus = 256;
 
-static Thread *g_runq = nullptr;
+static Thread *g_runq[kMaxCpus] = {};
+static std::atomic_flag g_runq_lock[kMaxCpus];
+
 static Thread *g_current[kMaxCpus] = {};
 static Thread g_bootstrap[kMaxCpus] = {};
-static std::atomic_flag g_runq_lock = ATOMIC_FLAG_INIT;
+
+static Thread *g_all_threads = nullptr;
+static std::atomic_flag g_all_lock = ATOMIC_FLAG_INIT;
+
+static std::uint32_t g_cpu_list[kMaxCpus] = {};
+static std::atomic_uint g_cpu_count = 0;
+static std::atomic_uint g_rr_counter = 0;
 static bool g_apic_ready = false;
 
 extern "C" void thread_entry_trampoline() noexcept;
 extern "C" void irq_return_trampoline() noexcept;
 
-static inline void runq_lock() noexcept
+static inline void runq_lock(std::size_t cpu) noexcept
 {
-    while (g_runq_lock.test_and_set(std::memory_order_acquire))
+    while (g_runq_lock[cpu].test_and_set(std::memory_order_acquire))
         asm volatile("pause");
 }
 
-static inline void runq_unlock() noexcept
+static inline void runq_unlock(std::size_t cpu) noexcept
 {
-    g_runq_lock.clear(std::memory_order_release);
+    g_runq_lock[cpu].clear(std::memory_order_release);
+}
+
+static inline void all_lock() noexcept
+{
+    while (g_all_lock.test_and_set(std::memory_order_acquire))
+        asm volatile("pause");
+}
+
+static inline void all_unlock() noexcept
+{
+    g_all_lock.clear(std::memory_order_release);
 }
 
 static inline std::size_t cpu_index() noexcept
 {
     if (!g_apic_ready)
         return 0;
-    return static_cast<std::size_t>(hal::apic::lapic_id());
+    auto id = static_cast<std::size_t>(hal::apic::lapic_id());
+    if (id >= kMaxCpus)
+        return 0;
+    return id;
 }
 
-static Thread *pop_runq_locked() noexcept
+static Thread *pop_runq_locked(std::size_t cpu) noexcept
 {
-    if (!g_runq)
+    Thread *head = g_runq[cpu];
+    if (!head)
         return nullptr;
-    Thread *t = g_runq;
-    g_runq = g_runq->next;
-    t->next = nullptr;
-    return t;
+    g_runq[cpu] = head->next;
+    head->next = nullptr;
+    return head;
 }
 
-static void push_runq_locked(Thread *t) noexcept
+static void push_runq_locked(std::size_t cpu, Thread *t) noexcept
 {
     t->next = nullptr;
-    if (!g_runq)
+    if (!g_runq[cpu])
     {
-        g_runq = t;
+        g_runq[cpu] = t;
         return;
     }
-    Thread *p = g_runq;
+    Thread *p = g_runq[cpu];
     while (p->next)
         p = p->next;
     p->next = t;
 }
 
-static Thread *pop_runq() noexcept
+static Thread *pop_runq(std::size_t cpu) noexcept
 {
-    runq_lock();
-    Thread *t = pop_runq_locked();
-    runq_unlock();
+    runq_lock(cpu);
+    Thread *t = pop_runq_locked(cpu);
+    runq_unlock(cpu);
     return t;
 }
 
-static void push_runq(Thread *t) noexcept
+static void push_runq(std::size_t cpu, Thread *t) noexcept
 {
-    runq_lock();
-    push_runq_locked(t);
-    runq_unlock();
+    runq_lock(cpu);
+    push_runq_locked(cpu, t);
+    runq_unlock(cpu);
+}
+
+static void add_all_threads(Thread *t) noexcept
+{
+    all_lock();
+    t->all_next = g_all_threads;
+    g_all_threads = t;
+    all_unlock();
+}
+
+static std::size_t pick_target_cpu() noexcept
+{
+    std::size_t count = g_cpu_count.load(std::memory_order_relaxed);
+    if (count == 0)
+        return cpu_index();
+    if (count > kMaxCpus)
+        count = kMaxCpus;
+    std::size_t idx = static_cast<std::size_t>(g_rr_counter.fetch_add(1, std::memory_order_relaxed)) % count;
+    return static_cast<std::size_t>(g_cpu_list[idx]);
 }
 
 extern "C" void thread_entry_trampoline() noexcept
@@ -95,8 +135,14 @@ extern "C" void thread_entry_trampoline() noexcept
 
 void init() noexcept
 {
-    // Create a dummy "current" thread for BSP context.
+    for (std::size_t i = 0; i < kMaxCpus; ++i)
+        g_runq_lock[i].clear(std::memory_order_release);
+
     g_current[0] = &g_bootstrap[0];
+    g_all_threads = nullptr;
+    g_all_lock.clear(std::memory_order_release);
+    g_rr_counter.store(0, std::memory_order_relaxed);
+    g_cpu_count.store(0, std::memory_order_relaxed);
 }
 
 void init_cpu() noexcept
@@ -112,6 +158,24 @@ void apic_ready() noexcept
         g_current[id] = g_current[0];
 }
 
+void register_cpu(std::uint32_t apic_id) noexcept
+{
+    if (apic_id >= kMaxCpus)
+        return;
+
+    std::size_t count = g_cpu_count.load(std::memory_order_relaxed);
+    for (std::size_t i = 0; i < count; ++i)
+    {
+        if (g_cpu_list[i] == apic_id)
+            return;
+    }
+    if (count >= kMaxCpus)
+        return;
+
+    g_cpu_list[count] = apic_id;
+    g_cpu_count.store(static_cast<unsigned>(count + 1), std::memory_order_relaxed);
+}
+
 Thread *create(ThreadFn fn, std::size_t stack_size) noexcept
 {
     auto *t = reinterpret_cast<Thread *>(kern::mem::heap::kmalloc(sizeof(Thread), alignof(Thread)));
@@ -120,7 +184,10 @@ Thread *create(ThreadFn fn, std::size_t stack_size) noexcept
 
     auto *stack = reinterpret_cast<std::uint8_t *>(kern::mem::heap::kmalloc(stack_size, 16));
     if (!stack)
+    {
+        kern::mem::heap::kfree(t);
         return nullptr;
+    }
 
     *t = {};
     t->entry = fn;
@@ -138,39 +205,38 @@ Thread *create(ThreadFn fn, std::size_t stack_size) noexcept
     t->ctx.rsp = sp;
     t->ctx.rip = reinterpret_cast<std::uint64_t>(&thread_entry_trampoline);
 
-    push_runq(t);
+    add_all_threads(t);
+    push_runq(pick_target_cpu(), t);
     return t;
 }
 
 void yield() noexcept
 {
     kern::interrupts::disable();
-    Thread *prev = g_current[cpu_index()];
+    std::size_t cpu = cpu_index();
+    Thread *prev = g_current[cpu];
 
     // Put current back if it is a real thread and not finished.
     if (prev && prev->entry && !prev->finished)
-    {
-        runq_lock();
-        push_runq_locked(prev);
-        runq_unlock();
-    }
+        push_runq(cpu, prev);
 
-    Thread *next = pop_runq();
+    Thread *next = pop_runq(cpu);
     while (!next)
     {
         kern::interrupts::enable();
         asm volatile("hlt");
         kern::interrupts::disable();
-        next = pop_runq();
+        next = pop_runq(cpu);
     }
 
-    g_current[cpu_index()] = next;
+    g_current[cpu] = next;
     context_switch(&prev->ctx, &next->ctx);
 }
 
 void yield_from_irq(kern::interrupts::Frame *frame) noexcept
 {
-    Thread *prev = g_current[cpu_index()];
+    std::size_t cpu = cpu_index();
+    Thread *prev = g_current[cpu];
 
     if (!prev || !prev->entry || prev->finished)
         return;
@@ -178,14 +244,14 @@ void yield_from_irq(kern::interrupts::Frame *frame) noexcept
     prev->ctx.rsp = reinterpret_cast<std::uint64_t>(frame);
     prev->ctx.rip = reinterpret_cast<std::uint64_t>(&irq_return_trampoline);
 
-    runq_lock();
-    push_runq_locked(prev);
-    Thread *next = pop_runq_locked();
-    runq_unlock();
+    runq_lock(cpu);
+    push_runq_locked(cpu, prev);
+    Thread *next = pop_runq_locked(cpu);
+    runq_unlock(cpu);
     if (!next)
         return;
 
-    g_current[cpu_index()] = next;
+    g_current[cpu] = next;
     Context tmp{};
     context_switch(&tmp, &next->ctx);
 }

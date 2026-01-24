@@ -6,6 +6,7 @@ namespace hal::apic
 {
 
 static volatile std::uint32_t *g_lapic = nullptr;
+static std::uintptr_t g_lapic_phys = 0;
 
 static inline std::uint64_t rdmsr(std::uint32_t msr) noexcept
 {
@@ -72,9 +73,20 @@ static bool wait_delivery(std::uint32_t iters = 2000000) noexcept
 void init(std::uintptr_t lapic_phys) noexcept
 {
     enable_apic_msr(lapic_phys);
+    g_lapic_phys = lapic_phys;
     g_lapic = reinterpret_cast<volatile std::uint32_t *>(lapic_phys);
 
     // SVR (0xF0): bit8 = enable local APIC, low 8 bits = spurious vector
+    constexpr std::uint32_t kSpuriousVector = 0xFF;
+    wr(0xF0, (rd(0xF0) & 0xFFFFFF00u) | kSpuriousVector | 0x100);
+}
+
+void enable_local() noexcept
+{
+    if (!g_lapic && g_lapic_phys)
+        g_lapic = reinterpret_cast<volatile std::uint32_t *>(g_lapic_phys);
+    if (!g_lapic)
+        return;
     constexpr std::uint32_t kSpuriousVector = 0xFF;
     wr(0xF0, (rd(0xF0) & 0xFFFFFF00u) | kSpuriousVector | 0x100);
 }

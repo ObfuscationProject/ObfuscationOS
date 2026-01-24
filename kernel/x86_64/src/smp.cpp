@@ -69,6 +69,7 @@ extern "C" void ap_entry(std::uint32_t apic_id) noexcept
     hal::console::write("\n");
 
     kern_smp_ap_online();
+    hal::apic::enable_local();
     kern::interrupts::init();
     kern::sched::init_cpu();
     kern::interrupts::enable();
@@ -86,12 +87,14 @@ void init(std::uintptr_t mb2_info) noexcept
         // Fallback: try default LAPIC base so the timer can still work.
         hal::apic::init(0xFEE00000);
         kern::sched::apic_ready();
+        kern::sched::register_cpu(hal::apic::lapic_id());
         return;
     }
 
     hal::apic::init(madt->lapic_addr);
     kern::sched::apic_ready();
     auto bsp_id = hal::apic::lapic_id();
+    kern::sched::register_cpu(bsp_id);
 
     // Copy trampoline blob to 0x7000
     std::uintptr_t src = reinterpret_cast<std::uintptr_t>(ap_trampoline_begin);
@@ -143,6 +146,7 @@ void init(std::uintptr_t mb2_info) noexcept
                         asm volatile("pause");
                     }
 
+                    kern::sched::register_cpu(la->apic_id);
                     ++started;
                 }
             }

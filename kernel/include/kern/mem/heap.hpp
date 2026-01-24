@@ -7,4 +7,5 @@ namespace kern::mem::heap
 {
 void init(std::size_t initial_pages = 64) noexcept;
 void *kmalloc(std::size_t bytes, std::size_t align = 16) noexcept;
+void kfree(void *p) noexcept;
 } // namespace kern::mem::heap

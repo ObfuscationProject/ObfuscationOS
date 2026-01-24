@@ -1,11 +1,11 @@
 #pragma once
-#include <cstddef>
 #include <cstdint>
 
 namespace hal::apic
 {
 
 void init(std::uintptr_t lapic_phys) noexcept;
+void enable_local() noexcept;
 
 std::uint32_t lapic_id() noexcept;
 
