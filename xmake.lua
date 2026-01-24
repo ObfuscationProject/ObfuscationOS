@@ -1,6 +1,7 @@
 set_project("ObfuscationOS")
 set_version("0.0.1")
 set_languages("c++23")
+set_arch("x86_64")
 
 add_rules("mode.debug", "mode.release")
 
@@ -30,13 +31,21 @@ target("kernel")
     set_kind("binary")
     set_filename("kernel.elf")
 
-    add_includedirs("hal/x86_64/include", "kernel/include", {public = true})
+    add_includedirs("kernel/include", {public = true})
 
-    add_files("kernel/x86_64/boot.S")
-    add_files("kernel/x86_64/ap_trampoline.S")
-    add_files("hal/x86_64/src/**.cpp")
-    add_files("kernel/x86_64/src/**.cpp")
-    add_files("kernel/x86_64/src/**.S")
+    add_files("kernel/src/**.cpp")
+
+    local arch = get_config("arch") or "x86_64"
+    if arch == "x86_64" then
+        add_includedirs("hal/x86_64/include", {public = true})
+        add_files("kernel/arch/x86_64/boot.S")
+        add_files("kernel/arch/x86_64/ap_trampoline.S")
+        add_files("hal/x86_64/src/**.cpp")
+        add_files("kernel/arch/x86_64/src/**.cpp")
+        add_files("kernel/arch/x86_64/src/**.S")
+    else
+        raise("Unsupported arch: " .. arch)
+    end
 
     -- C++ freestanding kernel flags
     add_cxflags(
@@ -75,7 +84,7 @@ target("kernel")
     add_ldflags(
         "-nostdlib",
         "-no-pie",
-        "-T", "kernel/x86_64/linker.ld",
+        "-T", "kernel/arch/x86_64/linker.ld",
         "-z", "max-page-size=0x1000",
         {force = true}
     )
