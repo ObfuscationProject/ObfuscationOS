@@ -5,6 +5,7 @@
 #include "kern/mem/pmm.hpp"
 #include "kern/sched.hpp"
 #include "kern/smp.hpp"
+#include "hal/smp.hpp"
 #include <cstdint>
 
 static void worker1() noexcept
@@ -52,7 +53,11 @@ extern "C" void kernel_main(std::uint32_t mb_magic, std::uintptr_t mb_info) noex
     hal::console::write("-> sched::init OK\n");
 
     hal::console::write("-> smp::init\n");
-    kern::smp::init(mb_info);
+    hal::smp::InitHooks smp_hooks{};
+    smp_hooks.ap_entry = &kern::smp::ap_entry;
+    smp_hooks.apic_ready = &kern::sched::apic_ready;
+    smp_hooks.register_cpu = &kern::sched::register_cpu;
+    hal::smp::init(mb_info, smp_hooks);
     hal::console::write("-> smp::init OK\n");
 
     hal::console::write("-> interrupts::init\n");

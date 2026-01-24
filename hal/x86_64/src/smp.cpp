@@ -1,11 +1,11 @@
 // smp.cpp
-#include "kern/smp.hpp"
+#include "hal/smp.hpp"
+#include "hal/acpi.hpp"
 #include "hal/apic.hpp"
 #include "hal/console.hpp"
-#include "kern/acpi.hpp"
-#include "kern/interrupts.hpp"
-#include "kern/sched.hpp"
 #include <atomic>
+#include <cstddef>
+#include <cstdint>
 
 extern "C"
 {
@@ -16,7 +16,7 @@ extern "C"
 namespace
 {
 
-// AP params at 0x7100 (must match trampoline)
+// AP params at 0x8000 (must match trampoline)
 struct ApBootParams
 {
     std::uint64_t pml4_phys;
@@ -30,6 +30,7 @@ constexpr std::uintptr_t kTrampolinePhys = 0x7000;
 constexpr std::uintptr_t kParamsPhys = 0x8000;
 
 static std::atomic_uint g_ap_online = 0;
+static hal::smp::InitHooks g_hooks = {};
 
 static void mem_copy(std::uintptr_t dst, std::uintptr_t src, std::size_t n)
 {
@@ -54,48 +55,58 @@ static std::uintptr_t read_cr3()
 
 } // namespace
 
-extern "C" void kern_smp_ap_online() noexcept
-{
-    g_ap_online.fetch_add(1, std::memory_order_relaxed);
-}
-
-namespace kern::smp
-{
-
-extern "C" void ap_entry(std::uint32_t apic_id) noexcept
+extern "C" void hal_smp_ap_entry(std::uint32_t apic_id) noexcept
 {
     // Basic proof: AP is alive.
     hal::console::write("AP online, apic_id=");
     hal::console::write_hex<std::uint32_t>(apic_id);
     hal::console::write("\n");
 
-    kern_smp_ap_online();
+    g_ap_online.fetch_add(1, std::memory_order_relaxed);
     hal::apic::enable_local();
-    kern::interrupts::init();
-    kern::sched::init_cpu();
-    kern::interrupts::enable();
-    kern::sched::run();
+
+    if (g_hooks.ap_entry)
+        g_hooks.ap_entry(apic_id);
+
+    for (;;)
+        asm volatile("hlt");
 }
 
-void init(std::uintptr_t mb2_info) noexcept
+namespace hal::smp
 {
-    auto root = kern::acpi::find_root_from_mb2(mb2_info);
-    auto *madt = kern::acpi::find_madt(root);
+
+void init(std::uintptr_t mb2_info, const InitHooks &hooks) noexcept
+{
+    g_hooks = hooks;
+    g_ap_online.store(0, std::memory_order_relaxed);
+
+    auto root = hal::acpi::find_root_from_mb2(mb2_info);
+    auto *madt = hal::acpi::find_madt(root);
 
     if (!madt)
     {
         hal::console::write("SMP: MADT not found, staying single-core.\n");
         // Fallback: try default LAPIC base so the timer can still work.
         hal::apic::init(0xFEE00000);
-        kern::sched::apic_ready();
-        kern::sched::register_cpu(hal::apic::lapic_id());
+        if (g_hooks.apic_ready)
+            g_hooks.apic_ready();
+        if (g_hooks.register_cpu)
+            g_hooks.register_cpu(hal::apic::lapic_id());
         return;
     }
 
     hal::apic::init(madt->lapic_addr);
-    kern::sched::apic_ready();
+    if (g_hooks.apic_ready)
+        g_hooks.apic_ready();
     auto bsp_id = hal::apic::lapic_id();
-    kern::sched::register_cpu(bsp_id);
+    if (g_hooks.register_cpu)
+        g_hooks.register_cpu(bsp_id);
+
+    if (!g_hooks.ap_entry)
+    {
+        hal::console::write("SMP: no AP entry, staying single-core.\n");
+        return;
+    }
 
     // Copy trampoline blob to 0x7000
     std::uintptr_t src = reinterpret_cast<std::uintptr_t>(ap_trampoline_begin);
@@ -104,23 +115,23 @@ void init(std::uintptr_t mb2_info) noexcept
 
     auto *params = reinterpret_cast<ApBootParams *>(kParamsPhys);
     params->pml4_phys = read_cr3();
-    params->entry = reinterpret_cast<std::uint64_t>(&kern::smp::ap_entry);
+    params->entry = reinterpret_cast<std::uint64_t>(&hal_smp_ap_entry);
 
     // Enumerate Local APIC entries in MADT
-    std::uintptr_t p = reinterpret_cast<std::uintptr_t>(madt) + sizeof(kern::acpi::Madt);
+    std::uintptr_t p = reinterpret_cast<std::uintptr_t>(madt) + sizeof(hal::acpi::Madt);
     std::uintptr_t e = reinterpret_cast<std::uintptr_t>(madt) + madt->hdr.length;
 
     std::uint32_t started = 0;
 
-    while (p + sizeof(kern::acpi::MadtEntryHdr) <= e)
+    while (p + sizeof(hal::acpi::MadtEntryHdr) <= e)
     {
-        auto *h = reinterpret_cast<const kern::acpi::MadtEntryHdr *>(p);
-        if (h->length < sizeof(kern::acpi::MadtEntryHdr))
+        auto *h = reinterpret_cast<const hal::acpi::MadtEntryHdr *>(p);
+        if (h->length < sizeof(hal::acpi::MadtEntryHdr))
             break;
 
-        if (h->type == 0 && h->length >= sizeof(kern::acpi::MadtLocalApic))
+        if (h->type == 0 && h->length >= sizeof(hal::acpi::MadtLocalApic))
         {
-            auto *la = reinterpret_cast<const kern::acpi::MadtLocalApic *>(p);
+            auto *la = reinterpret_cast<const hal::acpi::MadtLocalApic *>(p);
             if ((la->flags & 1u) && la->apic_id != bsp_id)
             {
                 // Start AP sequentially (safe temp stack usage)
@@ -147,7 +158,8 @@ void init(std::uintptr_t mb2_info) noexcept
                         asm volatile("pause");
                     }
 
-                    kern::sched::register_cpu(la->apic_id);
+                    if (g_hooks.register_cpu)
+                        g_hooks.register_cpu(la->apic_id);
                     ++started;
                 }
             }
@@ -158,4 +170,4 @@ void init(std::uintptr_t mb2_info) noexcept
     hal::console::write("SMP: started APs.\n");
 }
 
-} // namespace kern::smp
+} // namespace hal::smp

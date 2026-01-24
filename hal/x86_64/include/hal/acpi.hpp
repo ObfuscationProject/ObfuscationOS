@@ -1,7 +1,7 @@
 #pragma once
 #include <cstdint>
 
-namespace kern::acpi
+namespace hal::acpi
 {
 
 #pragma pack(push, 1)
@@ -71,4 +71,4 @@ struct Root
 Root find_root_from_mb2(std::uintptr_t mb2_info) noexcept;
 const Madt *find_madt(const Root &root) noexcept;
 
-} // namespace kern::acpi
+} // namespace hal::acpi

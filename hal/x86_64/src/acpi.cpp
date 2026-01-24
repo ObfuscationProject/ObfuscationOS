@@ -1,7 +1,7 @@
-#include "kern/acpi.hpp"
+#include "hal/acpi.hpp"
 #include "kern/mb2.hpp"
 
-namespace kern::acpi
+namespace hal::acpi
 {
 
 static bool checksum_ok(const void *p, std::size_t n) noexcept
@@ -135,4 +135,4 @@ const Madt *find_madt(const Root &root) noexcept
     return nullptr;
 }
 
-} // namespace kern::acpi
+} // namespace hal::acpi

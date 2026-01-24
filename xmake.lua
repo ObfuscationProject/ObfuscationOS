@@ -34,6 +34,7 @@ target("kernel")
 
     add_files("kernel/x86_64/boot.S")
     add_files("kernel/x86_64/ap_trampoline.S")
+    add_files("hal/x86_64/src/**.cpp")
     add_files("kernel/x86_64/src/**.cpp")
     add_files("kernel/x86_64/src/**.S")
 
