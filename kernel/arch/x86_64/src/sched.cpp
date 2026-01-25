@@ -1,4 +1,4 @@
-#include "kern/sched.hpp"
+#include "kern/arch/sched.hpp"
 #include "hal/apic.hpp"
 #include "kern/interrupts.hpp"
 #include "kern/mem/heap.hpp"

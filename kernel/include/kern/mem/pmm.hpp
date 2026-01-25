@@ -7,7 +7,7 @@ namespace kern::mem::pmm
 
 constexpr std::size_t kPageSize = 4096;
 
-void init(std::uintptr_t mb2_info) noexcept;
+void init(std::uintptr_t boot_info) noexcept;
 
 // Returns physical address of a 4KiB frame, or 0 on OOM.
 std::uintptr_t alloc_frame() noexcept;

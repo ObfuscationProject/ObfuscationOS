@@ -35,9 +35,10 @@ target("kernel")
 
     add_files("kernel/src/**.cpp")
 
-    local arch = get_config("arch") or "x86_64"
+    local arch = os.arch()
     if arch == "x86_64" then
         add_includedirs("hal/x86_64/include", {public = true})
+        add_includedirs("kernel/arch/x86_64/include", {public = true})
         add_files("kernel/arch/x86_64/boot.S")
         add_files("kernel/arch/x86_64/ap_trampoline.S")
         add_files("hal/x86_64/src/**.cpp")

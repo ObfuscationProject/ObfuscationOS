@@ -1,4 +1,4 @@
-#include "kern/interrupts.hpp"
+#include "kern/arch/interrupts.hpp"
 #include "hal/apic.hpp"
 #include "hal/console.hpp"
 #include "kern/sched.hpp"

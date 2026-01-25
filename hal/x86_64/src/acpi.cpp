@@ -1,5 +1,5 @@
 #include "hal/acpi.hpp"
-#include "kern/mb2.hpp"
+#include "kern/arch/mb2.hpp"
 
 namespace hal::acpi
 {

@@ -42,8 +42,8 @@ static void mem_copy(std::uintptr_t dst, std::uintptr_t src, std::size_t n)
 
 static void udelay()
 {
-    for (volatile int i = 0; i < 200000; ++i)
-        asm volatile("pause");
+    for (int i = 0; i < 200000; ++i)
+        asm volatile("pause" ::: "memory");
 }
 
 static std::uintptr_t read_cr3()
@@ -151,11 +151,11 @@ void init(std::uintptr_t mb2_info, const InitHooks &hooks) noexcept
                     hal::apic::send_startup_ipi(la->apic_id, vec);
 
                     // Wait for AP online flag (simple, with timeout later)
-                    for (volatile int spin = 0; spin < 2000000; ++spin)
+                    for (int spin = 0; spin < 2000000; ++spin)
                     {
                         if (g_ap_online.load(std::memory_order_relaxed) == started + 1)
                             break;
-                        asm volatile("pause");
+                        asm volatile("pause" ::: "memory");
                     }
 
                     if (g_hooks.register_cpu)

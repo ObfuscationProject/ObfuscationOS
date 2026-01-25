@@ -1,5 +1,5 @@
 #include "kern/mem/pmm.hpp"
-#include "kern/mb2.hpp"
+#include "kern/arch/mb2.hpp"
 #include <atomic>
 
 extern "C" char _kernel_end;
@@ -79,7 +79,7 @@ static void mark_range_used(std::uintptr_t base, std::uintptr_t len)
     }
 }
 
-void init(std::uintptr_t mb2_info) noexcept
+void init(std::uintptr_t boot_info) noexcept
 {
     g_ready.store(false, std::memory_order_release);
     g_bitmap = nullptr;
@@ -88,7 +88,7 @@ void init(std::uintptr_t mb2_info) noexcept
     g_frames_free = 0;
 
     // Find the highest address from mmap to size bitmap.
-    auto *tag = kern::mb2::find_tag(mb2_info, kern::mb2::TAG_MMAP);
+    auto *tag = kern::mb2::find_tag(boot_info, kern::mb2::TAG_MMAP);
     if (!tag)
         return;
 
@@ -131,8 +131,8 @@ void init(std::uintptr_t mb2_info) noexcept
     mark_range_used(kernel_used_begin, kernel_used_end - kernel_used_begin);
 
     // Mark multiboot info itself as used (don’t overwrite it while parsing).
-    auto *info = reinterpret_cast<const kern::mb2::InfoHeader *>(mb2_info);
-    mark_range_used(mb2_info, info->total_size);
+    auto *info = reinterpret_cast<const kern::mb2::InfoHeader *>(boot_info);
+    mark_range_used(boot_info, info->total_size);
 
     // Never allocate from the real-mode / BIOS area.
     mark_range_used(0, 0x00100000);

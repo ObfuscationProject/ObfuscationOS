@@ -1,4 +1,4 @@
-#include "kern/mb2.hpp"
+#include "kern/arch/mb2.hpp"
 
 namespace kern::mb2
 {

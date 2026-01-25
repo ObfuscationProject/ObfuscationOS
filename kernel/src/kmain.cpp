@@ -33,7 +33,7 @@ static void worker_heap() noexcept
     kern::sched::yield();
 }
 
-extern "C" void kernel_main(std::uint32_t mb_magic, std::uintptr_t mb_info) noexcept
+extern "C" void kernel_main(std::uint32_t mb_magic, std::uintptr_t boot_info) noexcept
 {
     (void)mb_magic;
 
@@ -41,7 +41,7 @@ extern "C" void kernel_main(std::uint32_t mb_magic, std::uintptr_t mb_info) noex
     hal::console::write("Boot OK (long mode)\n");
 
     hal::console::write("-> pmm::init\n");
-    kern::mem::pmm::init(mb_info);
+    kern::mem::pmm::init(boot_info);
     hal::console::write("-> pmm::init OK\n");
 
     hal::console::write("-> heap::init\n");
@@ -57,7 +57,7 @@ extern "C" void kernel_main(std::uint32_t mb_magic, std::uintptr_t mb_info) noex
     smp_hooks.ap_entry = &kern::smp::ap_entry;
     smp_hooks.apic_ready = &kern::sched::apic_ready;
     smp_hooks.register_cpu = &kern::sched::register_cpu;
-    hal::smp::init(mb_info, smp_hooks);
+    hal::smp::init(boot_info, smp_hooks);
     hal::console::write("-> smp::init OK\n");
 
     hal::console::write("-> interrupts::init\n");
