@@ -85,7 +85,7 @@ target("kernel")
     )
     if arch == "x86_64" then
         add_cxflags("-m64", "-mcmodel=kernel", {force = true})
-    else
+    elseif arch == "i386" then
         add_cxflags("-m32", {force = true})
     end
 
@@ -115,7 +115,7 @@ target("kernel")
 
     if arch == "x86_64" then
         add_asflags("-m64", {force = true})
-    else
+    elseif arch == "i386" then
         add_asflags("-m32", {force = true})
     end
 
