@@ -3,6 +3,7 @@ set_version("0.0.1")
 set_languages("c++23")
 
 add_rules("mode.debug", "mode.release")
+includes("toolchains/*.lua")
 
 option("disable_exceptions")
     set_default(true)
@@ -29,12 +30,11 @@ option("target_arch")
     set_default("x86_64")
     set_values("x86_64", "i386")
     set_showmenu(true)
-option("toolchain")
-    set_default("auto")
-    set_values("auto", "gcc", "clang", "llvm", "cross")
-    set_showmenu(true)
 option("cross_prefix")
     set_default("")
+    set_showmenu(true)
+option("auto_bootstrap_toolchain")
+    set_default(true)
     set_showmenu(true)
 local function resolve_arch()
     local arch = get_config("target_arch")
@@ -45,6 +45,16 @@ local function resolve_arch()
         arch = os.arch()
     end
     return arch
+end
+
+local function resolve_elf_target()
+    local arch = resolve_arch()
+    if arch == "x86_64" then
+        return "x86_64-elf"
+    elseif arch == "x86" or arch == "i386" then
+        return "i686-elf"
+    end
+    raise("Unsupported arch for ELF toolchain: " .. arch)
 end
 
 target("kernel")
@@ -133,26 +143,20 @@ target("kernel")
         {force = true}
     )
 
-    local toolchain = get_config("toolchain")
-    if toolchain and toolchain ~= "auto" then
-        if toolchain == "cross" then
-            local prefix = get_config("cross_prefix")
-            if not prefix or prefix == "" then
-                if arch == "x86_64" then
-                    prefix = "x86_64-elf-"
-                else
-                    prefix = "i686-elf-"
-                end
-            end
-            set_toolset("cc", prefix .. "gcc")
-            set_toolset("cxx", prefix .. "g++")
-            set_toolset("ld", prefix .. "ld")
-            set_toolset("as", prefix .. "as")
-            set_toolset("ar", prefix .. "ar")
-        else
-            set_toolchains(toolchain)
-        end
-    end
+    set_toolchains("elf")
+
+task("toolchain")
+    set_menu({
+        usage = "xmake toolchain",
+        description = "Download and build bare-metal ELF toolchain (binutils + gcc)",
+        options = {}
+    })
+    on_run(function ()
+        local target = resolve_elf_target()
+        local script = path.join(os.projectdir(), "build-toolchain", "build-elf-toolchain.sh")
+        assert(os.isfile(script), "toolchain bootstrap script not found: " .. script)
+        os.execv("bash", {script, "--target", target})
+    end)
 
 -- ---------------- Tasks: iso & qemu ----------------
 task("iso")
