@@ -26,35 +26,38 @@ option("disable_redzone")
 option("disable_simd")
     set_default(true)
     set_showmenu(true)
-option("target_arch")
-    set_default("x86_64")
-    set_values("x86_64", "i386")
-    set_showmenu(true)
 option("cross_prefix")
     set_default("")
     set_showmenu(true)
 option("auto_bootstrap_toolchain")
     set_default(true)
     set_showmenu(true)
-local function resolve_arch()
-    local arch = get_config("target_arch")
-    if not arch or arch == "" then
-        arch = get_config("arch")
-    end
-    if not arch or arch == "" then
-        arch = os.arch()
+local function normalize_arch(arch)
+    if arch == "x86" or arch == "i686" then
+        return "i386"
+    elseif arch == "x64" or arch == "amd64" then
+        return "x86_64"
     end
     return arch
 end
 
-local function resolve_elf_target()
-    local arch = resolve_arch()
+local function resolve_arch()
+    local arch = get_config("arch")
+    if not arch or arch == "" then
+        arch = os.arch()
+    end
+    arch = normalize_arch(arch)
+    return arch or ""
+end
+
+local function resolve_elf_target(arch)
+    arch = normalize_arch(arch or resolve_arch())
     if arch == "x86_64" then
         return "x86_64-elf"
-    elseif arch == "x86" or arch == "i386" then
+    elseif arch == "i386" then
         return "i686-elf"
     end
-    raise("Unsupported arch for ELF toolchain: " .. arch)
+    assert(false, "Unsupported arch for ELF toolchain: " .. tostring(arch))
 end
 
 target("kernel")
@@ -75,7 +78,7 @@ target("kernel")
         add_files("kernel/arch/x86_64/src/**.cpp")
         add_files("kernel/arch/x86_64/src/**.S")
         add_defines("ARCH_X86_64")
-    elseif arch == "x86" or arch == "i386" then
+    elseif arch == "i386" then
         add_includedirs("hal/i386/include", {public = true})
         add_includedirs("kernel/arch/i386/include", {public = true})
         add_files("kernel/arch/i386/boot.S")
@@ -84,7 +87,7 @@ target("kernel")
         add_files("kernel/arch/i386/src/**.S")
         add_defines("ARCH_I386")
     else
-        raise("Unsupported arch: " .. arch)
+        assert(false, "Unsupported arch: " .. tostring(arch))
     end
 
     -- C++ freestanding kernel flags
@@ -131,7 +134,7 @@ target("kernel")
 
     -- ELF + Multiboot2: keep max page size 4KiB so the header stays in range
     local linker = "kernel/arch/x86_64/linker.ld"
-    if arch == "x86" or arch == "i386" then
+    if arch == "i386" then
         linker = "kernel/arch/i386/linker.ld"
         add_ldflags("-m32", {force = true})
     end
@@ -152,10 +155,21 @@ task("toolchain")
         options = {}
     })
     on_run(function ()
-        local target = resolve_elf_target()
+        local arch = get_config("arch")
+        if not arch or arch == "" then
+            -- `xmake toolchain` command context may not load project config.
+            -- Query saved config explicitly to get the user's selected arch.
+            local script = "local config = import('core.project.config'); config.load(); print(config.get('arch') or '')"
+            local output = os.iorunv("xmake", {"lua", "-c", script})
+            arch = output and output:match("([%w_%-]+)") or nil
+        end
+        if not arch or arch == "" then
+            arch = os.arch()
+        end
+        local target = resolve_elf_target(arch)
         local script = path.join(os.projectdir(), "build-toolchain", "build-elf-toolchain.sh")
         assert(os.isfile(script), "toolchain bootstrap script not found: " .. script)
-        os.execv("bash", {script, "--target", target})
+        os.runv("bash", {script, "--target", target})
     end)
 
 -- ---------------- Tasks: iso & qemu ----------------
@@ -204,7 +218,7 @@ task("qemu")
         local isofile = path.join("build", "ObfuscationOS.iso")
         local arch = resolve_arch()
         local qemu = "qemu-system-x86_64"
-        if arch == "x86" or arch == "i386" then
+        if arch == "i386" then
             qemu = "qemu-system-i386"
         end
         os.exec("%s -m 256M -smp 4 -cdrom %s -no-reboot -no-shutdown -d int,cpu_reset -D qemu.log -debugcon stdio -global isa-debugcon.iobase=0xe9", qemu, isofile)

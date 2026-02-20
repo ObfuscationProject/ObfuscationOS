@@ -1,22 +1,29 @@
-local function resolve_arch()
-    local arch = get_config("target_arch")
-    if not arch or arch == "" then
-        arch = get_config("arch")
+local function normalize_arch(arch)
+    if arch == "x86" or arch == "i686" then
+        return "i386"
+    elseif arch == "x64" or arch == "amd64" then
+        return "x86_64"
     end
+    return arch
+end
+
+local function resolve_arch()
+    local arch = get_config("arch")
     if not arch or arch == "" then
         arch = os.arch()
     end
-    return arch
+    arch = normalize_arch(arch)
+    return arch or ""
 end
 
 local function resolve_target()
     local arch = resolve_arch()
     if arch == "x86_64" then
         return "x86_64-elf"
-    elseif arch == "x86" or arch == "i386" then
+    elseif arch == "i386" then
         return "i686-elf"
     end
-    raise("Unsupported arch for elf toolchain: " .. arch)
+    assert(false, "Unsupported arch for elf toolchain: " .. tostring(arch))
 end
 
 local function resolve_location(target)
@@ -71,14 +78,6 @@ local function program_exists(program, bindir)
     return false
 end
 
-local function bootstrap_toolchain(target)
-    local script = path.join(os.projectdir(), "build-toolchain", "build-elf-toolchain.sh")
-    if not os.isfile(script) then
-        raise("toolchain bootstrap script not found: " .. script)
-    end
-    os.execv("bash", {script, "--target", target})
-end
-
 toolchain("elf")
     set_kind("standalone")
     set_description("Bare-metal ELF toolchain using GCC + GNU Binutils")
@@ -100,17 +99,8 @@ toolchain("elf")
         end
 
         if get_config("auto_bootstrap_toolchain") == false then
-            raise("ELF toolchain not found. Run `xmake toolchain` or set `--cross_prefix=...`.")
+            assert(false, string.format("ELF toolchain not found (%s). Run `xmake toolchain` or set `--cross_prefix=...`.", target))
         end
-
-        cprint("${yellow}warning: ELF toolchain missing, bootstrap %s ...", target)
-        bootstrap_toolchain(target)
-        prefix, bindir = resolve_location(target)
-        apply_toolset(toolchain, prefix, bindir)
-        cc_program = prefix .. "gcc"
-
-        if not program_exists(cc_program, bindir) then
-            raise("failed to bootstrap ELF toolchain: " .. target)
-        end
+        cprint("${yellow}warning: ELF toolchain missing (%s). Configure continues, run `xmake toolchain` to bootstrap it.${clear}", target)
         return true
     end)
