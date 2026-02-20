@@ -152,14 +152,14 @@ void disable() noexcept
 std::uint64_t save() noexcept
 {
     std::uint32_t flags = 0;
-    asm volatile("pushfd; pop %0" : "=r"(flags));
+    asm volatile("pushfl; popl %0" : "=r"(flags));
     return flags;
 }
 
 void restore(std::uint64_t flags) noexcept
 {
     auto f = static_cast<std::uint32_t>(flags);
-    asm volatile("push %0; popfd" : : "r"(f) : "memory", "cc");
+    asm volatile("pushl %0; popfl" : : "r"(f) : "memory", "cc");
 }
 
 } // namespace kern::interrupts

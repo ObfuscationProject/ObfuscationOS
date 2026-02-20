@@ -136,7 +136,7 @@ target("kernel")
     local linker = "kernel/arch/x86_64/linker.ld"
     if arch == "i386" then
         linker = "kernel/arch/i386/linker.ld"
-        add_ldflags("-m32", {force = true})
+        add_ldflags("-m", "elf_i386", {force = true})
     end
     add_ldflags(
         "-nostdlib",

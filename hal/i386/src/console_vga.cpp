@@ -75,14 +75,14 @@ void put_char(char ch) noexcept
 static inline std::uint64_t irq_save() noexcept
 {
     std::uint32_t flags = 0;
-    asm volatile("pushfd; pop %0; cli" : "=r"(flags) :: "memory");
+    asm volatile("pushfl; popl %0; cli" : "=r"(flags) :: "memory");
     return flags;
 }
 
 static inline void irq_restore(std::uint64_t flags) noexcept
 {
     auto f = static_cast<std::uint32_t>(flags);
-    asm volatile("push %0; popfd" : : "r"(f) : "memory", "cc");
+    asm volatile("pushl %0; popfl" : : "r"(f) : "memory", "cc");
 }
 
 static inline void lock() noexcept

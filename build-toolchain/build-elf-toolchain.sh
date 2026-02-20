@@ -10,6 +10,7 @@ jobs="${JOBS:-$(nproc 2>/dev/null || getconf _NPROCESSORS_ONLN 2>/dev/null || ec
 binutils_version="${BINUTILS_VERSION:-2.42}"
 gcc_version="${GCC_VERSION:-14.2.0}"
 download_prerequisites="${DOWNLOAD_PREREQUISITES:-1}"
+build_libstdcxx="${BUILD_LIBSTDCXX:-1}"
 
 usage() {
     cat <<EOF
@@ -20,6 +21,7 @@ Environment:
   GCC_VERSION              GCC version (default: ${gcc_version})
   JOBS                     parallel build jobs (default: auto)
   DOWNLOAD_PREREQUISITES   1/0, run gcc contrib downloader (default: 1)
+  BUILD_LIBSTDCXX          1/0, build freestanding target libstdc++ headers/runtime (default: 1)
 EOF
 }
 
@@ -146,6 +148,21 @@ binutils_build_dir="${build_dir}/binutils-${target}"
 gcc_build_dir="${build_dir}/gcc-${target}"
 binutils_stamp="${stamp_dir}/binutils-${target}-${binutils_version}.done"
 gcc_stamp="${stamp_dir}/gcc-${target}-${gcc_version}.done"
+libstdcxx_stamp="${stamp_dir}/libstdcxx-${target}-${gcc_version}.done"
+
+gcc_supports_freestanding_libstdcxx() {
+    local config_status="${gcc_build_dir}/config.status"
+    [[ -f "${config_status}" ]] || return 1
+    grep -q -- "--with-newlib" "${config_status}" || return 1
+    grep -q -- "--disable-hosted-libstdcxx" "${config_status}" || return 1
+    return 0
+}
+
+have_libstdcxx_headers() {
+    local hdr1="${prefix}/${target}/include/c++/${gcc_version}/cstdint"
+    local hdr2="${prefix}/${target}/include/c++/${gcc_version}/atomic"
+    [[ -f "${hdr1}" && -f "${hdr2}" ]]
+}
 
 if [[ ! -f "${binutils_stamp}" ]]; then
     rm -rf "${binutils_build_dir}"
@@ -167,6 +184,7 @@ else
 fi
 
 if [[ ! -f "${gcc_stamp}" ]]; then
+    rm -f "${libstdcxx_stamp}"
     rm -rf "${gcc_build_dir}"
     mkdir -p "${gcc_build_dir}"
     (
@@ -177,8 +195,12 @@ if [[ ! -f "${gcc_stamp}" ]]; then
             --disable-nls \
             --enable-languages=c,c++ \
             --without-headers \
+            --with-newlib \
+            --disable-hosted-libstdcxx \
             --disable-shared \
             --disable-threads \
+            --disable-libstdcxx-pch \
+            --disable-libstdcxx-verbose \
             --disable-libssp \
             --disable-libquadmath \
             --disable-libgomp \
@@ -193,6 +215,54 @@ if [[ ! -f "${gcc_stamp}" ]]; then
     touch "${gcc_stamp}"
 else
     echo "[skip] gcc already built (${gcc_version})"
+fi
+
+if [[ "${build_libstdcxx}" == "1" ]]; then
+    if ! gcc_supports_freestanding_libstdcxx; then
+        echo "[rebuild] gcc build config missing freestanding libstdc++ options"
+        rm -f "${gcc_stamp}" "${libstdcxx_stamp}"
+        rm -rf "${gcc_build_dir}"
+        mkdir -p "${gcc_build_dir}"
+        (
+            cd "${gcc_build_dir}"
+            "${src_dir}/gcc-${gcc_version}/configure" \
+                --target="${target}" \
+                --prefix="${prefix}" \
+                --disable-nls \
+                --enable-languages=c,c++ \
+                --without-headers \
+                --with-newlib \
+                --disable-hosted-libstdcxx \
+                --disable-shared \
+                --disable-threads \
+                --disable-libstdcxx-pch \
+                --disable-libstdcxx-verbose \
+                --disable-libssp \
+                --disable-libquadmath \
+                --disable-libgomp \
+                --disable-libmudflap \
+                --disable-libsanitizer \
+                --disable-libatomic \
+                --disable-libvtv \
+                --disable-multilib
+            make -j"${jobs}" all-gcc all-target-libgcc
+            make install-gcc install-target-libgcc
+        )
+        touch "${gcc_stamp}"
+    fi
+
+    if [[ ! -f "${libstdcxx_stamp}" ]] || ! have_libstdcxx_headers; then
+        (
+            cd "${gcc_build_dir}"
+            make -j"${jobs}" all-target-libstdc++-v3
+            make install-target-libstdc++-v3
+        )
+        touch "${libstdcxx_stamp}"
+    else
+        echo "[skip] libstdc++ already built (${gcc_version})"
+    fi
+else
+    echo "[skip] BUILD_LIBSTDCXX=0, skipping libstdc++ build"
 fi
 
 echo "[ok] bare-metal toolchain ready: ${prefix}"

@@ -8,6 +8,9 @@ An experimental OS inspired by HarmonyOS, built from scratch with a focus on ope
 - Example:
   - `xmake f -a i386`
   - `xmake toolchain`
+- Toolchain bootstrap now also builds freestanding `libstdc++` (`<cstdint>`, `<cstddef>`, `<atomic>`, `<limits>` etc.).
+- Disable libstdc++ build if needed:
+  - `BUILD_LIBSTDCXX=0 xmake toolchain`
 - Toolchain binaries are installed to `build-toolchain/opt/<target>/bin`.
 - If `elf` toolchain is missing, run `xmake toolchain` manually to bootstrap it.
 - Strict check mode:
