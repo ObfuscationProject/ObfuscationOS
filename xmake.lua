@@ -33,7 +33,7 @@ option("auto_bootstrap_toolchain")
     set_default(true)
     set_showmenu(true)
 local function normalize_arch(arch)
-    if arch == "x86" or arch == "i686" then
+    if arch == "x86" or arch == "i386" then
         return "i386"
     elseif arch == "x64" or arch == "amd64" then
         return "x86_64"
@@ -55,7 +55,7 @@ local function resolve_elf_target(arch)
     if arch == "x86_64" then
         return "x86_64-elf"
     elseif arch == "i386" then
-        return "i686-elf"
+        return "i386-elf"
     end
     assert(false, "Unsupported arch for ELF toolchain: " .. tostring(arch))
 end

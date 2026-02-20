@@ -14,7 +14,7 @@ build_libstdcxx="${BUILD_LIBSTDCXX:-1}"
 
 usage() {
     cat <<EOF
-Usage: $(basename "$0") --target <x86_64-elf|i686-elf> [--prefix <dir>] [--jobs <N>]
+Usage: $(basename "$0") --target <x86_64-elf|i386-elf> [--prefix <dir>] [--jobs <N>]
 
 Environment:
   BINUTILS_VERSION         GNU binutils version (default: ${binutils_version})
@@ -58,7 +58,7 @@ if [[ -z "${target}" ]]; then
 fi
 
 case "${target}" in
-    x86_64-elf|i686-elf) ;;
+    x86_64-elf|i386-elf) ;;
     *)
         echo "error: unsupported target: ${target}" >&2
         exit 1
