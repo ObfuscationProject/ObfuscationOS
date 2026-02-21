@@ -1,9 +1,9 @@
 set_project("ObfuscationOS")
 set_version("0.0.1")
 set_languages("c++23")
-set_arch("x86_64")
 
 add_rules("mode.debug", "mode.release")
+includes("toolchains/*.lua")
 
 option("disable_exceptions")
     set_default(true)
@@ -26,6 +26,39 @@ option("disable_redzone")
 option("disable_simd")
     set_default(true)
     set_showmenu(true)
+option("cross_prefix")
+    set_default("")
+    set_showmenu(true)
+option("auto_bootstrap_toolchain")
+    set_default(true)
+    set_showmenu(true)
+local function normalize_arch(arch)
+    if arch == "x86" or arch == "i386" then
+        return "i386"
+    elseif arch == "x64" or arch == "amd64" then
+        return "x86_64"
+    end
+    return arch
+end
+
+local function resolve_arch()
+    local arch = get_config("arch")
+    if not arch or arch == "" then
+        arch = os.arch()
+    end
+    arch = normalize_arch(arch)
+    return arch or ""
+end
+
+local function resolve_elf_target(arch)
+    arch = normalize_arch(arch or resolve_arch())
+    if arch == "x86_64" then
+        return "x86_64-elf"
+    elseif arch == "i386" then
+        return "i386-elf"
+    end
+    assert(false, "Unsupported arch for ELF toolchain: " .. tostring(arch))
+end
 
 target("kernel")
     set_kind("binary")
@@ -35,7 +68,7 @@ target("kernel")
 
     add_files("kernel/src/**.cpp")
 
-    local arch = os.arch()
+    local arch = resolve_arch()
     if arch == "x86_64" then
         add_includedirs("hal/x86_64/include", {public = true})
         add_includedirs("kernel/arch/x86_64/include", {public = true})
@@ -44,18 +77,30 @@ target("kernel")
         add_files("hal/x86_64/src/**.cpp")
         add_files("kernel/arch/x86_64/src/**.cpp")
         add_files("kernel/arch/x86_64/src/**.S")
+        add_defines("ARCH_X86_64")
+    elseif arch == "i386" then
+        add_includedirs("hal/i386/include", {public = true})
+        add_includedirs("kernel/arch/i386/include", {public = true})
+        add_files("kernel/arch/i386/boot.S")
+        add_files("hal/i386/src/**.cpp")
+        add_files("kernel/arch/i386/src/**.cpp")
+        add_files("kernel/arch/i386/src/**.S")
+        add_defines("ARCH_I386")
     else
-        raise("Unsupported arch: " .. arch)
+        assert(false, "Unsupported arch: " .. tostring(arch))
     end
 
     -- C++ freestanding kernel flags
     add_cxflags(
         "-ffreestanding",
-        "-m64",
-        "-mcmodel=kernel",
         "-Wall", "-Wextra",
         {force = true}
     )
+    if arch == "x86_64" then
+        add_cxflags("-m64", "-mcmodel=kernel", {force = true})
+    elseif arch == "i386" then
+        add_cxflags("-m32", {force = true})
+    end
 
     if has_config("disable_exceptions") then
         add_cxflags("-fno-exceptions", {force = true})
@@ -73,22 +118,59 @@ target("kernel")
         add_cxflags("-fno-pic", "-fno-pie", {force = true})
     end
     if has_config("disable_redzone") then
-        add_cxflags("-mno-red-zone", {force = true})
+        if arch == "x86_64" then
+            add_cxflags("-mno-red-zone", {force = true})
+        end
     end
     if has_config("disable_simd") then
         add_cxflags("-mno-sse", "-mno-sse2", "-mno-mmx", "-mno-80387", {force = true})
     end
 
-    add_asflags("-m64", {force = true})
+    if arch == "x86_64" then
+        add_asflags("-m64", {force = true})
+    elseif arch == "i386" then
+        add_asflags("-m32", {force = true})
+    end
 
-    -- ELF64 + Multiboot2: keep max page size 4KiB so the header stays in range
+    -- ELF + Multiboot2: keep max page size 4KiB so the header stays in range
+    local linker = "kernel/arch/x86_64/linker.ld"
+    if arch == "i386" then
+        linker = "kernel/arch/i386/linker.ld"
+        add_ldflags("-m", "elf_i386", {force = true})
+    end
     add_ldflags(
         "-nostdlib",
         "-no-pie",
-        "-T", "kernel/arch/x86_64/linker.ld",
+        "-T", linker,
         "-z", "max-page-size=0x1000",
         {force = true}
     )
+
+    set_toolchains("elf")
+
+task("toolchain")
+    set_menu({
+        usage = "xmake toolchain",
+        description = "Download and build bare-metal ELF toolchain (binutils + gcc)",
+        options = {}
+    })
+    on_run(function ()
+        local arch = get_config("arch")
+        if not arch or arch == "" then
+            -- `xmake toolchain` command context may not load project config.
+            -- Query saved config explicitly to get the user's selected arch.
+            local script = "local config = import('core.project.config'); config.load(); print(config.get('arch') or '')"
+            local output = os.iorunv("xmake", {"lua", "-c", script})
+            arch = output and output:match("([%w_%-]+)") or nil
+        end
+        if not arch or arch == "" then
+            arch = os.arch()
+        end
+        local target = resolve_elf_target(arch)
+        local script = path.join(os.projectdir(), "build-toolchain", "build-elf-toolchain.sh")
+        assert(os.isfile(script), "toolchain bootstrap script not found: " .. script)
+        os.runv("bash", {script, "--target", target})
+    end)
 
 -- ---------------- Tasks: iso & qemu ----------------
 task("iso")
@@ -128,11 +210,16 @@ task("iso")
 task("qemu")
     set_menu({
         usage = "xmake qemu",
-        description = "Run the ISO in QEMU (x86_64)",
+        description = "Run the ISO in QEMU",
         options = {}
     })
     on_run(function ()
 
         local isofile = path.join("build", "ObfuscationOS.iso")
-        os.exec("qemu-system-x86_64 -m 256M -smp 4 -cdrom %s -no-reboot -no-shutdown -d int,cpu_reset -D qemu.log -debugcon stdio -global isa-debugcon.iobase=0xe9", isofile)
+        local arch = resolve_arch()
+        local qemu = "qemu-system-x86_64"
+        if arch == "i386" then
+            qemu = "qemu-system-i386"
+        end
+        os.exec("%s -m 256M -smp 4 -cdrom %s -no-reboot -no-shutdown -d int,cpu_reset -D qemu.log -debugcon stdio -global isa-debugcon.iobase=0xe9", qemu, isofile)
     end)

@@ -4,3 +4,8 @@ compile_commands.json
 /.xmake
 /.vscode
 /build
+/build-toolchain/tarballs
+/build-toolchain/src
+/build-toolchain/build
+/build-toolchain/opt
+/build-toolchain/stamps

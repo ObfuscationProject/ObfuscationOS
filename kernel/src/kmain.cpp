@@ -38,7 +38,13 @@ extern "C" void kernel_main(std::uint32_t mb_magic, std::uintptr_t boot_info) no
     (void)mb_magic;
 
     hal::console::clear();
+#if defined(ARCH_X86_64)
     hal::console::write("Boot OK (long mode)\n");
+#elif defined(ARCH_I386)
+    hal::console::write("Boot OK (protected mode)\n");
+#else
+    hal::console::write("Boot OK\n");
+#endif
 
     hal::console::write("-> pmm::init\n");
     kern::mem::pmm::init(boot_info);
