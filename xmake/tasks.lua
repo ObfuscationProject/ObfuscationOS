@@ -54,6 +54,17 @@ local function task_toolchain_binary(spec, tool)
     return path.join(task_toolchain_sdkdir(spec), "bin", spec.triple .. "-" .. tool)
 end
 
+local function task_find_kernel_image()
+    local kernel_dir = path.join(os.projectdir(), "external", "ObfuscationKernel")
+    local kernels = os.files(path.join(kernel_dir, "build", "**", "kernel.bin"))
+    table.sort(kernels)
+    if #kernels == 0 then
+        kernels = os.files(path.join(kernel_dir, "build", "**", "kernel.elf"))
+        table.sort(kernels)
+    end
+    return kernels[1]
+end
+
 task("toolchains")
     set_menu {
         usage = "xmake toolchains -a ARCH",
@@ -137,6 +148,101 @@ task("toolchain-check")
         if #missing > 0 then
             raise("missing toolchain(s): %s. Run: xmake toolchains -a %s",
                   table.concat(missing, ", "), #missing == 1 and missing[1] or "all")
+        end
+    end)
+task_end()
+
+task("arch-matrix")
+    set_menu {
+        usage = "xmake arch-matrix [-m MODE]",
+        description = "Build sysroot and apps for every first-stage userland architecture",
+        options = {
+            {"m", "check-mode", "kv", nil, "Build mode used for the matrix"}
+        }
+    }
+    on_run(function ()
+        import("core.base.option")
+        import("core.project.config")
+        config.load()
+
+        local current_arch = task_normalize_arch(config.get("arch") or "x86_64")
+        local current_mode = config.get("mode") or "release"
+        local mode = option.get("check-mode") or current_mode
+        local failed = {}
+
+        for _, arch in ipairs(task_arches) do
+            task_require_arch(arch)
+            print(string.format("[arch-matrix] %s (%s)", arch, mode))
+            local config_code = os.execv("xmake", {"f", "-c", "-m", mode, "-a", arch}, {try = true})
+            local sysroot_code = config_code == 0 and os.execv("xmake", {"-y", "-b", "sysroot"}, {try = true}) or config_code
+            local apps_code = sysroot_code == 0 and os.execv("xmake", {"-y", "-b", "apps"}, {try = true}) or sysroot_code
+            if config_code ~= 0 or sysroot_code ~= 0 or apps_code ~= 0 then
+                table.insert(failed, arch)
+            end
+        end
+
+        os.execv("xmake", {"f", "-c", "-m", current_mode, "-a", current_arch})
+        if #failed > 0 then
+            raise("arch matrix failed for: %s", table.concat(failed, ", "))
+        end
+    end)
+task_end()
+
+task("distro-test")
+    set_menu {
+        usage = "xmake distro-test [-k KERNEL] [--no-qemu]",
+        description = "Run userland, image, UAPI, submodule, and QEMU distro smoke tests",
+        options = {
+            {"k", "kernel", "kv", nil, "Path to kernel.bin/kernel.elf from external/ObfuscationKernel"},
+            {"m", "check-mode", "kv", nil, "Build mode used for userland images"},
+            {nil, "timeout", "kv", "20", "QEMU timeout in seconds"},
+            {nil, "no-qemu", "k", nil, "Skip QEMU distro smoke tests"}
+        }
+    }
+    on_run(function ()
+        import("core.base.option")
+        import("core.project.config")
+        config.load()
+
+        local current_arch = task_normalize_arch(config.get("arch") or "x86_64")
+        local current_mode = config.get("mode") or "release"
+        local mode = option.get("check-mode") or current_mode
+        local failed = {}
+
+        local function checked(label, args)
+            print("[distro-test] " .. label)
+            local code = os.execv("xmake", args, {try = true})
+            if code ~= 0 then
+                table.insert(failed, label)
+            end
+            return code
+        end
+
+        os.execv("xmake", {"f", "-c", "-m", mode, "-a", "x86_64"}, {try = true})
+        checked("kernel-submodule-check", {"-y", "-b", "kernel-submodule-check"})
+        checked("uapi-test", {"-y", "-b", "uapi-test"})
+        checked("libc-test", {"-y", "-b", "libc-test"})
+        checked("rootfs-simplefs", {"-y", "-b", "rootfs-simplefs"})
+        checked("rootfs-ext4", {"-y", "-b", "rootfs-ext4"})
+
+        if not option.get("no-qemu") then
+            local kernel = option.get("kernel") or task_find_kernel_image()
+            if kernel == nil then
+                table.insert(failed, "qemu-distro")
+                print("[distro-test] qemu-distro skipped: kernel image not found")
+            else
+                checked("qemu-distro simplefs", {
+                    "qemu-distro", "--fs=simplefs", "-k", kernel, "--timeout=" .. (option.get("timeout") or "20")
+                })
+                checked("qemu-distro ext4", {
+                    "qemu-distro", "--fs=ext4", "-k", kernel, "--timeout=" .. (option.get("timeout") or "20")
+                })
+            end
+        end
+
+        os.execv("xmake", {"f", "-c", "-m", current_mode, "-a", current_arch})
+        if #failed > 0 then
+            raise("distro test failed for: %s", table.concat(failed, ", "))
         end
     end)
 task_end()

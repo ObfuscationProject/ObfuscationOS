@@ -1,5 +1,6 @@
 #include <errno.h>
 #include <fcntl.h>
+#include <ok/dirent.h>
 #include <ok/uapi/syscall.h>
 #include <stddef.h>
 #include <string.h>
@@ -127,11 +128,28 @@ int main(void)
     if (stat("/file", &st) != 0 || st.st_size != 123 || st.st_mode != (OK_MODE_REGULAR | 0400)) {
         return 7;
     }
-    if (strlen("abc") != 3 || strcmp("abc", "abc") != 0 || strncmp("abc", "abd", 2) != 0) {
+    if (!S_ISREG(st.st_mode) || st.st_nlink != 1 || st.st_blksize != 512) {
         return 8;
     }
-    if (memcmp("a", "b", 1) >= 0) {
+    memset(&st, 0, sizeof(st));
+    if (fstat(42, &st) != 0 || st.st_size != 123 || last_number != OK_SYS_FSTAT) {
         return 9;
+    }
+    if (mkdir("/tmp", 0700) != 0 || last_number != OK_SYS_MKDIR) {
+        return 10;
+    }
+    if (mkdir(NULL, 0700) != -1 || errno != EFAULT || last_number != OK_SYS_MKDIR) {
+        return 11;
+    }
+    char dent_buffer[sizeof(struct dirent)];
+    if (getdents64(42, dent_buffer, sizeof(dent_buffer)) != 0 || last_number != OK_SYS_GETDENTS64) {
+        return 12;
+    }
+    if (strlen("abc") != 3 || strcmp("abc", "abc") != 0 || strncmp("abc", "abd", 2) != 0) {
+        return 13;
+    }
+    if (memcmp("a", "b", 1) >= 0) {
+        return 14;
     }
     return 0;
 }

@@ -33,6 +33,14 @@ The top-level `xmake.lua` only wires the project together.  Architecture data,
 toolchain definitions, targets, and developer tasks live under `xmake/` to match
 the kernel submodule layout.
 
+Useful validation commands:
+
+```sh
+xmake toolchain-check --all
+xmake arch-matrix
+xmake distro-test --kernel=external/ObfuscationKernel/build/linux/x86_64/debug/kernel.bin
+```
+
 Primary outputs:
 
 - `sysroot/include`
@@ -87,8 +95,8 @@ blocks and a maximum of 32 entries.
 After the kernel submodule has been built:
 
 ```sh
-xmake qemu-distro --fs=simplefs -k external/ObfuscationKernel/build/linux/x86_64/debug/kernel.bin
-xmake qemu-distro --fs=ext4 -k external/ObfuscationKernel/build/linux/x86_64/debug/kernel.bin
+xmake qemu-distro --fs=simplefs --kernel=external/ObfuscationKernel/build/linux/x86_64/debug/kernel.bin
+xmake qemu-distro --fs=ext4 --kernel=external/ObfuscationKernel/build/linux/x86_64/debug/kernel.bin
 ```
 
 Until the kernel mounts the supplied disk as the process root and hands off to
