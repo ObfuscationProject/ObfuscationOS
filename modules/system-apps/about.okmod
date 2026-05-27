@@ -1,0 +1,17 @@
+OKMOD
+name=system-about
+version=1
+vermagic=okernel-cxx-oop
+require=gui.compositor
+require=gui.desktop
+require=gui.system-desktop
+export=gui.app.about
+param=entry:oop
+param=class:app
+param=title:About ObfuscationOS
+param=subtitle:C++ OOP module from rootfs
+param=body:Loaded through OK_SYS_LOAD_MODULE
+param=x:54
+param=y:44
+param=accent:gold
+signature=system-about-dev

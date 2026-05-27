@@ -91,12 +91,14 @@ The MVP image includes:
 The kernel submodule provides the low-level `kernel-gui` compositor service in
 C++. The base desktop module package lives on the OS side at
 `modules/system-gui/system-gui.okmod` and is staged into the root filesystem as
-`/boot/modules/system-gui.okmod`. After the kernel has completed boot, the OS
-module loader (`/bin/kmodload`, and currently `init` until `execve` handoff is
-enabled) calls `OK_SYS_LOAD_MODULE` to ask the kernel to load that package. The
+`/boot/modules/system-gui.okmod`. Small demo GUI apps live in
+`modules/system-apps` and are staged under `/boot/modules/apps`. After the
+kernel has completed boot, the OS module loader (`/bin/kmodload --all`, and the
+current boot fallback until `execve` handoff is enabled) calls
+`OK_SYS_LOAD_MODULE` to ask the kernel to load those packages. The desktop
 module consumes `gui.compositor` / `gui.desktop`, exports
-`gui.system-desktop`, and opens the default System Status desktop. See
-[docs/GUI.md](docs/GUI.md).
+`gui.system-desktop`, and opens the default System Status desktop; the app
+modules open About, Preferences, and Notes windows. See [docs/GUI.md](docs/GUI.md).
 
 ## Root Filesystems
 
@@ -114,12 +116,15 @@ After the kernel submodule has been built:
 ```sh
 xmake qemu-distro --fs=simplefs --kernel=external/ObfuscationKernel/build/linux/x86_64/debug/kernel.bin
 xmake qemu-distro --fs=ext4 --kernel=external/ObfuscationKernel/build/linux/x86_64/debug/kernel.bin
-xmake qemu-distro-window --fs=simplefs --kernel=external/ObfuscationKernel/build/linux/x86_64/debug/kernel.bin
+xmake qemu-distro-window --fs=simplefs
+xmake qemu-distro-window --fs=simplefs --display=none --timeout=10
 ```
 
 `qemu-distro` is the headless smoke path used by CI. `qemu-distro-window`
-launches QEMU with a graphical display and keeps it open until the window exits.
-Until the kernel mounts the supplied disk as the process root and hands off to
-`/bin/init`, the smoke path accepts the kernel debug boot marker as its
-baseline. Once that dependency lands, the task should tighten to require the
-`ObfuscationOS init: userland online` marker.
+builds a release GUI kernel when `--kernel` is omitted, attaches the SimpleFS
+rootfs, loads the System GUI packages from `/boot/modules`, and keeps the QEMU
+window open until it exits. Passing `--timeout` validates the same System GUI
+path headlessly and exits after the boot marker. The headless release smoke
+marker for that path is `OK_SYSTEM_GUI boot=complete`; debug-kernel distro
+tests still accept the debug boot marker. QEMU runs against a temporary rootfs
+copy so an open GUI window does not lock the staged image.

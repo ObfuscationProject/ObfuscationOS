@@ -4,9 +4,11 @@
 from __future__ import annotations
 
 import argparse
+import select
 import shutil
 import subprocess
 import sys
+import tempfile
 import time
 from pathlib import Path
 
@@ -141,16 +143,18 @@ def run_until_marker(command: list[str], timeout: float) -> int:
     process = subprocess.Popen(command, text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
     assert process.stdout is not None
     deadline = time.monotonic() + timeout
-    markers = ("ObfuscationOS init: userland online", "OK_DEBUG boot=complete", "OK_TEST_PASS ")
+    markers = ("ObfuscationOS init: userland online", "OK_SYSTEM_GUI boot=complete", "OK_DEBUG boot=complete", "OK_TEST_PASS ")
     seen_boot = False
 
     while time.monotonic() < deadline:
-        line = process.stdout.readline()
-        if line:
-            print(line, end="")
-            if any(marker in line for marker in markers):
-                seen_boot = True
-                break
+        readable, _, _ = select.select([process.stdout], [], [], 0.1)
+        if readable:
+            line = process.stdout.readline()
+            if line:
+                print(line, end="")
+                if any(marker in line for marker in markers):
+                    seen_boot = True
+                    break
         if process.poll() is not None:
             break
 
@@ -197,15 +201,18 @@ def main() -> int:
     if not rootfs.is_file():
         raise SystemExit(f"rootfs image does not exist: {rootfs}")
 
-    command = command_for(arch, kernel, rootfs, args.display)
-    print(f"[qemu-distro] arch={arch} fs={args.fs} kernel={kernel} rootfs={rootfs}")
-    if args.interactive:
-        print(f"[qemu-distro] display={args.display} interactive=1")
-        return run_interactive(command)
-    code = run_until_marker(command, args.timeout)
-    if code == 124:
-        print("[qemu-distro] timeout before boot/userland marker", file=sys.stderr)
-    return code
+    with tempfile.TemporaryDirectory(prefix="obfuscationos-qemu-") as temp_dir:
+        runtime_rootfs = Path(temp_dir) / rootfs.name
+        shutil.copy2(rootfs, runtime_rootfs)
+        command = command_for(arch, kernel, runtime_rootfs, args.display)
+        print(f"[qemu-distro] arch={arch} fs={args.fs} kernel={kernel} rootfs={rootfs}")
+        if args.interactive:
+            print(f"[qemu-distro] display={args.display} interactive=1")
+            return run_interactive(command)
+        code = run_until_marker(command, args.timeout)
+        if code == 124:
+            print("[qemu-distro] timeout before boot/userland marker", file=sys.stderr)
+        return code
 
 
 if __name__ == "__main__":

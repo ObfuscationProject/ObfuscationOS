@@ -307,26 +307,58 @@ task_end()
 
 task("qemu-distro-window")
     set_menu {
-        usage = "xmake qemu-distro-window --fs=<simplefs|ext4>",
-        description = "Run the distro QEMU task with a graphical display and keep the window open",
+        usage = "xmake qemu-distro-window --fs=simplefs",
+        description = "Build/run the system GUI distro path with a graphical display and keep the window open",
         options = {
-            {"f", "fs", "kv", "simplefs", "Root filesystem image to run: simplefs or ext4"},
+            {"f", "fs", "kv", "simplefs", "Root filesystem image to run: simplefs"},
             {"k", "kernel", "kv", nil, "Path to kernel.bin/kernel.elf from external/ObfuscationKernel"},
-            {nil, "display", "kv", "gtk", "QEMU display backend: gtk, sdl, cocoa, ..."}
+            {nil, "kernel-mode", "kv", "release", "Kernel mode to build when --kernel is omitted"},
+            {nil, "display", "kv", "gtk", "QEMU display backend: gtk, sdl, cocoa, ..."},
+            {nil, "timeout", "kv", nil, "Run headless marker validation instead of keeping the window open"}
         }
     }
     on_run(function ()
         import("core.base.option")
+        import("core.project.config")
+        config.load()
+        local project = os.projectdir()
+        local fs = option.get("fs") or "simplefs"
+        if fs ~= "simplefs" then
+            raise("qemu-distro-window currently requires simplefs so the early System GUI module loader can read /boot/modules")
+        end
+        local kernel = option.get("kernel")
+        if not kernel then
+            local arch = task_normalize_arch(config.get("arch") or "x86_64")
+            local mode = option.get("kernel-mode") or "release"
+            local kernel_dir = path.join(project, "external", "ObfuscationKernel")
+            os.execv("xmake", {"f", "-P", ".", "-c", "-m", mode, "-a", arch, "--kernel_gui=y", "--ccache=n"}, {curdir = kernel_dir})
+            os.execv("xmake", {"-P", ".", "-y", "-r", "-b", "okernel_image"}, {curdir = kernel_dir})
+            local candidates = {
+                path.join(kernel_dir, "build", "linux", arch, mode, "kernel.bin"),
+                path.join(project, "build", "linux", arch, mode, "kernel.bin"),
+            }
+            for _, candidate in ipairs(candidates) do
+                if os.isfile(candidate) then
+                    kernel = candidate
+                    break
+                end
+            end
+            if not kernel then
+                raise("built kernel image not found for %s/%s", arch, mode)
+            end
+        end
         local args = {
             "qemu-distro",
-            "--fs=" .. (option.get("fs") or "simplefs"),
+            "--fs=" .. fs,
             "--display=" .. (option.get("display") or "gtk"),
-            "--interactive",
         }
-        if option.get("kernel") then
-            table.insert(args, "-k")
-            table.insert(args, option.get("kernel"))
+        if option.get("timeout") then
+            table.insert(args, "--timeout=" .. option.get("timeout"))
+        else
+            table.insert(args, "--interactive")
         end
+        table.insert(args, "-k")
+        table.insert(args, kernel)
         os.execv("xmake", args)
     end)
 task_end()
