@@ -13,8 +13,8 @@ git submodule update --init --recursive external/ObfuscationKernel
 xmake build kernel-submodule-check
 ```
 
-The expected first baseline is `v0.1.0` /
-`104f2091feeed4a6f600ea371c44779de5b9bb85`.
+The expected first baseline is `v0.1.0-1` /
+`09558d62d7e1cbb935434530931a110e82ee4a08`.
 
 ## Build
 
@@ -40,6 +40,10 @@ xmake toolchain-check --all
 xmake arch-matrix
 xmake distro-test --kernel=external/ObfuscationKernel/build/linux/x86_64/debug/kernel.bin
 ```
+
+The root repository also has GitHub Actions CI in `.github/workflows/ci.yml`.
+It checks the kernel submodule baseline, UAPI, libc shim, and both root
+filesystem image formats for the x86_64 first-stage distro.
 
 Primary outputs:
 
@@ -77,9 +81,22 @@ The MVP image includes:
 - `stat`
 - `mkdir`
 - `rm`
+- `kmodload`
 
 `oksh` is intentionally builtin-only until the kernel grows `fork`, `execve`,
 `wait`, `pipe`, `select`, and `poll`.
+
+## System GUI
+
+The kernel submodule provides the low-level `kernel-gui` compositor service in
+C++. The base desktop module package lives on the OS side at
+`modules/system-gui/system-gui.okmod` and is staged into the root filesystem as
+`/boot/modules/system-gui.okmod`. After the kernel has completed boot, the OS
+module loader (`/bin/kmodload`, and currently `init` until `execve` handoff is
+enabled) calls `OK_SYS_LOAD_MODULE` to ask the kernel to load that package. The
+module consumes `gui.compositor` / `gui.desktop`, exports
+`gui.system-desktop`, and opens the default System Status desktop. See
+[docs/GUI.md](docs/GUI.md).
 
 ## Root Filesystems
 

@@ -4,7 +4,7 @@ import subprocess
 from pathlib import Path
 
 
-EXPECTED_PREFIX = "104f2091feeed4a6f600ea371c44779de5b9bb85"
+EXPECTED_PREFIX = "09558d62d7e1cbb935434530931a110e82ee4a08"
 
 
 def git_output(repo: Path, *args: str) -> str:
@@ -32,7 +32,7 @@ def main() -> int:
     if not head.startswith(args.expected):
         raise SystemExit(
             f"external/ObfuscationKernel is at {head}, expected {args.expected} "
-            "(v0.1.0 baseline)"
+            "(v0.1.0-1 baseline)"
         )
 
     syscall = repo / "uapi" / "include" / "ok" / "uapi" / "syscall.h"
