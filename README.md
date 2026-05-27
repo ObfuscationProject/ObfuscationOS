@@ -13,8 +13,8 @@ git submodule update --init --recursive external/ObfuscationKernel
 xmake build kernel-submodule-check
 ```
 
-The expected first baseline is `v0.1.0-1` /
-`09558d62d7e1cbb935434530931a110e82ee4a08`.
+The expected first baseline is `v0.1.0-2` /
+`b8a4d5af31141663686587b97409c53f29114f2e`.
 
 ## Build
 
@@ -114,9 +114,12 @@ After the kernel submodule has been built:
 ```sh
 xmake qemu-distro --fs=simplefs --kernel=external/ObfuscationKernel/build/linux/x86_64/debug/kernel.bin
 xmake qemu-distro --fs=ext4 --kernel=external/ObfuscationKernel/build/linux/x86_64/debug/kernel.bin
+xmake qemu-distro-window --fs=simplefs --kernel=external/ObfuscationKernel/build/linux/x86_64/debug/kernel.bin
 ```
 
+`qemu-distro` is the headless smoke path used by CI. `qemu-distro-window`
+launches QEMU with a graphical display and keeps it open until the window exits.
 Until the kernel mounts the supplied disk as the process root and hands off to
-`/bin/init`, `qemu-distro` accepts the kernel debug boot marker as the smoke
-baseline.  Once that dependency lands, the task should tighten to require the
+`/bin/init`, the smoke path accepts the kernel debug boot marker as its
+baseline. Once that dependency lands, the task should tighten to require the
 `ObfuscationOS init: userland online` marker.

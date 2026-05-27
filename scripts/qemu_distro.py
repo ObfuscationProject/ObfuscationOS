@@ -39,7 +39,11 @@ def virtio_disk_args(disk: Path) -> list[str]:
     ]
 
 
-def command_for(arch: str, kernel: Path, rootfs: Path) -> list[str]:
+def ramfb_args() -> list[str]:
+    return ["-device", "ramfb"]
+
+
+def command_for(arch: str, kernel: Path, rootfs: Path, display: str) -> list[str]:
     qemu = QEMU_SYSTEM_BY_ARCH.get(arch)
     if qemu is None:
         raise SystemExit(f"qemu-distro is not configured for {arch}")
@@ -47,7 +51,7 @@ def command_for(arch: str, kernel: Path, rootfs: Path) -> list[str]:
     if qemu_path is None:
         raise SystemExit(f"QEMU executable missing: {qemu}")
 
-    common = ["-serial", "stdio", "-monitor", "none", "-no-reboot", "-display", "none"]
+    common = ["-serial", "stdio", "-monitor", "none", "-no-reboot", "-display", display]
     if arch == "x86_64" and kernel.suffix == ".bin":
         return [
             qemu_path,
@@ -55,11 +59,25 @@ def command_for(arch: str, kernel: Path, rootfs: Path) -> list[str]:
             f"file={kernel},format=raw,if=ide",
             "-boot",
             "c",
+            "-vga",
+            "none",
             *common,
+            *ramfb_args(),
             *virtio_disk_args(rootfs),
         ]
     if arch == "x86_64":
-        return [qemu_path, "-m", "512M", "-kernel", str(kernel), *common, *virtio_disk_args(rootfs)]
+        return [
+            qemu_path,
+            "-m",
+            "512M",
+            "-kernel",
+            str(kernel),
+            "-vga",
+            "none",
+            *common,
+            *ramfb_args(),
+            *virtio_disk_args(rootfs),
+        ]
     if arch == "aarch64":
         return [
             qemu_path,
@@ -147,6 +165,19 @@ def run_until_marker(command: list[str], timeout: float) -> int:
     return 0 if seen_boot else 124
 
 
+def run_interactive(command: list[str]) -> int:
+    process = subprocess.Popen(command, text=True)
+    try:
+        return process.wait()
+    except KeyboardInterrupt:
+        process.terminate()
+        try:
+            return process.wait(timeout=1.0)
+        except subprocess.TimeoutExpired:
+            process.kill()
+            return process.wait()
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--arch", required=True)
@@ -154,6 +185,8 @@ def main() -> int:
     parser.add_argument("--rootfs", required=True, type=Path)
     parser.add_argument("--fs", choices=("simplefs", "ext4"), required=True)
     parser.add_argument("--timeout", type=float, default=20.0)
+    parser.add_argument("--display", default="none", help="QEMU display backend, for example none, gtk, or sdl")
+    parser.add_argument("--interactive", action="store_true", help="Keep QEMU running until the window/process exits")
     args = parser.parse_args()
 
     arch = normalize_arch(args.arch)
@@ -164,8 +197,11 @@ def main() -> int:
     if not rootfs.is_file():
         raise SystemExit(f"rootfs image does not exist: {rootfs}")
 
-    command = command_for(arch, kernel, rootfs)
+    command = command_for(arch, kernel, rootfs, args.display)
     print(f"[qemu-distro] arch={arch} fs={args.fs} kernel={kernel} rootfs={rootfs}")
+    if args.interactive:
+        print(f"[qemu-distro] display={args.display} interactive=1")
+        return run_interactive(command)
     code = run_until_marker(command, args.timeout)
     if code == 124:
         print("[qemu-distro] timeout before boot/userland marker", file=sys.stderr)

@@ -1,8 +1,8 @@
 # External dependencies
 
 `ObfuscationKernel` is expected at `external/ObfuscationKernel` and should be
-kept at the `v0.1.0` baseline commit
-`104f2091feeed4a6f600ea371c44779de5b9bb85`.
+kept at the `v0.1.0-2` baseline commit
+`b8a4d5af31141663686587b97409c53f29114f2e`.
 
 Initialize it with:
 

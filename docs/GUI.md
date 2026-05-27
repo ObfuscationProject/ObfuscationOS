@@ -47,4 +47,10 @@ xmake -y -b rootfs-simplefs
 xmake -y -b rootfs-ext4
 ```
 
-For a booted graphics path, build the submodule kernel image and run the QEMU GUI task from the kernel project when the local toolchain and QEMU are available.
+For a visible QEMU graphics path, build the submodule kernel image and run:
+
+```sh
+xmake qemu-distro-window --fs=simplefs --kernel=external/ObfuscationKernel/build/linux/x86_64/debug/kernel.bin
+```
+
+The regular `qemu-distro` and `distro-test` paths stay headless for CI.

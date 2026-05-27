@@ -254,7 +254,9 @@ task("qemu-distro")
         options = {
             {"f", "fs", "kv", "simplefs", "Root filesystem image to run: simplefs or ext4"},
             {"k", "kernel", "kv", nil, "Path to kernel.bin/kernel.elf from external/ObfuscationKernel"},
-            {nil, "timeout", "kv", "20", "QEMU timeout in seconds"}
+            {nil, "timeout", "kv", "20", "QEMU timeout in seconds"},
+            {nil, "display", "kv", "none", "QEMU display backend: none, gtk, sdl, ..."},
+            {nil, "interactive", "k", nil, "Keep QEMU running until the window/process exits"}
         }
     }
     on_run(function ()
@@ -287,13 +289,44 @@ task("qemu-distro")
             and path.join(project, "build", "rootfs.simplefs.img")
             or path.join(project, "build", "rootfs.ext4.img")
 
-        os.execv("python3", {
+        local args = {
             path.join(project, "scripts", "qemu_distro.py"),
             "--arch", task_normalize_arch(config.get("arch") or "x86_64"),
             "--kernel", kernel,
             "--rootfs", image,
             "--fs", fs,
             "--timeout", option.get("timeout") or "20",
-        })
+            "--display", option.get("display") or "none",
+        }
+        if option.get("interactive") then
+            table.insert(args, "--interactive")
+        end
+        os.execv("python3", args)
+    end)
+task_end()
+
+task("qemu-distro-window")
+    set_menu {
+        usage = "xmake qemu-distro-window --fs=<simplefs|ext4>",
+        description = "Run the distro QEMU task with a graphical display and keep the window open",
+        options = {
+            {"f", "fs", "kv", "simplefs", "Root filesystem image to run: simplefs or ext4"},
+            {"k", "kernel", "kv", nil, "Path to kernel.bin/kernel.elf from external/ObfuscationKernel"},
+            {nil, "display", "kv", "gtk", "QEMU display backend: gtk, sdl, cocoa, ..."}
+        }
+    }
+    on_run(function ()
+        import("core.base.option")
+        local args = {
+            "qemu-distro",
+            "--fs=" .. (option.get("fs") or "simplefs"),
+            "--display=" .. (option.get("display") or "gtk"),
+            "--interactive",
+        }
+        if option.get("kernel") then
+            table.insert(args, "-k")
+            table.insert(args, option.get("kernel"))
+        end
+        os.execv("xmake", args)
     end)
 task_end()
