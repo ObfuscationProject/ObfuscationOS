@@ -29,6 +29,10 @@ xmake build rootfs-simplefs
 xmake build rootfs-ext4
 ```
 
+The top-level `xmake.lua` only wires the project together.  Architecture data,
+toolchain definitions, targets, and developer tasks live under `xmake/` to match
+the kernel submodule layout.
+
 Primary outputs:
 
 - `sysroot/include`
@@ -42,15 +46,16 @@ Primary outputs:
 If a configured cross compiler is missing, bootstrap it with:
 
 ```sh
-xmake toolchain
+xmake toolchain          # configured arch
+xmake toolchains -a all  # every first-stage arch
 ```
 
 Supported target triples are:
 
 - `x86_64-elf`
-- `aarch64-none-elf`
-- `riscv64-unknown-elf`
-- `loongarch64-unknown-elf`
+- `aarch64-elf`
+- `riscv64-elf`
+- `loongarch64-elf`
 
 ## User Programs
 
@@ -82,6 +87,11 @@ blocks and a maximum of 32 entries.
 After the kernel submodule has been built:
 
 ```sh
-xmake qemu-distro --fs=simplefs
-xmake qemu-distro --fs=ext4
+xmake qemu-distro --fs=simplefs -k external/ObfuscationKernel/build/linux/x86_64/debug/kernel.bin
+xmake qemu-distro --fs=ext4 -k external/ObfuscationKernel/build/linux/x86_64/debug/kernel.bin
 ```
+
+Until the kernel mounts the supplied disk as the process root and hands off to
+`/bin/init`, `qemu-distro` accepts the kernel debug boot marker as the smoke
+baseline.  Once that dependency lands, the task should tighten to require the
+`ObfuscationOS init: userland online` marker.

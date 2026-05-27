@@ -5,7 +5,9 @@ from pathlib import Path
 
 
 REQUIRED_SYMBOLS = (
-    "OK_UAPI_VERSION",
+    "OK_UAPI_VERSION_MAJOR",
+    "OK_UAPI_VERSION_MINOR",
+    "OK_UAPI_VERSION_PATCH",
     "OK_SYS_EXIT",
     "OK_SYS_READ",
     "OK_SYS_WRITE",
@@ -13,6 +15,7 @@ REQUIRED_SYMBOLS = (
     "OK_SYS_CLOSE",
     "OK_SYS_STAT",
     "OK_SYS_GETDENTS",
+    "OK_SYS_GETDENTS64",
     "OK_ENOSYS",
 )
 
@@ -24,20 +27,16 @@ def main() -> int:
 
     include = Path(args.include)
     syscall = include / "ok" / "uapi" / "syscall.h"
-    errno = include / "ok" / "uapi" / "errno.h"
-    types = include / "ok" / "uapi" / "types.h"
-    for path in (syscall, errno, types):
-        if not path.is_file():
-            raise SystemExit(f"missing UAPI header: {path}")
+    if not syscall.is_file():
+        raise SystemExit(f"missing UAPI header: {syscall}")
 
-    text = syscall.read_text(encoding="utf-8") + errno.read_text(encoding="utf-8")
+    text = syscall.read_text(encoding="utf-8")
     for symbol in REQUIRED_SYMBOLS:
         if not re.search(rf"^\s*#define\s+{symbol}\b", text, re.MULTILINE):
             raise SystemExit(f"missing UAPI symbol: {symbol}")
 
-    types_text = types.read_text(encoding="utf-8")
     for name in ("ok_stat", "ok_timespec", "ok_iovec"):
-        if f"struct {name}" not in types_text:
+        if f"struct {name}" not in text:
             raise SystemExit(f"missing UAPI layout: struct {name}")
 
     print(f"[uapi] checked {include}")

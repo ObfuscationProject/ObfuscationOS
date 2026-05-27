@@ -1,11 +1,11 @@
 #ifndef _SYS_STAT_H
 #define _SYS_STAT_H
 
-#include <ok/uapi/types.h>
+#include <ok/uapi/syscall.h>
 #include <sys/types.h>
 
 struct stat {
-    ok_ino_t st_ino;
+    unsigned long st_ino;
     mode_t st_mode;
     unsigned int st_nlink;
     unsigned int st_uid;
@@ -19,18 +19,18 @@ struct stat {
     struct ok_timespec st_ctim;
 };
 
-#define S_IFMT OK_S_IFMT
-#define S_IFREG OK_S_IFREG
-#define S_IFDIR OK_S_IFDIR
-#define S_IRUSR OK_S_IRUSR
-#define S_IWUSR OK_S_IWUSR
-#define S_IXUSR OK_S_IXUSR
-#define S_IRGRP OK_S_IRGRP
-#define S_IWGRP OK_S_IWGRP
-#define S_IXGRP OK_S_IXGRP
-#define S_IROTH OK_S_IROTH
-#define S_IWOTH OK_S_IWOTH
-#define S_IXOTH OK_S_IXOTH
+#define S_IFMT OK_MODE_TYPE_MASK
+#define S_IFREG OK_MODE_REGULAR
+#define S_IFDIR OK_MODE_DIRECTORY
+#define S_IRUSR 0400
+#define S_IWUSR 0200
+#define S_IXUSR 0100
+#define S_IRGRP 0040
+#define S_IWGRP 0020
+#define S_IXGRP 0010
+#define S_IROTH 0004
+#define S_IWOTH 0002
+#define S_IXOTH 0001
 
 #define S_ISREG(mode) (((mode) & S_IFMT) == S_IFREG)
 #define S_ISDIR(mode) (((mode) & S_IFMT) == S_IFDIR)

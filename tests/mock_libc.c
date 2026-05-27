@@ -1,8 +1,6 @@
 #include <errno.h>
 #include <fcntl.h>
-#include <ok/uapi/errno.h>
 #include <ok/uapi/syscall.h>
-#include <ok/uapi/types.h>
 #include <stddef.h>
 #include <string.h>
 #include <sys/stat.h>
@@ -35,9 +33,11 @@ long ok_syscall2(long number, long arg0, long arg1)
     if (number == OK_SYS_STAT || number == OK_SYS_FSTAT) {
         struct ok_stat *st = (struct ok_stat *)arg1;
         memset(st, 0, sizeof(*st));
-        st->st_ino = 7;
-        st->st_mode = OK_S_IFREG | OK_S_IRUSR;
-        st->st_size = 123;
+        st->type = OK_NODE_REGULAR;
+        st->mode = OK_MODE_REGULAR | 0400;
+        st->size = 123;
+        st->link_count = 1;
+        st->block_size = 512;
         return 0;
     }
     if (number == OK_SYS_MKDIR) {
@@ -60,7 +60,7 @@ long ok_syscall3(long number, long arg0, long arg1, long arg2)
     if (number == OK_SYS_OPEN) {
         return 42;
     }
-    if (number == OK_SYS_GETDENTS) {
+    if (number == OK_SYS_GETDENTS64) {
         return 0;
     }
     if (number == OK_SYS_LSEEK) {
@@ -124,7 +124,7 @@ int main(void)
         return 6;
     }
     struct stat st;
-    if (stat("/file", &st) != 0 || st.st_size != 123 || st.st_ino != 7) {
+    if (stat("/file", &st) != 0 || st.st_size != 123 || st.st_mode != (OK_MODE_REGULAR | 0400)) {
         return 7;
     }
     if (strlen("abc") != 3 || strcmp("abc", "abc") != 0 || strncmp("abc", "abd", 2) != 0) {

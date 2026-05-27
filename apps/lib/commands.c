@@ -64,7 +64,7 @@ int cmd_cat(int argc, char **argv)
 
 static int list_dir(const char *path)
 {
-    struct ok_dirent entries[8];
+    unsigned char buffer[512];
     int fd = open(path, O_RDONLY | O_DIRECTORY);
     if (fd < 0) {
         perror(path);
@@ -72,7 +72,7 @@ static int list_dir(const char *path)
     }
 
     for (;;) {
-        ssize_t n = getdents(fd, entries, sizeof(entries));
+        ssize_t n = getdents64(fd, buffer, sizeof(buffer));
         if (n == 0) {
             break;
         }
@@ -81,9 +81,14 @@ static int list_dir(const char *path)
             close(fd);
             return 1;
         }
-        size_t count = (size_t)n / sizeof(entries[0]);
-        for (size_t i = 0; i < count; ++i) {
-            printf("%s\n", entries[i].d_name);
+        size_t offset = 0;
+        while (offset < (size_t)n) {
+            struct dirent *entry = (struct dirent *)(buffer + offset);
+            if (entry->d_reclen == 0) {
+                break;
+            }
+            printf("%s\n", entry->d_name);
+            offset += entry->d_reclen;
         }
     }
 

@@ -1,7 +1,6 @@
 #include <fcntl.h>
 #include <ok/dirent.h>
 #include <ok/syscall.h>
-#include <ok/uapi/types.h>
 #include <stdarg.h>
 #include <stddef.h>
 #include <sys/stat.h>
@@ -9,18 +8,21 @@
 
 static void copy_stat(struct stat *dst, const struct ok_stat *src)
 {
-    dst->st_ino = src->st_ino;
-    dst->st_mode = src->st_mode;
-    dst->st_nlink = src->st_nlink;
-    dst->st_uid = src->st_uid;
-    dst->st_gid = src->st_gid;
-    dst->st_rdev = src->st_rdev;
-    dst->st_size = src->st_size;
-    dst->st_blksize = src->st_blksize;
-    dst->st_blocks = src->st_blocks;
-    dst->st_atim = src->st_atim;
-    dst->st_mtim = src->st_mtim;
-    dst->st_ctim = src->st_ctim;
+    dst->st_ino = 0;
+    dst->st_mode = src->mode;
+    dst->st_nlink = src->link_count;
+    dst->st_uid = src->uid;
+    dst->st_gid = src->gid;
+    dst->st_rdev = 0;
+    dst->st_size = (off_t)src->size;
+    dst->st_blksize = src->block_size;
+    dst->st_blocks = (unsigned int)src->blocks;
+    dst->st_atim.seconds = 0;
+    dst->st_atim.nanoseconds = 0;
+    dst->st_mtim.seconds = 0;
+    dst->st_mtim.nanoseconds = 0;
+    dst->st_ctim.seconds = 0;
+    dst->st_ctim.nanoseconds = 0;
 }
 
 void _Exit(int status)
@@ -94,7 +96,7 @@ int unlink(const char *path)
     return (int)ok_syscall_ret(ok_syscall1(OK_SYS_UNLINK, (long)path));
 }
 
-ssize_t getdents(int fd, struct ok_dirent *dirents, size_t count)
+ssize_t getdents64(int fd, void *buf, size_t count)
 {
-    return (ssize_t)ok_syscall_ret(ok_syscall3(OK_SYS_GETDENTS, fd, (long)dirents, (long)count));
+    return (ssize_t)ok_syscall_ret(ok_syscall3(OK_SYS_GETDENTS64, fd, (long)buf, (long)count));
 }

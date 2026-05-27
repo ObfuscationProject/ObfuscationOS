@@ -3,6 +3,10 @@
 
 #include <ok/uapi/syscall.h>
 
+#ifndef OK_O_EXCL
+#define OK_O_EXCL 0x0080U
+#endif
+
 #define O_RDONLY OK_O_RDONLY
 #define O_WRONLY OK_O_WRONLY
 #define O_RDWR OK_O_RDWR

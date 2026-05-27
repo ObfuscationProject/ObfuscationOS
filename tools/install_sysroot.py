@@ -5,13 +5,6 @@ import shutil
 from pathlib import Path
 
 
-UAPI_CANDIDATES = (
-    "uapi/include",
-    "include/uapi",
-    "include",
-)
-
-
 def copy_tree(src: Path, dst: Path) -> None:
     if not src.exists():
         return
@@ -27,11 +20,10 @@ def copy_tree(src: Path, dst: Path) -> None:
 def find_kernel_uapi(kernel_dir: Path) -> Path | None:
     if not kernel_dir.exists():
         return None
-    for candidate in UAPI_CANDIDATES:
-        path = kernel_dir / candidate
-        syscall = path / "ok" / "uapi" / "syscall.h"
+    for include in (kernel_dir / "uapi" / "include", kernel_dir / "include"):
+        syscall = include / "ok" / "uapi" / "syscall.h"
         if syscall.is_file():
-            return path
+            return syscall.parent
     return None
 
 
@@ -60,7 +52,7 @@ def main() -> int:
     else:
         print(f"[sysroot] using kernel UAPI: {kernel_uapi}")
 
-    copy_tree(kernel_uapi, include_dir)
+    copy_tree(kernel_uapi, include_dir / "ok" / "uapi")
     copy_tree(project / "sdk" / "include", include_dir)
     copy_tree(project / "lib" / "okcrt" / "include", include_dir)
 
