@@ -4,6 +4,7 @@ compile_commands.json
 /.xmake
 /.vscode
 /build
+/sysroot
 /build-toolchain/tarballs
 /build-toolchain/src
 /build-toolchain/build

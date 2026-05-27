@@ -1,8 +1,12 @@
 local function normalize_arch(arch)
-    if arch == "x86" or arch == "i386" then
-        return "i386"
-    elseif arch == "x64" or arch == "amd64" then
+    if arch == "x64" or arch == "amd64" then
         return "x86_64"
+    elseif arch == "arm64" then
+        return "aarch64"
+    elseif arch == "riscv64" then
+        return "rv64"
+    elseif arch == "loong64" then
+        return "loongarch64"
     end
     return arch
 end
@@ -12,18 +16,21 @@ local function resolve_arch()
     if not arch or arch == "" then
         arch = os.arch()
     end
-    arch = normalize_arch(arch)
-    return arch or ""
+    return normalize_arch(arch)
 end
 
 local function resolve_target()
     local arch = resolve_arch()
     if arch == "x86_64" then
         return "x86_64-elf"
-    elseif arch == "i386" then
-        return "i386-elf"
+    elseif arch == "aarch64" then
+        return "aarch64-none-elf"
+    elseif arch == "rv64" then
+        return "riscv64-unknown-elf"
+    elseif arch == "loongarch64" then
+        return "loongarch64-unknown-elf"
     end
-    assert(false, "Unsupported arch for elf toolchain: " .. tostring(arch))
+    raise("Unsupported arch for elf toolchain: " .. tostring(arch))
 end
 
 local function resolve_location(target)
@@ -45,7 +52,7 @@ local function apply_toolset(toolchain, prefix, bindir)
     toolchain:set("toolset", "cc", prefix .. "gcc")
     toolchain:set("toolset", "cxx", prefix .. "g++")
     toolchain:set("toolset", "as", prefix .. "gcc")
-    toolchain:set("toolset", "ld", prefix .. "ld")
+    toolchain:set("toolset", "ld", prefix .. "gcc")
     toolchain:set("toolset", "ar", prefix .. "ar")
     toolchain:set("toolset", "ranlib", prefix .. "ranlib")
     toolchain:set("toolset", "strip", prefix .. "strip")
@@ -99,7 +106,7 @@ toolchain("elf")
         end
 
         if get_config("auto_bootstrap_toolchain") == false then
-            assert(false, string.format("ELF toolchain not found (%s). Run `xmake toolchain` or set `--cross_prefix=...`.", target))
+            raise(string.format("ELF toolchain not found (%s). Run `xmake toolchain` or set `--cross_prefix=...`.", target))
         end
         cprint("${yellow}warning: ELF toolchain missing (%s). Configure continues, run `xmake toolchain` to bootstrap it.${clear}", target)
         return true

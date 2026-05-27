@@ -1,0 +1,43 @@
+#ifndef _ERRNO_H
+#define _ERRNO_H
+
+#include <ok/uapi/errno.h>
+
+extern int errno;
+
+#define EPERM OK_EPERM
+#define ENOENT OK_ENOENT
+#define ESRCH OK_ESRCH
+#define EINTR OK_EINTR
+#define EIO OK_EIO
+#define ENXIO OK_ENXIO
+#define E2BIG OK_E2BIG
+#define ENOEXEC OK_ENOEXEC
+#define EBADF OK_EBADF
+#define ECHILD OK_ECHILD
+#define EAGAIN OK_EAGAIN
+#define ENOMEM OK_ENOMEM
+#define EACCES OK_EACCES
+#define EFAULT OK_EFAULT
+#define EBUSY OK_EBUSY
+#define EEXIST OK_EEXIST
+#define EXDEV OK_EXDEV
+#define ENODEV OK_ENODEV
+#define ENOTDIR OK_ENOTDIR
+#define EISDIR OK_EISDIR
+#define EINVAL OK_EINVAL
+#define ENFILE OK_ENFILE
+#define EMFILE OK_EMFILE
+#define ENOTTY OK_ENOTTY
+#define EFBIG OK_EFBIG
+#define ENOSPC OK_ENOSPC
+#define ESPIPE OK_ESPIPE
+#define EROFS OK_EROFS
+#define EMLINK OK_EMLINK
+#define EPIPE OK_EPIPE
+#define ERANGE OK_ERANGE
+#define ENAMETOOLONG OK_ENAMETOOLONG
+#define ENOSYS OK_ENOSYS
+#define ENOTEMPTY OK_ENOTEMPTY
+
+#endif
