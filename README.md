@@ -97,8 +97,10 @@ kernel has completed boot, the OS module loader (`/bin/kmodload --all`, and the
 current boot fallback until `execve` handoff is enabled) calls
 `OK_SYS_LOAD_MODULE` to ask the kernel to load those packages. The desktop
 module consumes `gui.compositor` / `gui.desktop`, exports
-`gui.system-desktop`, and opens the default System Status desktop; the app
-modules open About, Preferences, and Notes windows. See [docs/GUI.md](docs/GUI.md).
+`gui.system-desktop`, and opens the default ObfuscationOS Login desktop with
+root selected as the default user; the app modules open About, Preferences, and
+Notes windows. A `system tui` shell command provides the text-mode system view.
+See [docs/GUI.md](docs/GUI.md).
 
 ## Root Filesystems
 

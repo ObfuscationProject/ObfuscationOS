@@ -13,7 +13,7 @@ class SystemGuiModule final
   public:
     static constexpr const char *name = "system-gui";
     static constexpr const char *service = "gui.system-desktop";
-    static constexpr const char *title = "System Status";
+    static constexpr const char *title = "ObfuscationOS Login";
     static constexpr const char *brand = "ObfuscationOS";
 };
 

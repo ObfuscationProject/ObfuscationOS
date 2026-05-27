@@ -15,7 +15,7 @@
 **Files:**
 - Modify: `external/ObfuscationKernel/tests/kernel/roadmap/gui_tests.cpp`
 
-- [ ] Add a failing roadmap test that expects post-boot loading of the OS-side `system-gui` module, a `gui.system-desktop` service, and a default status window.
+- [ ] Add a failing roadmap test that expects post-boot loading of the OS-side `system-gui` module, a `gui.system-desktop` service, and a default login window.
 - [ ] Run the focused kernel build/test command and confirm the test fails because the service/module is missing.
 
 ### Task 2: Implement System Desktop Module
@@ -31,7 +31,7 @@
 - Modify: `external/ObfuscationKernel/include/ok/gui/gui.hpp`
 
 - [ ] Add OS-side `system-gui` package metadata plus loader app.
-- [ ] Add generic kernel external desktop module support with manifest, service export, scheduler/topology bindings, load metadata, default status surface, and stop/shutdown behavior.
+- [ ] Add generic kernel external desktop module support with manifest, service export, scheduler/topology bindings, load metadata, default login surface, and stop/shutdown behavior.
 - [ ] Stage `/boot/modules/system-gui.okmod`, then load/register/start it after core kernel boot through `OK_SYS_LOAD_MODULE`.
 - [ ] Route `TaskbarApp::task_monitor` to `open_task_manager()`.
 - [ ] Run the focused test and confirm it passes.

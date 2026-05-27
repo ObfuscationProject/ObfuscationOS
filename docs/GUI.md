@@ -14,11 +14,13 @@ The default GUI session provides:
 
 - an artistic dark desktop background and taskbar;
 - shell, file manager, and task monitor launchers;
-- a startup status window with CPU and process metrics;
+- an ObfuscationOS Login window with root selected as the default user;
+- CPU, process, and app availability status on the login surface;
 - demo app windows: About ObfuscationOS, System Preferences, and Notes;
+- a `system tui` command for text-mode system status and login context;
 - recovery after the GUI compositor is restarted.
 
-The debug shell remains available through the launcher and keyboard path, but it is no longer the visual definition of the desktop.
+The debug shell remains available through the launcher and keyboard path, but it is no longer the visual definition of the desktop. The internal `kernel` account is only exposed when the shell is explicitly switched into kernel debug mode; normal root/user sessions do not list it.
 
 ## Files
 
@@ -59,4 +61,4 @@ xmake qemu-distro-window --fs=simplefs
 xmake qemu-distro-window --fs=simplefs --display=none --timeout=10
 ```
 
-`qemu-distro-window` now builds a release `kernel_gui` image when `--kernel` is omitted, attaches the ObfuscationOS SimpleFS rootfs, and boots into the System GUI modules instead of the kernel debug shell. The regular `qemu-distro` and `distro-test` paths stay headless for CI.
+`qemu-distro-window` now builds a release `kernel_gui` image when `--kernel` is omitted, attaches the ObfuscationOS SimpleFS rootfs, and boots into the System GUI modules instead of the kernel debug shell. The regular `qemu-distro` and `distro-test` paths stay headless for CI. When QEMU uses the current emulated block path and the staged package is not visible through the guest VFS, the kernel uses the same built-in OKMOD metadata as a boot fallback so the login surface and app windows still appear.
