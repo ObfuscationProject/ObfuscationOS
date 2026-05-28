@@ -9,5 +9,5 @@ param=entry:oop
 param=class:desktop
 param=brand:ObfuscationOS
 param=title:ObfuscationOS Login
-param=subtitle:default user root
+param=subtitle:choose root or user
 signature=system-gui-dev

@@ -12,12 +12,12 @@ The current loader path uses OKMOD metadata to bind a compatible C++ desktop-mod
 
 The GUI startup path provides:
 
-- a full-screen ObfuscationOS Login greeter with root selected as the default user;
+- a full-screen ObfuscationOS Login greeter with root selected by default, plus mouse/Tab selection for the regular user;
 - a pre-desktop state where app windows are not loaded yet;
-- Enter-to-login as root;
+- Enter/Space or mouse click to log in as the selected user;
 - a distinct System Shell renderer with its own background, status panel, and dock;
-- shell, file manager, and task monitor launchers handled by the System Shell dock;
-- demo app windows loaded after login: About ObfuscationOS, System Preferences, and Notes;
+- System app launchers handled by the System Shell dock instead of the kernel shell/file/task launchers;
+- app windows loaded after login: About ObfuscationOS, System Preferences, and Notes;
 - TUI startup selected by boot parameters/mode rather than by a GUI session picker;
 - recovery after the GUI compositor is restarted.
 
