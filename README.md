@@ -88,18 +88,20 @@ The MVP image includes:
 
 ## System GUI
 
-The kernel submodule provides the low-level `kernel-gui` compositor service in
-C++. The base desktop module package lives on the OS side at
+The kernel submodule provides the low-level `kernel-gui` compositor service and
+debug chrome in C++. The user-visible greeter and desktop shell live on the OS
+side at
 `modules/system-gui/system-gui.okmod` and is staged into the root filesystem as
 `/boot/modules/system-gui.okmod`. Small demo GUI apps live in
 `modules/system-apps` and are staged under `/boot/modules/apps`. After the
 kernel has completed boot, the OS module loader (`/bin/kmodload --all`, and the
 current boot fallback until `execve` handoff is enabled) calls
-`OK_SYS_LOAD_MODULE` to ask the kernel to load those packages. The desktop
-module consumes `gui.compositor` / `gui.desktop`, exports
-`gui.system-desktop`, and opens the default ObfuscationOS Login desktop with
-root selected as the default user; the app modules open About, Preferences, and
-Notes windows. A `system tui` shell command provides the text-mode system view.
+`OK_SYS_LOAD_MODULE` to ask the kernel to load those packages. The desktop module
+consumes `gui.compositor` / `gui.desktop`, exports `gui.system-desktop`, and
+opens a pre-desktop ObfuscationOS Login greeter with root selected as the default
+user. Pressing Enter logs in as root, switches to the System Shell renderer, and
+then loads the About, Preferences, and Notes app modules. Text-mode TUI boot is
+selected by startup parameters/mode rather than by a GUI session picker.
 See [docs/GUI.md](docs/GUI.md).
 
 ## Root Filesystems

@@ -2,7 +2,7 @@
 
 ObfuscationOS now treats the graphical desktop as a system feature instead of a kernel test surface.
 
-The low-level compositor still lives in the ObfuscationKernel submodule as `kernel-gui`. It owns the framebuffer compositor, taskbar drawing, window surfaces, pointer state, and the `gui.compositor` / `gui.desktop` services.
+The low-level compositor still lives in the ObfuscationKernel submodule as `kernel-gui`. It owns the framebuffer compositor, kernel debug chrome, window surfaces, pointer state, and the `gui.compositor` / `gui.desktop` services. When System GUI is active, kernel taskbar/chrome rendering is disabled for the full-screen system surfaces.
 
 The base desktop is an ObfuscationOS-side C++ OOP kernel module package named `system-gui`. Its manifest lives at `modules/system-gui/system-gui.okmod`, and root filesystem images stage it as `/boot/modules/system-gui.okmod`. Demo GUI app packages live in `modules/system-apps` and are staged under `/boot/modules/apps`.
 
@@ -10,14 +10,15 @@ The kernel does not register System GUI as a built-in module during core boot. A
 
 The current loader path uses OKMOD metadata to bind a compatible C++ desktop-module ABI. Arbitrary external ELF relocation and text execution remain part of the kernel module roadmap, so the GUI module is external at the OS package/loading boundary while native dynamic linking is still growing.
 
-The default GUI session provides:
+The GUI startup path provides:
 
-- an artistic dark desktop background and taskbar;
-- shell, file manager, and task monitor launchers;
-- an ObfuscationOS Login window with root selected as the default user;
-- CPU, process, and app availability status on the login surface;
-- demo app windows: About ObfuscationOS, System Preferences, and Notes;
-- a `system tui` command for text-mode system status and login context;
+- a full-screen ObfuscationOS Login greeter with root selected as the default user;
+- a pre-desktop state where app windows are not loaded yet;
+- Enter-to-login as root;
+- a distinct System Shell renderer with its own background, status panel, and dock;
+- shell, file manager, and task monitor launchers handled by the System Shell dock;
+- demo app windows loaded after login: About ObfuscationOS, System Preferences, and Notes;
+- TUI startup selected by boot parameters/mode rather than by a GUI session picker;
 - recovery after the GUI compositor is restarted.
 
 The debug shell remains available through the launcher and keyboard path, but it is no longer the visual definition of the desktop. The internal `kernel` account is only exposed when the shell is explicitly switched into kernel debug mode; normal root/user sessions do not list it.
@@ -42,8 +43,8 @@ Build the kernel profile:
 
 ```sh
 cd external/ObfuscationKernel
-xmake f -P . -c -m debug -a x86_64
-xmake -P . -y -b okernel
+xmake f -P . -m debug -a x86_64 --kernel_gui=y
+xmake -P . -y -b okernel_image
 cd ../..
 ```
 
@@ -61,4 +62,4 @@ xmake qemu-distro-window --fs=simplefs
 xmake qemu-distro-window --fs=simplefs --display=none --timeout=10
 ```
 
-`qemu-distro-window` now builds a release `kernel_gui` image when `--kernel` is omitted, attaches the ObfuscationOS SimpleFS rootfs, and boots into the System GUI modules instead of the kernel debug shell. The regular `qemu-distro` and `distro-test` paths stay headless for CI. When QEMU uses the current emulated block path and the staged package is not visible through the guest VFS, the kernel uses the same built-in OKMOD metadata as a boot fallback so the login surface and app windows still appear.
+`qemu-distro-window` now builds a release `kernel_gui` image incrementally when `--kernel` is omitted, attaches the ObfuscationOS SimpleFS rootfs, and boots into the System GUI greeter instead of the kernel debug shell. The regular `qemu-distro` and `distro-test` paths stay headless for CI. When QEMU uses the current emulated block path and the staged package is not visible through the guest VFS, the kernel uses the same built-in OKMOD metadata as a boot fallback so the login surface and post-login app windows still appear.

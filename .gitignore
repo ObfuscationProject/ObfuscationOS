@@ -3,6 +3,7 @@ compile_commands.json
 /.cache
 /.xmake
 /.vscode
+/.superpowers
 /build
 /sysroot
 /build-toolchain/tarballs

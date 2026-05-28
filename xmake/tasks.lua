@@ -331,8 +331,8 @@ task("qemu-distro-window")
             local arch = task_normalize_arch(config.get("arch") or "x86_64")
             local mode = option.get("kernel-mode") or "release"
             local kernel_dir = path.join(project, "external", "ObfuscationKernel")
-            os.execv("xmake", {"f", "-P", ".", "-c", "-m", mode, "-a", arch, "--kernel_gui=y", "--ccache=n"}, {curdir = kernel_dir})
-            os.execv("xmake", {"-P", ".", "-y", "-r", "-b", "okernel_image"}, {curdir = kernel_dir})
+            os.execv("xmake", {"f", "-P", ".", "-m", mode, "-a", arch, "--kernel_gui=y"}, {curdir = kernel_dir})
+            os.execv("xmake", {"-P", ".", "-y", "-b", "okernel_image"}, {curdir = kernel_dir})
             local candidates = {
                 path.join(kernel_dir, "build", "linux", arch, mode, "kernel.bin"),
                 path.join(project, "build", "linux", arch, mode, "kernel.bin"),
