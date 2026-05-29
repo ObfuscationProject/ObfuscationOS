@@ -6,11 +6,6 @@
 static const char *default_module_path = "/boot/modules/system-gui.okmod";
 static const char *default_module_set[] = {
     "/boot/modules/system-gui.okmod",
-    "/boot/modules/apps/shell.okmod",
-    "/boot/modules/apps/settings.okmod",
-    "/boot/modules/apps/tasks.okmod",
-    "/boot/modules/apps/notes.okmod",
-    "/boot/modules/apps/about.okmod",
 };
 
 static int load_one(const char *path)

@@ -86,6 +86,10 @@ The MVP image includes:
 - `uname`
 - `uptime`
 - `touch`
+- `settings`
+- `tasks`
+- `notes`
+- `about`
 - `kmodload`
 
 `oksh` is intentionally builtin-only until the kernel grows `fork`, `execve`,
@@ -97,17 +101,18 @@ The kernel submodule provides the low-level `kernel-gui` compositor service and
 debug chrome in C++. The user-visible greeter and desktop shell live on the OS
 side at
 `modules/system-gui/system-gui.okmod` and is staged into the root filesystem as
-`/boot/modules/system-gui.okmod`. Small demo GUI apps live in
-`modules/system-apps` and are staged under `/boot/modules/apps`. After the
-kernel has completed boot, the OS module loader (`/bin/kmodload --all`, and the
-current boot fallback until `execve` handoff is enabled) calls
-`OK_SYS_LOAD_MODULE` to ask the kernel to load those packages. The desktop module
-consumes `gui.compositor` / `gui.desktop`, exports `gui.system-desktop`, and
-opens a pre-desktop ObfuscationOS Login greeter with root selected as the default
-user. The greeter also supports a mouse-opened user dropdown, and pressing
-Enter logs in as the selected user. Login switches to the System Shell renderer
-and then loads Tiny Shell, System Settings, Task Manager, Notes, and About app
-modules. These System dock launchers route to OS app packages instead of the
+`/boot/modules/system-gui.okmod`. The dock applications are standalone tiny-c
+ELF programs staged in `/bin` (`oksh`, `settings`, `tasks`, `notes`, and
+`about`), not OKMOD packages. After the kernel has completed boot, the OS module
+loader (`/bin/kmodload --all`, and the current boot fallback until full
+`execve` handoff is enabled) loads only the desktop package with
+`OK_SYS_LOAD_MODULE`. The desktop module consumes `gui.compositor` /
+`gui.desktop`, exports `gui.system-desktop`, and opens a pre-desktop
+ObfuscationOS Login greeter with root selected as the default user. The greeter
+also supports a mouse-opened user dropdown, and pressing Enter logs in as the
+selected user. Login switches to the System Shell renderer and then starts the
+Tiny Shell, System Settings, Task Manager, Notes, and About ELF apps as the
+selected user. These System dock launchers route to OS user apps instead of the
 kernel debug shell/file/task launchers. Text-mode TUI boot is selected by
 startup parameters/mode rather than by a GUI session picker.
 See [docs/GUI.md](docs/GUI.md).
@@ -134,7 +139,7 @@ xmake qemu-distro-window --fs=simplefs --display=none --timeout=10
 
 `qemu-distro` is the headless smoke path used by CI. `qemu-distro-window`
 builds a release GUI kernel when `--kernel` is omitted, attaches the SimpleFS
-rootfs, loads the System GUI packages from `/boot/modules`, and keeps the QEMU
+rootfs, loads the System GUI desktop package from `/boot/modules`, and keeps the QEMU
 window open until it exits. Passing `--timeout` validates the same System GUI
 path headlessly and exits after the boot marker. The headless release smoke
 marker for that path is `OK_SYSTEM_GUI boot=complete`; debug-kernel distro

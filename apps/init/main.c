@@ -6,11 +6,6 @@
 
 static const char *system_gui_modules[] = {
     "/boot/modules/system-gui.okmod",
-    "/boot/modules/apps/shell.okmod",
-    "/boot/modules/apps/settings.okmod",
-    "/boot/modules/apps/tasks.okmod",
-    "/boot/modules/apps/notes.okmod",
-    "/boot/modules/apps/about.okmod",
 };
 
 int main(int argc, char **argv)
@@ -19,7 +14,7 @@ int main(int argc, char **argv)
     (void)argv;
 
     puts("ObfuscationOS init: userland online");
-    puts("ObfuscationOS init: /bin/oksh is available once execve lands in the kernel");
+    puts("ObfuscationOS init: tiny-c /bin apps are staged for shell and System GUI");
     for (size_t i = 0; i < sizeof(system_gui_modules) / sizeof(system_gui_modules[0]); ++i) {
         if (ok_syscall_ret(ok_syscall1(OK_SYS_LOAD_MODULE, (long)system_gui_modules[i])) == 0) {
             puts("ObfuscationOS init: loaded GUI module");

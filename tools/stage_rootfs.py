@@ -4,7 +4,26 @@ import shutil
 from pathlib import Path
 
 
-APPS = ("init", "oksh", "hello", "cat", "ls", "stat", "mkdir", "rm", "pwd", "whoami", "uname", "uptime", "touch", "kmodload")
+APPS = (
+    "init",
+    "oksh",
+    "hello",
+    "cat",
+    "ls",
+    "stat",
+    "mkdir",
+    "rm",
+    "pwd",
+    "whoami",
+    "uname",
+    "uptime",
+    "touch",
+    "settings",
+    "tasks",
+    "notes",
+    "about",
+    "kmodload",
+)
 
 
 OS_RELEASE = """NAME=ObfuscationOS
@@ -22,7 +41,6 @@ def main() -> int:
     apps_dir = Path(args.apps_dir)
     project = Path(__file__).resolve().parent.parent
     system_gui_module = project / "modules" / "system-gui" / "system-gui.okmod"
-    system_app_modules = sorted((project / "modules" / "system-apps").glob("*.okmod"))
     out = Path(args.out)
     if out.exists():
         shutil.rmtree(out)
@@ -30,11 +48,9 @@ def main() -> int:
     bin_dir = out / "bin"
     etc_dir = out / "etc"
     modules_dir = out / "boot" / "modules"
-    app_modules_dir = modules_dir / "apps"
     bin_dir.mkdir(parents=True)
     etc_dir.mkdir(parents=True)
     modules_dir.mkdir(parents=True)
-    app_modules_dir.mkdir(parents=True)
 
     for app in APPS:
         src = apps_dir / f"{app}.elf"
@@ -48,10 +64,6 @@ def main() -> int:
     if not system_gui_module.is_file():
         raise SystemExit(f"missing system GUI module package: {system_gui_module}")
     shutil.copy2(system_gui_module, modules_dir / "system-gui.okmod")
-    if not system_app_modules:
-        raise SystemExit("missing system GUI app module packages")
-    for module in system_app_modules:
-        shutil.copy2(module, app_modules_dir / module.name)
     print(f"[rootfs] staged {out}")
     return 0
 
