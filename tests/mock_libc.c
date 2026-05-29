@@ -12,6 +12,15 @@ static long last_number;
 long ok_syscall0(long number)
 {
     last_number = number;
+    if (number == OK_SYS_GETUID || number == OK_SYS_GETEUID) {
+        return 1000;
+    }
+    if (number == OK_SYS_GETGID || number == OK_SYS_GETEGID) {
+        return 1000;
+    }
+    if (number == OK_SYS_GETPID) {
+        return 7;
+    }
     return -OK_ENOSYS;
 }
 
@@ -21,6 +30,9 @@ long ok_syscall1(long number, long arg0)
     last_number = number;
     if (number == OK_SYS_CLOSE) {
         return 0;
+    }
+    if (number == OK_SYS_CHDIR) {
+        return arg0 ? 0 : -OK_EFAULT;
     }
     if (number == OK_SYS_UNLINK) {
         return -OK_ENOENT;
@@ -43,6 +55,14 @@ long ok_syscall2(long number, long arg0, long arg1)
     }
     if (number == OK_SYS_MKDIR) {
         return arg0 ? 0 : -OK_EFAULT;
+    }
+    if (number == OK_SYS_GETCWD) {
+        char *out = (char *)arg0;
+        if (!out || arg1 < 5) {
+            return -OK_EOVERFLOW;
+        }
+        strcpy(out, "/tmp");
+        return 4;
     }
     return -OK_ENOSYS;
 }
@@ -145,11 +165,32 @@ int main(void)
     if (getdents64(42, dent_buffer, sizeof(dent_buffer)) != 0 || last_number != OK_SYS_GETDENTS64) {
         return 12;
     }
-    if (strlen("abc") != 3 || strcmp("abc", "abc") != 0 || strncmp("abc", "abd", 2) != 0) {
+    uid_t uid = getuid();
+    if (uid != 1000 || geteuid() != 1000 || getgid() != 1000 || getegid() != 1000) {
         return 13;
     }
-    if (memcmp("a", "b", 1) >= 0) {
+    if (getpid() != 7 || last_number != OK_SYS_GETPID) {
         return 14;
+    }
+    char cwd[8];
+    if (getcwd(cwd, sizeof(cwd)) != cwd || strcmp(cwd, "/tmp") != 0 || last_number != OK_SYS_GETCWD) {
+        return 15;
+    }
+    char tiny_cwd[2];
+    if (getcwd(tiny_cwd, sizeof(tiny_cwd)) != NULL || errno != EOVERFLOW) {
+        return 16;
+    }
+    if (chdir("/tmp") != 0 || last_number != OK_SYS_CHDIR) {
+        return 17;
+    }
+    if (chdir(NULL) != -1 || errno != EFAULT) {
+        return 18;
+    }
+    if (strlen("abc") != 3 || strcmp("abc", "abc") != 0 || strncmp("abc", "abd", 2) != 0) {
+        return 19;
+    }
+    if (memcmp("a", "b", 1) >= 0) {
+        return 20;
     }
     return 0;
 }

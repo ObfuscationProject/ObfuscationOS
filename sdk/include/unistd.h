@@ -17,6 +17,13 @@ ssize_t write(int fd, const void *buf, size_t count);
 int close(int fd);
 off_t lseek(int fd, off_t offset, int whence);
 int unlink(const char *path);
+pid_t getpid(void);
+uid_t getuid(void);
+uid_t geteuid(void);
+gid_t getgid(void);
+gid_t getegid(void);
+char *getcwd(char *buf, size_t size);
+int chdir(const char *path);
 void _Exit(int status) __attribute__((noreturn));
 
 #endif

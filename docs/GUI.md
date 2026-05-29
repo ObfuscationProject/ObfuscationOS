@@ -4,7 +4,7 @@ ObfuscationOS now treats the graphical desktop as a system feature instead of a 
 
 The low-level compositor still lives in the ObfuscationKernel submodule as `kernel-gui`. It owns the framebuffer compositor, kernel debug chrome, window surfaces, pointer state, and the `gui.compositor` / `gui.desktop` services. When System GUI is active, kernel taskbar/chrome rendering is disabled for the full-screen system surfaces.
 
-The base desktop is an ObfuscationOS-side C++ OOP kernel module package named `system-gui`. Its manifest lives at `modules/system-gui/system-gui.okmod`, and root filesystem images stage it as `/boot/modules/system-gui.okmod`. Demo GUI app packages live in `modules/system-apps` and are staged under `/boot/modules/apps`.
+The base desktop is an ObfuscationOS-side C++ OOP kernel module package named `system-gui`. Its manifest lives at `modules/system-gui/system-gui.okmod`, and root filesystem images stage it as `/boot/modules/system-gui.okmod`. System GUI app packages live in `modules/system-apps` and are staged under `/boot/modules/apps`. Their metadata points at tiny-c userland commands such as `/bin/oksh`, `/bin/stat`, `/bin/uptime`, and `/bin/cat` while the native GUI relocation ABI is still growing.
 
 The kernel does not register System GUI as a built-in module during core boot. After boot, the OS module loader (`/bin/kmodload --all`, with the current kernel entry doing the same best-effort boot load until `execve` handoff is available) calls `OK_SYS_LOAD_MODULE`. The kernel reads the package through the VFS, or from the mounted SimpleFS rootfs package name when it came from the distro image, parses OKMOD metadata, validates `entry:oop`, `class:desktop` or `class:app`, required GUI imports, and the exported service, and starts it through `ModuleManager`.
 
@@ -12,12 +12,12 @@ The current loader path uses OKMOD metadata to bind a compatible C++ desktop-mod
 
 The GUI startup path provides:
 
-- a full-screen ObfuscationOS Login greeter with root selected by default, plus mouse/Tab selection for the regular user;
+- a full-screen ObfuscationOS Login greeter with root selected by default, plus a mouse-opened dropdown and Tab selection for the regular user;
 - a pre-desktop state where app windows are not loaded yet;
 - Enter/Space or mouse click to log in as the selected user;
 - a distinct System Shell renderer with its own background, status panel, and dock;
 - System app launchers handled by the System Shell dock instead of the kernel shell/file/task launchers;
-- app windows loaded after login: About ObfuscationOS, System Preferences, and Notes;
+- app windows loaded after login: Tiny Shell, System Settings, Task Manager, Notes, and About ObfuscationOS;
 - TUI startup selected by boot parameters/mode rather than by a GUI session picker;
 - recovery after the GUI compositor is restarted.
 

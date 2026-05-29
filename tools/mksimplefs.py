@@ -38,6 +38,10 @@ def flat_name(root: Path, path: Path) -> str:
     parts = rel.parts
     if len(parts) >= 2 and parts[0] in {"bin", "etc"}:
         return parts[-1]
+    if len(parts) >= 3 and parts[0] == "boot" and parts[1] == "modules" and parts[2] == "apps":
+        return f"apps_{parts[-1]}"
+    if len(parts) >= 2 and parts[0] == "boot" and parts[1] == "modules":
+        return parts[-1]
     return "_".join(parts)
 
 

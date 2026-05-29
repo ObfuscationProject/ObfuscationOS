@@ -59,6 +59,31 @@ int close(int fd)
     return (int)ok_syscall_ret(ok_syscall1(OK_SYS_CLOSE, fd));
 }
 
+pid_t getpid(void)
+{
+    return (pid_t)ok_syscall_ret(ok_syscall0(OK_SYS_GETPID));
+}
+
+uid_t getuid(void)
+{
+    return (uid_t)ok_syscall_ret(ok_syscall0(OK_SYS_GETUID));
+}
+
+uid_t geteuid(void)
+{
+    return (uid_t)ok_syscall_ret(ok_syscall0(OK_SYS_GETEUID));
+}
+
+gid_t getgid(void)
+{
+    return (gid_t)ok_syscall_ret(ok_syscall0(OK_SYS_GETGID));
+}
+
+gid_t getegid(void)
+{
+    return (gid_t)ok_syscall_ret(ok_syscall0(OK_SYS_GETEGID));
+}
+
 off_t lseek(int fd, off_t offset, int whence)
 {
     return (off_t)ok_syscall_ret(ok_syscall3(OK_SYS_LSEEK, fd, offset, whence));
@@ -94,6 +119,17 @@ int mkdir(const char *path, mode_t mode)
 int unlink(const char *path)
 {
     return (int)ok_syscall_ret(ok_syscall1(OK_SYS_UNLINK, (long)path));
+}
+
+char *getcwd(char *buf, size_t size)
+{
+    long result = ok_syscall_ret(ok_syscall2(OK_SYS_GETCWD, (long)buf, (long)size));
+    return result < 0 ? 0 : buf;
+}
+
+int chdir(const char *path)
+{
+    return (int)ok_syscall_ret(ok_syscall1(OK_SYS_CHDIR, (long)path));
 }
 
 ssize_t getdents64(int fd, void *buf, size_t count)

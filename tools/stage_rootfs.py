@@ -4,7 +4,7 @@ import shutil
 from pathlib import Path
 
 
-APPS = ("init", "oksh", "hello", "cat", "ls", "stat", "mkdir", "rm", "kmodload")
+APPS = ("init", "oksh", "hello", "cat", "ls", "stat", "mkdir", "rm", "pwd", "whoami", "uname", "uptime", "touch", "kmodload")
 
 
 OS_RELEASE = """NAME=ObfuscationOS

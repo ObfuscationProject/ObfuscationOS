@@ -1,0 +1,22 @@
+OKMOD
+name=system-settings
+version=1
+vermagic=okernel-cxx-oop
+require=gui.compositor
+require=gui.desktop
+require=gui.system-desktop
+export=gui.app.settings
+param=entry:oop
+param=class:app
+param=title:System Settings
+param=subtitle:display and session settings
+param=body:Theme, input, and desktop state
+param=command:/bin/stat /etc/os-release
+param=line1:palette mint / blue / rose
+param=line2:pointer and keyboard enabled
+param=x:520
+param=y:56
+param=width:344
+param=height:158
+param=accent:mint
+signature=system-settings-dev

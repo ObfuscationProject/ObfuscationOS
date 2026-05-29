@@ -1,0 +1,23 @@
+OKMOD
+name=system-shell
+version=1
+vermagic=okernel-cxx-oop
+require=gui.compositor
+require=gui.desktop
+require=gui.system-desktop
+export=gui.app.shell
+param=entry:oop
+param=class:app
+param=title:Tiny Shell
+param=subtitle:tiny-c builtins shell
+param=body:oksh is available in /bin
+param=command:/bin/oksh
+param=line1:help ls cat stat pwd cd
+param=line2:whoami uname uptime touch
+param=line3:execve is still on the roadmap
+param=x:54
+param=y:52
+param=width:352
+param=height:170
+param=accent:blue
+signature=system-shell-dev

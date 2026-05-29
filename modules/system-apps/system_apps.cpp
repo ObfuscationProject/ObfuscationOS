@@ -38,7 +38,23 @@ class AboutApp final : public SystemGuiApp
 class PreferencesApp final : public SystemGuiApp
 {
   public:
-    constexpr PreferencesApp() : SystemGuiApp("gui.app.prefs", "System Preferences")
+    constexpr PreferencesApp() : SystemGuiApp("gui.app.settings", "System Settings")
+    {
+    }
+};
+
+class TinyShellApp final : public SystemGuiApp
+{
+  public:
+    constexpr TinyShellApp() : SystemGuiApp("gui.app.shell", "Tiny Shell")
+    {
+    }
+};
+
+class TaskManagerApp final : public SystemGuiApp
+{
+  public:
+    constexpr TaskManagerApp() : SystemGuiApp("gui.app.tasks", "Task Manager")
     {
     }
 };

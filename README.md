@@ -81,6 +81,11 @@ The MVP image includes:
 - `stat`
 - `mkdir`
 - `rm`
+- `pwd`
+- `whoami`
+- `uname`
+- `uptime`
+- `touch`
 - `kmodload`
 
 `oksh` is intentionally builtin-only until the kernel grows `fork`, `execve`,
@@ -99,9 +104,12 @@ current boot fallback until `execve` handoff is enabled) calls
 `OK_SYS_LOAD_MODULE` to ask the kernel to load those packages. The desktop module
 consumes `gui.compositor` / `gui.desktop`, exports `gui.system-desktop`, and
 opens a pre-desktop ObfuscationOS Login greeter with root selected as the default
-user. Pressing Enter logs in as root, switches to the System Shell renderer, and
-then loads the About, Preferences, and Notes app modules. Text-mode TUI boot is
-selected by startup parameters/mode rather than by a GUI session picker.
+user. The greeter also supports a mouse-opened user dropdown, and pressing
+Enter logs in as the selected user. Login switches to the System Shell renderer
+and then loads Tiny Shell, System Settings, Task Manager, Notes, and About app
+modules. These System dock launchers route to OS app packages instead of the
+kernel debug shell/file/task launchers. Text-mode TUI boot is selected by
+startup parameters/mode rather than by a GUI session picker.
 See [docs/GUI.md](docs/GUI.md).
 
 ## Root Filesystems

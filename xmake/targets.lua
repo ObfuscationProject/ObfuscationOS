@@ -1,4 +1,4 @@
-local app_names = {"init", "oksh", "hello", "cat", "ls", "stat", "mkdir", "rm", "kmodload"}
+local app_names = {"init", "oksh", "hello", "cat", "ls", "stat", "mkdir", "rm", "pwd", "whoami", "uname", "uptime", "touch", "kmodload"}
 
 local arch, arch_spec = ok_user_require_arch(ok_user_current_arch())
 local project = os.projectdir()

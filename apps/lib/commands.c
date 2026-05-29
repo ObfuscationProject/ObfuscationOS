@@ -3,6 +3,7 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <ok/dirent.h>
+#include <ok/syscall.h>
 #include <stdio.h>
 #include <string.h>
 #include <sys/stat.h>
@@ -196,6 +197,88 @@ int cmd_echo(int argc, char **argv)
     return 0;
 }
 
+int cmd_pwd(int argc, char **argv)
+{
+    (void)argc;
+    (void)argv;
+
+    char cwd[256];
+    if (!getcwd(cwd, sizeof(cwd))) {
+        perror("pwd");
+        return 1;
+    }
+    puts(cwd);
+    return 0;
+}
+
+int cmd_cd(int argc, char **argv)
+{
+    const char *path = argc > 1 ? argv[1] : "/";
+    if (chdir(path) < 0) {
+        perror(path);
+        return 1;
+    }
+    return 0;
+}
+
+int cmd_whoami(int argc, char **argv)
+{
+    (void)argc;
+    (void)argv;
+
+    uid_t uid = geteuid();
+    if (uid == 0) {
+        puts("root");
+    } else if (uid == 1000) {
+        puts("user");
+    } else {
+        printf("uid%u\n", (unsigned)uid);
+    }
+    return 0;
+}
+
+int cmd_uname(int argc, char **argv)
+{
+    (void)argc;
+    (void)argv;
+    puts("ObfuscationOS");
+    return 0;
+}
+
+int cmd_uptime(int argc, char **argv)
+{
+    (void)argc;
+    (void)argv;
+
+    long seconds = ok_syscall_ret(ok_syscall1(OK_SYS_TIME, 0));
+    if (seconds < 0) {
+        perror("uptime");
+        return 1;
+    }
+    printf("up %ld seconds\n", seconds);
+    return 0;
+}
+
+int cmd_touch(int argc, char **argv)
+{
+    if (argc < 2) {
+        fputs("usage: touch PATH...\n", stderr);
+        return 2;
+    }
+
+    int rc = 0;
+    for (int i = 1; i < argc; ++i) {
+        int fd = open(argv[i], O_CREAT | O_WRONLY, S_IRUSR | S_IWUSR | S_IRGRP | S_IROTH);
+        if (fd < 0) {
+            perror(argv[i]);
+            rc = 1;
+            continue;
+        }
+        close(fd);
+    }
+    return rc;
+}
+
 static const struct command_entry COMMANDS[] = {
     {"help", cmd_help, "list builtins"},
     {"hello", cmd_hello, "print a greeting"},
@@ -205,6 +288,12 @@ static const struct command_entry COMMANDS[] = {
     {"stat", cmd_stat, "show file metadata"},
     {"mkdir", cmd_mkdir, "create directories"},
     {"rm", cmd_rm, "remove files"},
+    {"pwd", cmd_pwd, "print working directory"},
+    {"cd", cmd_cd, "change directory"},
+    {"whoami", cmd_whoami, "print effective user"},
+    {"uname", cmd_uname, "print system name"},
+    {"uptime", cmd_uptime, "print system uptime"},
+    {"touch", cmd_touch, "create empty files"},
     {0, 0, 0},
 };
 

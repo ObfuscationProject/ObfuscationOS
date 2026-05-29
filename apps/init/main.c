@@ -6,9 +6,11 @@
 
 static const char *system_gui_modules[] = {
     "/boot/modules/system-gui.okmod",
-    "/boot/modules/apps/about.okmod",
-    "/boot/modules/apps/prefs.okmod",
+    "/boot/modules/apps/shell.okmod",
+    "/boot/modules/apps/settings.okmod",
+    "/boot/modules/apps/tasks.okmod",
     "/boot/modules/apps/notes.okmod",
+    "/boot/modules/apps/about.okmod",
 };
 
 int main(int argc, char **argv)
