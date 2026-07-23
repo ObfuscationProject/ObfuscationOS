@@ -6,10 +6,6 @@ compile_commands.json
 /.superpowers
 /build
 /sysroot
-/build-toolchain/tarballs
-/build-toolchain/src
-/build-toolchain/build
-/build-toolchain/opt
-/build-toolchain/stamps
+# Legacy project-local toolchain outputs (no longer produced by the build).
 /toolchains/*
 !/toolchains/README.md

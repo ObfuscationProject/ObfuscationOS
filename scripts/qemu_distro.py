@@ -13,14 +13,6 @@ import time
 from pathlib import Path
 
 
-QEMU_SYSTEM_BY_ARCH = {
-    "x86_64": "qemu-system-x86_64",
-    "aarch64": "qemu-system-aarch64",
-    "rv64": "qemu-system-riscv64",
-    "loongarch64": "qemu-system-loongarch64",
-}
-
-
 def normalize_arch(arch: str) -> str:
     aliases = {
         "x64": "x86_64",
@@ -45,18 +37,14 @@ def ramfb_args() -> list[str]:
     return ["-device", "ramfb"]
 
 
-def command_for(arch: str, kernel: Path, rootfs: Path, display: str) -> list[str]:
-    qemu = QEMU_SYSTEM_BY_ARCH.get(arch)
-    if qemu is None:
+def command_for(qemu: Path, arch: str, kernel: Path, rootfs: Path, display: str) -> list[str]:
+    if arch not in {"x86_64", "aarch64", "rv64", "loongarch64"}:
         raise SystemExit(f"qemu-distro is not configured for {arch}")
-    qemu_path = shutil.which(qemu)
-    if qemu_path is None:
-        raise SystemExit(f"QEMU executable missing: {qemu}")
 
     common = ["-serial", "stdio", "-monitor", "none", "-no-reboot", "-display", display]
     if arch == "x86_64" and kernel.suffix == ".bin":
         return [
-            qemu_path,
+            str(qemu),
             "-drive",
             f"file={kernel},format=raw,if=ide",
             "-boot",
@@ -69,7 +57,7 @@ def command_for(arch: str, kernel: Path, rootfs: Path, display: str) -> list[str
         ]
     if arch == "x86_64":
         return [
-            qemu_path,
+            str(qemu),
             "-m",
             "512M",
             "-kernel",
@@ -82,7 +70,7 @@ def command_for(arch: str, kernel: Path, rootfs: Path, display: str) -> list[str
         ]
     if arch == "aarch64":
         return [
-            qemu_path,
+            str(qemu),
             "-M",
             "virt",
             "-cpu",
@@ -102,7 +90,7 @@ def command_for(arch: str, kernel: Path, rootfs: Path, display: str) -> list[str
         ]
     if arch == "rv64":
         return [
-            qemu_path,
+            str(qemu),
             "-M",
             "virt",
             "-m",
@@ -121,7 +109,7 @@ def command_for(arch: str, kernel: Path, rootfs: Path, display: str) -> list[str
             *virtio_disk_args(rootfs),
         ]
     return [
-        qemu_path,
+        str(qemu),
         "-M",
         "virt",
         "-m",
@@ -184,18 +172,27 @@ def run_interactive(command: list[str]) -> int:
 
 def main() -> int:
     parser = argparse.ArgumentParser()
+    parser.add_argument(
+        "--qemu",
+        required=True,
+        type=Path,
+        help="Absolute QEMU executable from the systoolchain package",
+    )
     parser.add_argument("--arch", required=True)
     parser.add_argument("--kernel", required=True, type=Path)
     parser.add_argument("--rootfs", required=True, type=Path)
     parser.add_argument("--fs", choices=("simplefs", "ext4"), required=True)
     parser.add_argument("--timeout", type=float, default=20.0)
-    parser.add_argument("--display", default="none", help="QEMU display backend, for example none, gtk, or sdl")
+    parser.add_argument("--display", default="none", choices=("none", "sdl"), help="QEMU display backend")
     parser.add_argument("--interactive", action="store_true", help="Keep QEMU running until the window/process exits")
     args = parser.parse_args()
 
     arch = normalize_arch(args.arch)
+    qemu = args.qemu.resolve()
     kernel = args.kernel.resolve()
     rootfs = args.rootfs.resolve()
+    if not qemu.is_file():
+        raise SystemExit(f"QEMU executable does not exist: {qemu}")
     if not kernel.is_file():
         raise SystemExit(f"kernel image does not exist: {kernel}")
     if not rootfs.is_file():
@@ -204,8 +201,8 @@ def main() -> int:
     with tempfile.TemporaryDirectory(prefix="obfuscationos-qemu-") as temp_dir:
         runtime_rootfs = Path(temp_dir) / rootfs.name
         shutil.copy2(rootfs, runtime_rootfs)
-        command = command_for(arch, kernel, runtime_rootfs, args.display)
-        print(f"[qemu-distro] arch={arch} fs={args.fs} kernel={kernel} rootfs={rootfs}")
+        command = command_for(qemu, arch, kernel, runtime_rootfs, args.display)
+        print(f"[qemu-distro] arch={arch} fs={args.fs} qemu={qemu} kernel={kernel} rootfs={rootfs}")
         if args.interactive:
             print(f"[qemu-distro] display={args.display} interactive=1")
             return run_interactive(command)

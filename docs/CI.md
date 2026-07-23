@@ -4,7 +4,7 @@ The root CI workflow lives at `.github/workflows/ci.yml`. It validates the distr
 
 - checks out the kernel submodule recursively;
 - installs xmake and host image-building dependencies;
-- builds or restores the x86_64 freestanding userland toolchain;
+- builds the x86_64 `systoolchain` package from its pinned sources through xmake;
 - runs the kernel submodule baseline check;
 - validates the exported UAPI and libc shim;
 - builds SimpleFS and EXT4 root filesystem images, including `/bin/kmodload`,
@@ -15,7 +15,7 @@ The first CI baseline intentionally avoids graphical QEMU. The kernel submodule 
 Run the closest local equivalent with:
 
 ```sh
-xmake f -c -m debug -a x86_64
+xmake f -c -y -m debug -a x86_64
 xmake -y -b kernel-submodule-check
 xmake -y -b uapi-test
 xmake -y -b libc-test

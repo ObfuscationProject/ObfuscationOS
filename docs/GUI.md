@@ -45,7 +45,7 @@ Build the kernel profile:
 
 ```sh
 cd external/ObfuscationKernel
-xmake f -P . -m debug -a x86_64 --kernel_gui=y
+xmake f -P . -y -m debug -a x86_64 --kernel_gui=y
 xmake -P . -y -b okernel_image
 cd ../..
 ```
@@ -64,4 +64,11 @@ xmake qemu-distro-window --fs=simplefs
 xmake qemu-distro-window --fs=simplefs --display=none --timeout=10
 ```
 
-`qemu-distro-window` now builds a release `kernel_gui` image incrementally when `--kernel` is omitted, attaches the ObfuscationOS SimpleFS rootfs, and boots into the System GUI greeter instead of the kernel debug shell. The regular `qemu-distro` and `distro-test` paths stay headless for CI. When QEMU uses the current emulated block path and the staged desktop package is not visible through the guest VFS, the kernel uses the same built-in `system-gui` OKMOD metadata as a boot fallback; dock apps still come from the `/bin` ELF programs.
+`qemu-distro-window` now builds a release `kernel_gui` image incrementally when
+`--kernel` is omitted, launches the SDL-enabled QEMU shipped by the resolved
+`systoolchain` package, attaches the ObfuscationOS SimpleFS rootfs, and boots
+into the System GUI greeter instead of the kernel debug shell. The regular
+`qemu-distro` and `distro-test` paths stay headless for CI. When QEMU uses the
+current emulated block path and the staged desktop package is not visible
+through the guest VFS, the kernel uses the same built-in `system-gui` OKMOD
+metadata as a boot fallback; dock apps still come from the `/bin` ELF programs.

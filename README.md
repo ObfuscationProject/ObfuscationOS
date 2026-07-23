@@ -13,8 +13,8 @@ git submodule update --init --recursive external/ObfuscationKernel
 xmake build kernel-submodule-check
 ```
 
-The expected first baseline is `v0.1.0-2` /
-`b8a4d5af31141663686587b97409c53f29114f2e`.
+The expected baseline matches the repository gitlink:
+`1a877722f9227c312ecb0e47e443330fca18c170`.
 
 ## Build
 
@@ -22,21 +22,20 @@ The first-stage 64-bit architectures are `x86_64`, `aarch64`, `rv64`, and
 `loongarch64`.
 
 ```sh
-xmake f -a x86_64
+xmake f -c -y -a x86_64
 xmake build sysroot
 xmake build apps
 xmake build rootfs-simplefs
 xmake build rootfs-ext4
 ```
 
-The top-level `xmake.lua` only wires the project together.  Architecture data,
-toolchain definitions, targets, and developer tasks live under `xmake/` to match
-the kernel submodule layout.
+The top-level `xmake.lua` wires in the `systoolchain` package. Architecture data,
+target package selection, targets, and developer tasks live under `xmake/` to
+match the kernel submodule layout.
 
 Useful validation commands:
 
 ```sh
-xmake toolchain-check --all
 xmake arch-matrix
 xmake distro-test --kernel=external/ObfuscationKernel/build/linux/x86_64/debug/kernel.bin
 ```
@@ -55,11 +54,13 @@ Primary outputs:
 
 ## Toolchain
 
-If a configured cross compiler is missing, bootstrap it with:
+The freestanding compiler and matching QEMU system emulator are provided by
+`systoolchain 0.1.0` from the project `ObfuscationRepo`. ObfuscationOS always
+builds that package from its pinned sources during configuration; package
+installation performs the compiler and QEMU validation before consumers run:
 
 ```sh
-xmake toolchain          # configured arch
-xmake toolchains -a all  # every first-stage arch
+xmake f -c -y -a x86_64
 ```
 
 Supported target triples are:
@@ -139,9 +140,11 @@ xmake qemu-distro-window --fs=simplefs --display=none --timeout=10
 
 `qemu-distro` is the headless smoke path used by CI. `qemu-distro-window`
 builds a release GUI kernel when `--kernel` is omitted, attaches the SimpleFS
-rootfs, loads the System GUI desktop package from `/boot/modules`, and keeps the QEMU
-window open until it exits. Passing `--timeout` validates the same System GUI
-path headlessly and exits after the boot marker. The headless release smoke
-marker for that path is `OK_SYSTEM_GUI boot=complete`; debug-kernel distro
-tests still accept the debug boot marker. QEMU runs against a temporary rootfs
-copy so an open GUI window does not lock the staged image.
+rootfs, loads the System GUI desktop package from `/boot/modules`, and keeps the
+SDL QEMU window open until it exits. QEMU is launched by absolute path from the
+resolved `systoolchain` package; machine, CPU, devices, storage, and display
+arguments remain managed by ObfuscationOS. Passing `--timeout` validates the
+same System GUI path headlessly and exits after the boot marker. The headless
+release smoke marker for that path is `OK_SYSTEM_GUI boot=complete`;
+debug-kernel distro tests still accept the debug boot marker. QEMU runs against
+a temporary rootfs copy so an open GUI window does not lock the staged image.
