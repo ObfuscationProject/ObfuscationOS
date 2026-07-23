@@ -4,7 +4,7 @@ import subprocess
 from pathlib import Path
 
 
-EXPECTED_PREFIX = "1a877722f9227c312ecb0e47e443330fca18c170"
+EXPECTED_PREFIX = "2e22c7a619d58f012ab27577a16dd4a469734c8d"
 
 
 def git_output(repo: Path, *args: str) -> str:

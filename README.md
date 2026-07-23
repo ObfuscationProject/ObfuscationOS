@@ -14,7 +14,7 @@ xmake build kernel-submodule-check
 ```
 
 The expected baseline matches the repository gitlink:
-`1a877722f9227c312ecb0e47e443330fca18c170`.
+`2e22c7a619d58f012ab27577a16dd4a469734c8d`.
 
 ## Build
 
