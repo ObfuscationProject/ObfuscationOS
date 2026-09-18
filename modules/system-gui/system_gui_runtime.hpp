@@ -1,6 +1,7 @@
 #pragma once
 #include "external_module.hpp"
 #include "ok/core/kernel.hpp"
+#include "ok/gui/theme.hpp"
 
 namespace obfuscationos::modules
 {
@@ -23,6 +24,7 @@ class SystemGuiRuntime final : public KernelExtension
     }
 
   private:
+    Status bind_session_context();
     Status start_selected_system_gui_session(ExternalGuiDesktopModule &desktop);
     Status handle_system_gui_dock_launcher(ExternalGuiDockApp app);
     Status focus_system_gui_app(ExternalGuiDockApp app);
@@ -41,6 +43,7 @@ class SystemGuiRuntime final : public KernelExtension
     std::array<std::byte, fs::simplefs_max_file_data> user_program_image_{};
     bool self_test_passed_{false};
     bool boot_announced_{false};
+    u32 session_accent_{gui::theme::accent};
 };
 KernelExtension *system_gui_extension();
 Status run_system_gui_integration_tests(Kernel &kernel);

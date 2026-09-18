@@ -24,12 +24,24 @@ newly compiled native code. The C++ extension interface requires the matching
 Kernel SDK, compiler version and ABI flags.
 
 The desktop provides root/user selection, Enter/Space or mouse login, a status
-panel and dock, and windows for Tiny Shell, Settings, Tasks, Notes and About.
-App files live under `/bin`. The current app path validates ELF metadata and
-creates selected-user scheduler records while the OS runtime renders the windows.
-It is a model of user application integration, not evidence that those ELF
-instructions execute in an isolated user address space. A user GUI drawing ABI
-and real executable module loading remain future work.
+panel and launchers for Terminal, Settings, Tasks, Notes, About and Files. The
+shared visual system uses a light canvas, cool gray surfaces and blue accents at
+480 x 270 logical pixels. See [the workspace guide and real renderer screenshots](gui/README.md).
+Terminal provides a small set of filesystem commands; Settings changes the
+application accent; Tasks reads live scheduler records; Files navigates directories
+and previews text; Notes supports editing and Ctrl+S.
+
+GUI notes are saved as `/tmp/notes-root.txt` or `/tmp/notes-user.txt` with mode 0600.
+Reopening a window reloads its file, but `/tmp` does not persist across reboot.
+The native `notes` CLI has a separate default path, `/tmp/notes.txt`, and accepts
+an explicit path. These interfaces currently use the existing ASCII bitmap font.
+
+App files live under `/bin`. The GUI launch path validates ELF metadata and creates
+selected-user scheduler records while the prelinked OS extension renders and handles
+the windows in kernel service context. This GUI path does not execute those ELF
+instructions in an isolated address space, and the Terminal window is not the native
+`oksh` process. Native console user execution through `/init` is a separate runtime
+path. A user GUI drawing ABI and loadable executable GUI extensions remain future work.
 
 ## Build
 
@@ -58,7 +70,12 @@ tests migrated from the kernel: package activation, user selection/login, dock
 focus, app process/window close, and recovery after diagnostic GUI cleanup.
 Additional regression checks ensure repeated startup/package loading preserves
 the greeter selection, logged-in credentials, app processes and windows, while
-invalid same-name packages are still rejected.
+invalid same-name packages are still rejected. Notes checks verify saved contents,
+0600 mode and selected-user ownership, including input arriving after another
+process was selected by the scheduler. Files checks cover launcher focus and
+navigation. Hosted rendering uses the production compositor and input path; the
+[screenshot fixture](../tests/gui/render_workspace.py) links only OS sources against
+a checksum-validated Kernel SDK.
 Debug OS images invoke them through `KernelExtension::self_test` after the core
 suite. Their fixture app ELFs use the disposable test disk. A successful run emits
 `OK_EXTENSION_TEST scope=model result=pass` before `OK_TEST_PASS`; failures prevent

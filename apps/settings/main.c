@@ -1,14 +1,15 @@
 #include <stdio.h>
 #include <unistd.h>
 
-int main(int argc, char **argv)
+int main(void)
 {
-    (void)argc;
-    (void)argv;
-
-    puts("System Settings");
-    puts("palette: mint / blue / rose");
-    puts("input: pointer and keyboard enabled");
-    printf("uid: %d\n", (int)geteuid());
+    puts("Workspace settings");
+    puts("Appearance: light surfaces, cool gray, blue accent");
+    puts("Open Settings in the desktop to select an accent.");
+    puts("Select an account on the sign-in screen.");
+    printf("Current user: %u\n", (unsigned)geteuid());
+    char cwd[128];
+    if (getcwd(cwd, sizeof(cwd)))
+        printf("Working directory: %s\n", cwd);
     return 0;
 }

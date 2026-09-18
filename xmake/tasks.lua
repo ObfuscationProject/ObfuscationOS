@@ -170,6 +170,7 @@ task("qemu-distro")
             {"k", "kernel", "kv", nil, "Explicit kernel image override (otherwise build distro_image from the selected SDK)"},
             {nil, "timeout", "kv", "20", "QEMU timeout in seconds"},
             {nil, "display", "kv", "none", "QEMU display backend: none or sdl"},
+            {nil, "require-native", "k", nil, "Require debug userland and hardware timer acceptance"},
             {nil, "interactive", "k", nil, "Keep QEMU running until the window/process exits"}
         }
     }
@@ -218,6 +219,9 @@ task("qemu-distro")
         }
         if option.get("interactive") then
             table.insert(args, "--interactive")
+        end
+        if option.get("require-native") then
+            table.insert(args, "--require-native")
         end
         os.execv("python3", args)
     end)

@@ -65,7 +65,7 @@ constexpr SystemGuiAppDefinition system_gui_apps[] = {
      .line1 = "help ls cat stat pwd cd",
      .line2 = "whoami uname uptime touch",
      .line3 = "runs as the selected user",
-     .bounds = gui::Rect{.x = 54, .y = 52, .width = 352, .height = 170},
+     .bounds = gui::Rect{.x = 64, .y = 38, .width = 352, .height = 176},
      .accent = "blue"},
     {.app = ExternalGuiDockApp::settings,
      .id = "settings",
@@ -78,8 +78,8 @@ constexpr SystemGuiAppDefinition system_gui_apps[] = {
      .line1 = "palette mint / blue / rose",
      .line2 = "pointer and keyboard enabled",
      .line3 = "user session controls",
-     .bounds = gui::Rect{.x = 520, .y = 56, .width = 344, .height = 158},
-     .accent = "mint"},
+     .bounds = gui::Rect{.x = 80, .y = 40, .width = 344, .height = 174},
+     .accent = "blue"},
     {.app = ExternalGuiDockApp::tasks,
      .id = "tasks",
      .path = "/bin/tasks",
@@ -89,8 +89,8 @@ constexpr SystemGuiAppDefinition system_gui_apps[] = {
      .body = "Live scheduler snapshot",
      .command = "/bin/tasks",
      .line3 = "kernel tools stay outside System dock",
-     .bounds = gui::Rect{.x = 64, .y = 282, .width = 346, .height = 150},
-     .accent = "violet"},
+     .bounds = gui::Rect{.x = 64, .y = 38, .width = 360, .height = 176},
+     .accent = "blue"},
     {.app = ExternalGuiDockApp::notes,
      .id = "notes",
      .path = "/bin/notes",
@@ -101,8 +101,8 @@ constexpr SystemGuiAppDefinition system_gui_apps[] = {
      .command = "/bin/notes",
      .line1 = "notes are owned by userland",
      .line2 = "CLI tools use libokcrt",
-     .bounds = gui::Rect{.x = 520, .y = 278, .width = 346, .height = 150},
-     .accent = "rose"},
+     .bounds = gui::Rect{.x = 76, .y = 42, .width = 352, .height = 174},
+     .accent = "blue"},
     {.app = ExternalGuiDockApp::about,
      .id = "about",
      .path = "/bin/about",
@@ -113,8 +113,16 @@ constexpr SystemGuiAppDefinition system_gui_apps[] = {
      .command = "/bin/about",
      .line1 = "standalone tiny-c app",
      .line2 = "launched from /bin",
-     .bounds = gui::Rect{.x = 300, .y = 168, .width = 336, .height = 154},
-     .accent = "gold"},
+     .bounds = gui::Rect{.x = 86, .y = 40, .width = 344, .height = 176},
+     .accent = "blue"},
+    {.app = ExternalGuiDockApp::files,
+     .id = "files",
+     .path = "/bin/ls",
+     .process_name = "app:files",
+     .title = "Files",
+     .subtitle = "Browse your files",
+     .bounds = gui::Rect{.x = 48, .y = 38, .width = 384, .height = 176},
+     .accent = "blue"},
 };
 
 Result<SystemGuiAppDefinition> system_gui_app_definition(ExternalGuiDockApp app)
@@ -231,17 +239,23 @@ bool point_hits_window_close(const gui::SurfaceInfo &surface, i32 x, i32 y)
 
 } // namespace
 
+Status SystemGuiRuntime::bind_session_context()
+{
+    auto credentials = kernel_->user_space().credentials_for(external_gui_desktop_module_.selected_login_user_name());
+    if (!credentials)
+        return credentials.status();
+    // The prelinked GUI executes as a kernel service. Do not rewrite whichever
+    // modeled process happened to be selected by the scheduler's last tick.
+    if (auto status = kernel_->posix().activate(0); !status.ok())
+        return status;
+    return kernel_->posix().set_credentials(credentials.value());
+}
+
 Status SystemGuiRuntime::start_selected_system_gui_session(ExternalGuiDesktopModule &desktop)
 {
-    auto credentials = kernel_->user_space().credentials_for(desktop.selected_login_user_name());
-    if (!credentials)
-    {
-        return credentials.status();
-    }
-    if (auto status = kernel_->posix().set_credentials(credentials.value()); !status.ok())
-    {
+    static_cast<void>(desktop);
+    if (auto status = bind_session_context(); !status.ok())
         return status;
-    }
     return launch_system_gui_app_session();
 }
 
@@ -268,6 +282,8 @@ Status SystemGuiRuntime::focus_system_gui_app(ExternalGuiDockApp app)
             instance.reset();
             break;
         }
+        if (auto status = bind_session_context(); !status.ok())
+            return status;
         if (auto status = instance.refresh(); !status.ok())
         {
             return status;
@@ -277,6 +293,11 @@ Status SystemGuiRuntime::focus_system_gui_app(ExternalGuiDockApp app)
         {
             return info.status();
         }
+        if (info.value().window_state == gui::WindowState::minimized)
+            if (auto status = kernel_->gui().compositor().restore_surface(instance.surface()); !status.ok())
+                return status;
+        if (auto status = kernel_->gui().compositor().set_visible(instance.surface(), true); !status.ok())
+            return status;
         if (auto status = kernel_->gui().compositor().raise_surface(instance.surface()); !status.ok())
         {
             return status;
@@ -390,6 +411,8 @@ Status SystemGuiRuntime::launch_system_gui_app(ExternalGuiDockApp app)
         return Status::overflow("system GUI app table is full");
     }
 
+    if (auto status = bind_session_context(); !status.ok())
+        return status;
     const auto credentials = kernel_->posix().user_credentials();
     auto process = kernel_->create_ui_process(definition.value().process_name, loaded.value().entry,
                                               loaded.value().stack_pointer, credentials);
@@ -399,6 +422,7 @@ Status SystemGuiRuntime::launch_system_gui_app(ExternalGuiDockApp app)
     }
 
     slot->bind_metrics(kernel_->scheduler(), kernel_->topology());
+    slot->bind_environment(kernel_->vfs(), kernel_->posix());
     if (auto status = slot->configure_from_elf(
             definition.value().id, definition.value().path, definition.value().title, definition.value().subtitle,
             definition.value().body, definition.value().command, definition.value().line1, definition.value().line2,
@@ -409,6 +433,7 @@ Status SystemGuiRuntime::launch_system_gui_app(ExternalGuiDockApp app)
         slot->reset();
         return status;
     }
+    slot->set_accent(session_accent_);
     if (auto status = slot->start(kernel_->gui().compositor(), kernel_->gui().desktop()); !status.ok())
     {
         static_cast<void>(kernel_->scheduler().kill_process(process.value()));
@@ -427,6 +452,13 @@ Status SystemGuiRuntime::launch_system_gui_app_session()
             return status;
         }
     }
+    // Keep the existing app records, with a quiet workspace until a launcher is selected.
+    for (auto &app : external_gui_app_modules_)
+        if (app.configured() && app.surface() != 0)
+            if (auto status = kernel_->gui().compositor().set_visible(app.surface(), false); !status.ok())
+                return status;
+    // The greeter-to-desktop resize has already been redrawn synchronously.
+    static_cast<void>(kernel_->gui().compositor().consume_window_event());
     return refresh_external_gui_modules(false);
 }
 
@@ -576,6 +608,8 @@ Status SystemGuiRuntime::start(Kernel &kernel)
     }
     if (auto status = kernel.close_debug_gui(); !status.ok())
         return status;
+    // Synchronous startup cleanup must not consume the user's first pointer event.
+    static_cast<void>(kernel.gui().compositor().consume_window_event());
 
 #if defined(OK_ENABLE_TEST_POINTS)
     // Tests exercise start() themselves. Only the post-test boot start may
@@ -659,6 +693,31 @@ Result<bool> SystemGuiRuntime::pointer_click(Kernel &kernel, i32 x, i32 y)
             return true;
         }
     }
+    if (info && y - info.value().bounds.y >= 18)
+        if (auto app = find_system_gui_app_by_surface(surface))
+        {
+            if (auto status = surface_action(kernel, surface, ExtensionSurfaceAction::focus); !status.ok())
+                return status;
+            if (auto status = compositor.raise_surface(surface); !status.ok())
+                return status;
+            auto &instance = external_gui_app_modules_[app.value()];
+            const auto before = instance.accent();
+            if (auto status = instance.handle_pointer(x - info.value().bounds.x, y - info.value().bounds.y);
+                !status.ok())
+                return status;
+            if (instance.accent() != before)
+            {
+                session_accent_ = instance.accent();
+                for (auto &other : external_gui_app_modules_)
+                    if (other.configured())
+                    {
+                        other.set_accent(session_accent_);
+                        if (auto status = other.refresh(); !status.ok())
+                            return status;
+                    }
+            }
+            return true;
+        }
     return false;
 }
 
@@ -666,13 +725,27 @@ Result<bool> SystemGuiRuntime::key(Kernel &kernel, int value)
 {
     kernel_ = &kernel;
     auto *desktop = loaded_gui_desktop_module();
-    if (desktop == nullptr || desktop->desktop_state() != ExternalGuiDesktopState::greeter)
+    if (desktop == nullptr)
         return false;
-    if (auto status = desktop->handle_key(value); !status.ok())
-        return status;
-    if (desktop->desktop_state() == ExternalGuiDesktopState::desktop)
-        if (auto status = start_selected_system_gui_session(*desktop); !status.ok())
+    if (desktop->desktop_state() == ExternalGuiDesktopState::greeter)
+    {
+        if (auto status = desktop->handle_key(value); !status.ok())
             return status;
+        if (desktop->desktop_state() == ExternalGuiDesktopState::desktop)
+            if (auto status = start_selected_system_gui_session(*desktop); !status.ok())
+                return status;
+        return true;
+    }
+    if (value == ok_input_open_shell || value == ok_input_open_file_manager)
+        return false;
+    const auto surface = kernel.gui().compositor().active_surface();
+    auto app = find_system_gui_app_by_surface(surface);
+    if (!app)
+        return false;
+    if (auto status = surface_action(kernel, surface, ExtensionSurfaceAction::focus); !status.ok())
+        return status;
+    if (auto status = external_gui_app_modules_[app.value()].handle_key(value); !status.ok())
+        return status;
     return true;
 }
 
@@ -687,7 +760,12 @@ Status SystemGuiRuntime::surface_action(Kernel &kernel, gui::SurfaceId surface, 
     if (action == ExtensionSurfaceAction::refresh)
         return external_gui_app_modules_[app.value()].refresh();
     auto *pcb = kernel.scheduler().find(external_gui_app_modules_[app.value()].process_id());
-    return pcb == nullptr ? Status::success() : kernel.posix().set_credentials(pcb->credentials());
+    if (pcb == nullptr)
+        return Status::success();
+    const auto credentials = pcb->credentials();
+    if (auto status = kernel.posix().activate(0); !status.ok())
+        return status;
+    return kernel.posix().set_credentials(credentials);
 }
 
 Status SystemGuiRuntime::process_exited(Kernel &kernel, sched::ProcessId pid)

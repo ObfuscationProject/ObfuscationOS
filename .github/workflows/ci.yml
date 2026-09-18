@@ -54,5 +54,5 @@ jobs:
           xmake -y -b linux-driver-compat
           xmake -y -b rootfs-simplefs
           xmake -y -b rootfs-ext4
-      - name: Verify OS extension in QEMU
-        run: xmake qemu-distro --fs=simplefs --timeout=30
+      - name: Verify desktop and native userland in QEMU
+        run: xmake qemu-distro --fs=simplefs --require-native --timeout=30

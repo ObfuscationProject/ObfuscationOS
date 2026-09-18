@@ -128,12 +128,13 @@ def command_for(qemu: Path, arch: str, kernel: Path, rootfs: Path, display: str)
     ]
 
 
-def run_until_marker(command: list[str], timeout: float) -> int:
+def run_until_marker(command: list[str], timeout: float, require_native: bool = False) -> int:
     process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
     assert process.stdout is not None
     deadline = time.monotonic() + timeout
     pending = b""
     result = 124
+    observed = set()
 
     def inspect_line(raw: bytes) -> int | None:
         line = raw.decode(errors="replace")
@@ -142,7 +143,16 @@ def run_until_marker(command: list[str], timeout: float) -> int:
             return 1
         # Kernel boot and test markers precede extension startup. Only the
         # OS-owned final marker proves the distribution extension started.
+        if "acceptance=FAIL" in line or "shell_pipeline=FAIL" in line or line.startswith("POSIX_CHECK failed:"):
+            return 1
         if line.startswith("OK_SYSTEM_GUI boot=complete"):
+            observed.add("gui")
+        if line.startswith("OK_USERLAND scope=hardware acceptance=pass shell_pipeline=pass"):
+            observed.add("userland")
+        if line.startswith("OK_NATIVE scope=hardware timer=preempted"):
+            observed.add("preemption")
+        required = {"gui", "userland", "preemption"} if require_native else {"gui"}
+        if required <= observed:
             return 0
         return None
 
@@ -203,6 +213,7 @@ def main() -> int:
     parser.add_argument("--kernel", required=True, type=Path)
     parser.add_argument("--rootfs", required=True, type=Path)
     parser.add_argument("--fs", choices=("simplefs", "ext4"), required=True)
+    parser.add_argument("--require-native", action="store_true", help="Require actual userland acceptance and timer preemption")
     parser.add_argument("--timeout", type=float, default=20.0)
     parser.add_argument("--display", default="none", choices=("none", "sdl"), help="QEMU display backend")
     parser.add_argument("--interactive", action="store_true", help="Keep QEMU running until the window/process exits")
@@ -227,9 +238,9 @@ def main() -> int:
         if args.interactive:
             print(f"[qemu-distro] display={args.display} interactive=1")
             return run_interactive(command)
-        code = run_until_marker(command, args.timeout)
+        code = run_until_marker(command, args.timeout, args.require_native)
         if code == 124:
-            print("[qemu-distro] timeout before OS extension completion marker", file=sys.stderr)
+            print("[qemu-distro] timeout before required OS completion markers", file=sys.stderr)
         return code
 
 

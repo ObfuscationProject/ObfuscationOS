@@ -15,13 +15,22 @@ spec.loader.exec_module(distro)
 
 
 class DistroMarkerTests(unittest.TestCase):
-    def run_guest_output(self, lines):
+    def run_guest_output(self, lines, native=False):
         # The script deliberately uses real pipes/process exit, including the
         # case where a core marker is followed by an extension failure.
         code = "import os\n"
         code += "\n".join(f"os.write(1, {line.encode()!r})" for line in lines)
         with contextlib.redirect_stdout(io.StringIO()):
-            return distro.run_until_marker([sys.executable, "-u", "-c", code], 1.0)
+            return distro.run_until_marker([sys.executable, "-u", "-c", code], 1.0, native)
+
+    def test_native_run_requires_actual_userland_and_preemption(self):
+        gui = "OK_SYSTEM_GUI boot=complete\n"
+        user = "OK_USERLAND scope=hardware acceptance=pass shell_pipeline=pass\n"
+        timer = "OK_NATIVE scope=hardware timer=preempted\n"
+        self.assertEqual(self.run_guest_output([gui], native=True), 124)
+        self.assertEqual(self.run_guest_output([gui, user], native=True), 124)
+        self.assertEqual(self.run_guest_output([gui, timer, user], native=True), 0)
+        self.assertEqual(self.run_guest_output([gui, "POSIX_CHECK failed: fork\n"], native=True), 1)
 
     def test_core_boot_does_not_complete_distro_validation(self):
         self.assertEqual(self.run_guest_output(["OK_DEBUG boot=complete\n"]), 124)

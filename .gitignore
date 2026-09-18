@@ -6,6 +6,8 @@ compile_commands.json
 /.superpowers
 /build
 /sysroot
+__pycache__/
+*.pyc
 # Legacy project-local toolchain outputs (no longer produced by the build).
 /toolchains/*
 !/toolchains/README.md

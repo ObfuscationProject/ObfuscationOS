@@ -91,8 +91,11 @@ compiler target and GCC version. This avoids silently mixing C++ object ABIs.
 ## User programs and GUI
 
 The image contains `init`, `oksh`, basic file/identity utilities, `settings`,
-`tasks`, `notes`, `about`, and `kmodload`. `oksh` remains builtin-only until
-real process execution and `fork/exec/wait/pipe` are implemented.
+`tasks`, `notes`, `about`, `posix-check`, and `kmodload`. `/init` and `oksh` execute
+in protected user mode on all four distribution profiles. `oksh` runs external
+programs with fork/exec/wait and supports a two-program pipeline; cd/echo/help
+remain builtins. Debug init runs native acceptance first; release init starts
+the shell directly.
 
 The OS owns `modules/system-gui/`, including desktop/greeter policy and its
 configuration package staged at `/boot/modules/system-gui.okmod`. The low-level
@@ -102,8 +105,12 @@ See [docs/GUI.md](docs/GUI.md).
 
 ## Root filesystems and QEMU
 
-SimpleFS is the current early module-loading path (flat entries, 512-byte
-blocks, at most 32 entries). EXT4 images are checked offline with `e2fsck -n`.
+The distro embeds an immutable boot archive containing `/init`, `/bin` programs
+and configuration. That archive supplies real executable bytes to the kernel VFS.
+The current virtio block implementation is RAM-backed modeling, so attaching an
+image is not proof of device-backed rootfs reads. SimpleFS packaging uses flat
+entries, 512-byte blocks and at most 32 entries; EXT4 images are checked offline
+with `e2fsck -n`. Writable VFS files do not survive a reboot.
 
 ```sh
 xmake qemu-distro --fs=simplefs
@@ -119,3 +126,17 @@ A debug boot marker verifies the kernel model tests; it is not proof that real
 user-mode execution, hardware SMP, or dynamic native module loading works.
 The OS runner requires `OK_SYSTEM_GUI boot=complete` after extension startup;
 kernel boot/test markers alone do not complete distribution validation.
+
+For actual userland acceptance, build a debug image and run:
+
+```sh
+python3 scripts/qemu_distro.py --arch x86_64 --qemu /usr/bin/qemu-system-x86_64 \
+  --kernel build/x86_64/debug/distro/kernel.bin \
+  --rootfs build/x86_64/debug/rootfs.simplefs.img --fs simplefs \
+  --require-native --timeout 30
+```
+
+The native option also requires real timer preemption and the init/POSIX/pipeline
+acceptance marker. Default GUI smoke tests keep their original narrower scope.
+See the Kernel SDK provider's `docs/NATIVE_EXECUTION.md` for syscall limits and
+per-architecture evidence, and [GUI design and screenshots](docs/gui/README.md).

@@ -1,4 +1,4 @@
-local app_names = {"init", "oksh", "hello", "cat", "ls", "stat", "mkdir", "rm", "pwd", "whoami", "uname", "uptime", "touch", "settings", "tasks", "notes", "about", "kmodload"}
+local app_names = {"init", "oksh", "posix-check", "hello", "cat", "ls", "stat", "mkdir", "rm", "pwd", "whoami", "uname", "uptime", "touch", "settings", "tasks", "notes", "about", "kmodload"}
 
 local arch, arch_spec = ok_user_require_arch(ok_user_current_arch())
 local project = os.projectdir()
@@ -39,6 +39,9 @@ for _, name in ipairs(app_names) do
         on_load(add_sdk_identity)
         add_includedirs(path.join(project, "apps", "lib"))
         add_files(path.join(project, "apps", name, "main.c"))
+        if name == "init" and is_mode("debug") then
+            add_defines("OK_USERLAND_SELFTEST=1")
+        end
         if name ~= "init" then
             add_files(path.join(project, "apps", "lib", "commands.c"))
         end
@@ -124,27 +127,48 @@ local function stage_rootfs(batchcmds)
     })
 end
 
+target("rootfs-stage")
+    set_kind("phony")
+    set_default(false)
+    set_policy("build.fence", true)
+    add_deps("apps")
+    on_buildcmd(function (target, batchcmds)
+        stage_rootfs(batchcmds)
+    end)
+target_end()
+
 target("rootfs-simplefs")
     set_kind("phony")
     set_default(false)
-    add_deps("apps")
+    add_deps("rootfs-stage")
     on_buildcmd(function (target, batchcmds)
         local project = os.projectdir()
         local root = path.join(build, "rootfs")
         local image = path.join(build, "rootfs.simplefs.img")
-        stage_rootfs(batchcmds)
         run_python(batchcmds, "mksimplefs.py", {"pack", "--root", root, "--out", image})
         run_python(batchcmds, "mksimplefs.py", {"verify", image, "--root", root})
+    end)
+target_end()
+
+target("boot-archive")
+    set_policy("build.fence", true)
+    set_kind("phony")
+    set_default(false)
+    add_deps("rootfs-stage")
+    on_buildcmd(function (target, batchcmds)
+        run_python(batchcmds, "mkarchive.py", {
+            "--root", path.join(build, "rootfs"),
+            "--out", path.join(build, "boot.okar"),
+        })
     end)
 target_end()
 
 target("rootfs-ext4")
     set_kind("phony")
     set_default(false)
-    add_deps("apps")
+    add_deps("rootfs-stage")
     on_buildcmd(function (target, batchcmds)
         local project = os.projectdir()
-        stage_rootfs(batchcmds)
         run_python(batchcmds, "mkext4.py", {
             "--root", path.join(build, "rootfs"),
             "--out", path.join(build, "rootfs.ext4.img"),
@@ -182,6 +206,9 @@ target("linux-driver-compat")
 target_end()
 
 target("distro_image")
+    add_deps("boot-archive", {inherit = false})
+    add_files(path.join(project, "modules/boot/archive.cpp"), path.join(project, "modules/boot/archive.S"))
+    add_defines('OK_BOOT_ARCHIVE_INCLUDE="' .. path.join(build, "boot.okar.inc") .. '"')
     set_kind("binary")
     set_default(false)
     set_languages("c++23")
@@ -200,6 +227,7 @@ target("distro_image")
             "-Wl,--start-group", "-Wl,--whole-archive", path.join(sdk, "lib", "libokernel_boot.a"),
             "-Wl,--no-whole-archive", path.join(sdk, "lib", "libokernel.a"),
             "-lgcc", "-Wl,--end-group", {force = true})
+        target:data_add("linkdepfiles", path.join(build, "boot.okar"))
         for _, artifact in ipairs({"manifest.json", "boot/linker.ld", "lib/libokernel_boot.a", "lib/libokernel.a"}) do
             target:data_add("linkdepfiles", path.join(sdk, artifact))
         end

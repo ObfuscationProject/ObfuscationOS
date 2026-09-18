@@ -131,11 +131,16 @@ function add_ok_user_cflags()
 end
 
 function add_ok_user_linkflags()
+    if ok_user_current_arch() == "aarch64" then
+        add_ldflags("-Wl,--defsym,OK_USER_BASE=0x10000000", {force = true})
+    end
     local _, spec = ok_user_require_arch(ok_user_current_arch())
     add_ldflags(
         "-nostdlib",
         "-static",
         "-Wl,-e,_start",
+        "-Wl,-T," .. path.join(os.projectdir(), "lib/okcrt/user.ld"),
+        "-Wl,-z,max-page-size=4096",
         "-Wl,--gc-sections",
         {force = true}
     )

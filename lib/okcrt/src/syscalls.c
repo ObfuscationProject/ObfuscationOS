@@ -136,3 +136,28 @@ ssize_t getdents64(int fd, void *buf, size_t count)
 {
     return (ssize_t)ok_syscall_ret(ok_syscall3(OK_SYS_GETDENTS64, fd, (long)buf, (long)count));
 }
+
+pid_t fork(void)
+{
+    return (pid_t)ok_syscall_ret(ok_syscall0(OK_SYS_FORK));
+}
+
+int execve(const char *path, char *const argv[], char *const envp[])
+{
+    return (int)ok_syscall_ret(ok_syscall3(OK_SYS_EXECVE, (long)path, (long)argv, (long)envp));
+}
+
+pid_t waitpid(pid_t pid, int *status, int options)
+{
+    return (pid_t)ok_syscall_ret(ok_syscall4(OK_SYS_WAIT4, pid, (long)status, options, 0));
+}
+
+int pipe(int fds[2])
+{
+    return (int)ok_syscall_ret(ok_syscall1(OK_SYS_PIPE, (long)fds));
+}
+
+int dup2(int oldfd, int newfd)
+{
+    return (int)ok_syscall_ret(ok_syscall2(OK_SYS_DUP2, oldfd, newfd));
+}

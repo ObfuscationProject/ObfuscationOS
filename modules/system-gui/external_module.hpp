@@ -5,6 +5,8 @@
 #include "ok/sched/scheduler.hpp"
 #include "ok/smp/smp.hpp"
 
+#include "ok/fs/vfs.hpp"
+#include "ok/posix/posix.hpp"
 #include <array>
 
 namespace ok
@@ -43,6 +45,7 @@ enum class ExternalGuiDockApp : u8
     tasks,
     about,
     notes,
+    files,
 };
 
 class ExternalGuiDesktopModule final : public KernelModule, public KernelService
@@ -134,6 +137,29 @@ class ExternalGuiAppModule final : public KernelModule, public KernelService
         topology_ = &topology;
     }
 
+    void bind_environment(fs::VirtualFileSystem &vfs, posix::PosixService &posix)
+    {
+        vfs_ = &vfs;
+        posix_ = &posix;
+    }
+    Status handle_key(int key);
+    Status handle_pointer(i32 x, i32 y);
+    void set_accent(u32 color)
+    {
+        accent_ = color;
+    }
+    [[nodiscard]] u32 accent() const
+    {
+        return accent_;
+    }
+    [[nodiscard]] std::string_view document() const
+    {
+        return document_.view();
+    }
+    [[nodiscard]] std::string_view directory() const
+    {
+        return directory_.view();
+    }
     Status configure_from_image(std::string_view path, const ModuleImageInfo &image);
     Status configure_from_elf(std::string_view app_id, std::string_view path, std::string_view title,
                               std::string_view subtitle, std::string_view body, std::string_view command,
@@ -191,6 +217,19 @@ class ExternalGuiAppModule final : public KernelModule, public KernelService
     Status render_window();
     Status assign_parameter(std::string_view name, std::string_view value);
 
+    Status execute_command();
+    Status save_notes();
+    Status open_file_entry(usize index);
+    fs::VirtualFileSystem *vfs_{nullptr};
+    posix::PosixService *posix_{nullptr};
+    FixedString<1024> document_{"A little space for your ideas.\n\nType to edit. Ctrl+S to save."};
+    FixedString<192> input_{};
+    FixedString<1024> output_{"ObfuscationOS terminal\nType help to see available commands."};
+    FixedString<96> directory_{"/"};
+    FixedString<96> status_line_{"Ready"};
+    usize selected_entry_{0};
+    bool document_dirty_{false};
+    bool file_preview_{false};
     bool configured_{false};
     FixedString<max_module_name> name_{};
     FixedString<max_module_name> version_{};

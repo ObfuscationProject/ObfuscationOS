@@ -24,9 +24,11 @@ xmake -y -b distro_image
 xmake -y -b linux-driver-compat
 xmake -y -b rootfs-simplefs
 xmake -y -b rootfs-ext4
-xmake qemu-distro --fs=simplefs --timeout=30
+xmake qemu-distro --fs=simplefs --require-native --timeout=30
 ```
 
-CI waits for the final OS-owned System GUI boot marker in QEMU. Broader
-integration remains available through `xmake distro-test`. Model tests and
-boot markers do not claim hardware/user-mode execution coverage.
+CI requires the OS-owned System GUI completion marker, actual native timer
+preemption, and the debug init/POSIX/external-pipeline acceptance marker in QEMU.
+Broader packaging checks remain available through `xmake distro-test`. The model
+tests retain their separate scope; their boot markers alone do not prove native
+execution. Native execution does not imply hardware SMP or runtime module loading.

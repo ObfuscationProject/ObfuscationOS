@@ -7,6 +7,7 @@ from pathlib import Path
 APPS = (
     "init",
     "oksh",
+    "posix-check",
     "hello",
     "cat",
     "ls",
@@ -41,6 +42,12 @@ def main() -> int:
     apps_dir = Path(args.apps_dir)
     project = Path(__file__).resolve().parent.parent
     system_gui_module = project / "modules" / "system-gui" / "system-gui.okmod"
+    for app in APPS:
+        src = apps_dir / f"{app}.elf"
+        if not src.is_file():
+            raise SystemExit(f"missing app: {src}")
+    if not system_gui_module.is_file():
+        raise SystemExit(f"missing system GUI module package: {system_gui_module}")
     out = Path(args.out)
     if out.exists():
         shutil.rmtree(out)
@@ -54,15 +61,11 @@ def main() -> int:
 
     for app in APPS:
         src = apps_dir / f"{app}.elf"
-        if not src.is_file():
-            raise SystemExit(f"missing app: {src}")
-        dst = bin_dir / app
+        dst = out / "init" if app == "init" else bin_dir / app
         shutil.copy2(src, dst)
         dst.chmod(0o755)
 
     (etc_dir / "os-release").write_text(OS_RELEASE, encoding="utf-8")
-    if not system_gui_module.is_file():
-        raise SystemExit(f"missing system GUI module package: {system_gui_module}")
     shutil.copy2(system_gui_module, modules_dir / "system-gui.okmod")
     print(f"[rootfs] staged {out}")
     return 0

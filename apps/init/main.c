@@ -1,40 +1,45 @@
-#include <fcntl.h>
-#include <ok/syscall.h>
-#include <stddef.h>
 #include <stdio.h>
+#include <sys/wait.h>
 #include <unistd.h>
 
-static const char *system_gui_modules[] = {
-    "/boot/modules/system-gui.okmod",
-};
-
-int main(int argc, char **argv)
+static int launch(const char *path, char *const argv[])
 {
-    (void)argc;
-    (void)argv;
-
-    puts("ObfuscationOS init: userland online");
-    puts("ObfuscationOS init: tiny-c /bin apps are staged for shell and System GUI");
-    for (size_t i = 0; i < sizeof(system_gui_modules) / sizeof(system_gui_modules[0]); ++i) {
-        if (ok_syscall_ret(ok_syscall1(OK_SYS_LOAD_MODULE, (long)system_gui_modules[i])) == 0) {
-            puts("ObfuscationOS init: loaded GUI module");
-        } else {
-            puts("ObfuscationOS init: GUI module not loaded");
-        }
+    pid_t pid = fork();
+    if (pid < 0)
+        return -1;
+    if (pid == 0)
+    {
+        char *env[] = {"PATH=/bin", 0};
+        execve(path, argv, env);
+        perror(path);
+        _Exit(127);
     }
+    int status = 0;
+    if (waitpid(pid, &status, 0) != pid)
+        return -1;
+    return WIFEXITED(status) ? WEXITSTATUS(status) : 128;
+}
 
-    int fd = open("/etc/os-release", O_RDONLY);
-    if (fd >= 0) {
-        char buf[256];
-        ssize_t n = read(fd, buf, sizeof(buf));
-        if (n > 0) {
-            write(STDOUT_FILENO, buf, (size_t)n);
-            if (buf[n - 1] != '\n') {
-                putchar('\n');
-            }
-        }
-        close(fd);
+int main(void)
+{
+#ifdef OK_USERLAND_SELFTEST
+    puts("ObfuscationOS: /init entered user mode");
+    char *check[] = {"posix-check", 0};
+    if (launch("/bin/posix-check", check) != 0)
+    {
+        puts("OK_USERLAND scope=hardware acceptance=FAIL");
+        return 1;
     }
-
-    return 0;
+    char *script[] = {"oksh", "-c", "hello | cat", 0};
+    if (launch("/bin/oksh", script) != 0)
+    {
+        puts("OK_USERLAND scope=hardware shell_pipeline=FAIL");
+        return 1;
+    }
+    puts("OK_USERLAND scope=hardware acceptance=pass shell_pipeline=pass");
+#else
+    puts("ObfuscationOS");
+#endif
+    char *shell[] = {"oksh", 0};
+    return launch("/bin/oksh", shell);
 }

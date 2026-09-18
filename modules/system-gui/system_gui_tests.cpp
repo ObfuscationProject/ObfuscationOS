@@ -136,6 +136,9 @@ template <usize ImageSize = 128> std::array<std::byte, ImageSize> make_test_elf(
     bytes[3] = std::byte{'F'};
     bytes[4] = std::byte{2};
     bytes[5] = std::byte{1};
+    bytes[6] = std::byte{1};
+    write_le32(bytes, 20, 1);
+    write_le16(bytes, 52, 64);
     write_le16(bytes, 16, 2);
     write_le16(bytes, 18, elf_machine_for(architecture));
     write_le64(bytes, 24, 0x400000);
@@ -149,7 +152,7 @@ template <usize ImageSize = 128> std::array<std::byte, ImageSize> make_test_elf(
     write_le64(bytes, 88, 0x400000);
     write_le64(bytes, 96, 4);
     write_le64(bytes, 104, 0x2000);
-    write_le64(bytes, 112, 0x1000);
+    write_le64(bytes, 112, 1);
     bytes[120] = std::byte{0xc3};
     return image;
 }
@@ -212,7 +215,7 @@ Status stage_os_system_gui_module(Kernel &kernel)
 Status stage_system_gui_user_apps(Kernel &kernel)
 {
     const auto elf = make_test_elf<8192>(kernel.arch().architecture());
-    constexpr std::string_view paths[] = {"/oksh", "/settings", "/tasks", "/notes", "/about"};
+    constexpr std::string_view paths[] = {"/oksh", "/settings", "/tasks", "/notes", "/about", "/ls"};
     for (const auto path : paths)
     {
         auto stat = kernel.simplefs().stat(path);
@@ -598,6 +601,74 @@ Status test_system_gui_apps_are_user_elf_processes(Kernel &kernel)
     return Status::success();
 }
 
+Status test_system_gui_notes_save_and_files_navigation(Kernel &kernel)
+{
+    constexpr auto dock_y = static_cast<i32>(driver::framebuffer_height - 18);
+    auto click = [&](i32 x, i32 y) {
+        if (auto status = kernel.handle_gui_mouse_position(x, y, true); !status.ok())
+            return status;
+        return kernel.handle_gui_mouse_position(x, y, false);
+    };
+    if (auto status = click(32 + 3 * 76, dock_y); !status.ok())
+        return status;
+    auto active = kernel.gui().compositor().surface_info(kernel.gui().compositor().active_surface());
+    if (!active || active.value().title != "Notes" || !active.value().visible)
+        return Status::fault("Notes launcher did not restore its window");
+    auto observer = kernel.scheduler().create_process("gui-credential-guard", {});
+    if (!observer)
+        return observer.status();
+    if (auto status = kernel.scheduler().set_credentials(observer.value(), user::kernel_credentials()); !status.ok())
+        return status;
+    if (auto status = kernel.posix().activate(observer.value()); !status.ok())
+        return status;
+    constexpr std::string_view suffix{"\nGUI note persistence"};
+    for (auto ch : suffix)
+        if (auto status = kernel.handle_gui_key(ch); !status.ok())
+            return status;
+    if (auto status = kernel.handle_gui_key(19); !status.ok())
+        return status;
+    const auto *guard = kernel.scheduler().find(observer.value());
+    if (!guard || !guard->credentials().kernel_space || guard->credentials().euid != user::kernel_credentials().euid)
+        return Status::fault("GUI input overwrote another scheduled process's credentials");
+    if (auto status = kernel.scheduler().kill_process(observer.value()); !status.ok())
+        return status;
+    auto file = kernel.vfs().read_file("/tmp/notes-user.txt");
+    auto metadata = kernel.vfs().stat("/tmp/notes-user.txt");
+    if (!file || !file_contains(file.value(), "GUI note persistence") || !metadata ||
+        metadata.value().uid != user::default_user_uid || (metadata.value().mode & 0777u) != 0600u)
+        return Status::fault("Notes failed to save a private selected-user file through POSIX");
+    if (auto status = kernel.vfs().chmod("/tmp/notes-user.txt", 0644); !status.ok())
+        return status;
+    if (auto status = kernel.handle_gui_key(19); !status.ok())
+        return status;
+    metadata = kernel.vfs().stat("/tmp/notes-user.txt");
+    if (!metadata || (metadata.value().mode & 0777u) != 0600u)
+        return Status::fault("Notes did not restore private permissions when saving an existing file");
+    if (auto status = kernel.vfs().chown("/tmp/notes-user.txt", 0, 0); !status.ok())
+        return status;
+    if (auto status = kernel.handle_gui_key('!'); !status.ok())
+        return status;
+    if (auto status = kernel.handle_gui_key(19); !status.ok())
+        return status;
+    auto unchanged = kernel.vfs().read_file("/tmp/notes-user.txt");
+    if (!unchanged || unchanged.value().size != file.value().size)
+        return Status::fault("Notes overwrote a file owned by another user");
+    if (auto status = click(32 + 5 * 76, dock_y); !status.ok())
+        return status;
+    active = kernel.gui().compositor().surface_info(kernel.gui().compositor().active_surface());
+    if (!active || active.value().title != "Files")
+        return Status::fault("Files launcher did not focus its window");
+    if (auto status = click(active.value().bounds.x + 20, active.value().bounds.y + 110); !status.ok())
+        return status;
+    if (auto status = kernel.handle_gui_key('\n'); !status.ok())
+        return status;
+    if (auto status = kernel.handle_gui_key(27); !status.ok())
+        return status;
+    if (auto status = kernel.posix().set_credentials(user::root_credentials()); !status.ok())
+        return status;
+    return kernel.posix().unlink("/tmp/notes-user.txt");
+}
+
 Status test_close_debug_gui_restores_system_desktop(Kernel &kernel)
 {
     auto *desktop = static_cast<SystemGuiRuntime *>(kernel.extension())->loaded_gui_desktop_module();
@@ -641,6 +712,8 @@ Status run_system_gui_integration_tests(Kernel &kernel)
     if (auto status = test_system_gui_dock_uses_system_app_launchers(kernel); !status.ok())
         return status;
     if (auto status = test_system_gui_apps_are_user_elf_processes(kernel); !status.ok())
+        return status;
+    if (auto status = test_system_gui_notes_save_and_files_navigation(kernel); !status.ok())
         return status;
     if (auto status = test_close_debug_gui_restores_system_desktop(kernel); !status.ok())
         return status;

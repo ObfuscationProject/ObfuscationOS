@@ -14,7 +14,7 @@ ARCH_TRIPLES = {
     "arm32": "arm-none-eabi", "rv64": "riscv64-elf", "rv32": "riscv32-elf",
     "loongarch64": "loongarch64-elf", "mips": "mips-elf", "mips64": "mips64-elf", "ppc": "powerpc-eabi",
 }
-BIOS_PAYLOAD_CAPACITY = 38 * 32 * 512
+BIOS_PAYLOAD_CAPACITY = 256 * 32 * 512
 
 
 def validate_sdk(sdk: Path, arch: str, mode: str, compiler: Path | None = None) -> dict:
