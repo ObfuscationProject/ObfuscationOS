@@ -36,15 +36,18 @@ local function task_require_arch(arch)
     return normalized, spec
 end
 
-local function task_find_kernel_image()
-    local kernel_dir = path.join(os.projectdir(), "external", "ObfuscationKernel")
-    local kernels = os.files(path.join(kernel_dir, "build", "**", "kernel.bin"))
-    table.sort(kernels)
-    if #kernels == 0 then
-        kernels = os.files(path.join(kernel_dir, "build", "**", "kernel.elf"))
-        table.sort(kernels)
+local function task_builddir(config, arch, mode)
+    return path.join(os.projectdir(), "build", arch or task_normalize_arch(config.get("arch")), mode or config.get("mode") or "release")
+end
+
+local function task_configure_args(config, mode, arch)
+    local args = {"f", "-y", "-m", mode, "-a", arch}
+    for _, name in ipairs({"systoolchain_dir", "kernel_sdk"}) do
+        if config.get(name) then
+            table.insert(args, "--" .. name .. "=" .. path.absolute(config.get(name)))
+        end
     end
-    return kernels[1]
+    return args
 end
 
 task("arch-matrix")
@@ -60,6 +63,17 @@ task("arch-matrix")
         import("core.project.config")
         config.load()
 
+        if config.get("kernel_sdk") then
+            raise("arch-matrix requires the default per-architecture SDK layout; a single --kernel_sdk override cannot represent four architectures")
+        end
+        if config.get("systoolchain_dir") then
+            local bindir = path.join(path.absolute(config.get("systoolchain_dir")), "bin")
+            for _, triple in ipairs({"x86_64-elf", "aarch64-elf", "riscv64-elf", "loongarch64-elf"}) do
+                assert(os.isfile(path.join(bindir, triple .. "-gcc")),
+                    "arch-matrix local toolchain must contain all four compilers; missing %s-gcc", triple)
+            end
+        end
+
         local current_arch = task_normalize_arch(config.get("arch") or "x86_64")
         local current_mode = config.get("mode") or "release"
         local mode = option.get("check-mode") or current_mode
@@ -68,7 +82,7 @@ task("arch-matrix")
         for _, arch in ipairs(task_arches) do
             task_require_arch(arch)
             print(string.format("[arch-matrix] %s (%s)", arch, mode))
-            local config_code = os.execv("xmake", {"f", "-c", "-y", "-m", mode, "-a", arch}, {try = true})
+            local config_code = os.execv("xmake", task_configure_args(config, mode, arch), {try = true})
             local sysroot_code = config_code == 0 and os.execv("xmake", {"-y", "-b", "sysroot"}, {try = true}) or config_code
             local apps_code = sysroot_code == 0 and os.execv("xmake", {"-y", "-b", "apps"}, {try = true}) or sysroot_code
             if config_code ~= 0 or sysroot_code ~= 0 or apps_code ~= 0 then
@@ -76,7 +90,7 @@ task("arch-matrix")
             end
         end
 
-        os.execv("xmake", {"f", "-c", "-y", "-m", current_mode, "-a", current_arch})
+        os.execv("xmake", task_configure_args(config, current_mode, current_arch))
         if #failed > 0 then
             raise("arch matrix failed for: %s", table.concat(failed, ", "))
         end
@@ -86,9 +100,9 @@ task_end()
 task("distro-test")
     set_menu {
         usage = "xmake distro-test [-k KERNEL] [--no-qemu]",
-        description = "Run userland, image, UAPI, submodule, and QEMU distro smoke tests",
+        description = "Run userland, image, UAPI, SDK, and QEMU distro smoke tests",
         options = {
-            {"k", "kernel", "kv", nil, "Path to kernel.bin/kernel.elf from external/ObfuscationKernel"},
+            {"k", "kernel", "kv", nil, "Explicit kernel image override (otherwise build distro_image from the selected SDK)"},
             {"m", "check-mode", "kv", nil, "Build mode used for userland images"},
             {nil, "timeout", "kv", "20", "QEMU timeout in seconds"},
             {nil, "no-qemu", "k", nil, "Skip QEMU distro smoke tests"}
@@ -113,16 +127,21 @@ task("distro-test")
             return code
         end
 
-        os.execv("xmake", {"f", "-c", "-y", "-m", mode, "-a", "x86_64"}, {try = true})
-        checked("kernel-submodule-check", {"-y", "-b", "kernel-submodule-check"})
+        local configured = checked("configure", task_configure_args(config, mode, current_arch))
+        if configured ~= 0 then
+            os.execv("xmake", task_configure_args(config, current_mode, current_arch))
+            raise("distro-test configuration failed")
+        end
+        checked("distro_image", {"-y", "-b", "distro_image"})
+        checked("kernel-sdk-check", {"-y", "-b", "kernel-sdk-check"})
         checked("uapi-test", {"-y", "-b", "uapi-test"})
         checked("libc-test", {"-y", "-b", "libc-test"})
         checked("rootfs-simplefs", {"-y", "-b", "rootfs-simplefs"})
         checked("rootfs-ext4", {"-y", "-b", "rootfs-ext4"})
 
         if not option.get("no-qemu") then
-            local kernel = option.get("kernel") or task_find_kernel_image()
-            if kernel == nil then
+            local kernel = option.get("kernel") or path.join(task_builddir(config, current_arch, mode), "distro", "kernel.bin")
+            if not os.isfile(kernel) then
                 table.insert(failed, "qemu-distro")
                 print("[distro-test] qemu-distro skipped: kernel image not found")
             else
@@ -135,7 +154,7 @@ task("distro-test")
             end
         end
 
-        os.execv("xmake", {"f", "-c", "-y", "-m", current_mode, "-a", current_arch})
+        os.execv("xmake", task_configure_args(config, current_mode, current_arch))
         if #failed > 0 then
             raise("distro test failed for: %s", table.concat(failed, ", "))
         end
@@ -148,7 +167,7 @@ task("qemu-distro")
         description = "Run the external kernel with an ObfuscationOS rootfs image",
         options = {
             {"f", "fs", "kv", "simplefs", "Root filesystem image to run: simplefs or ext4"},
-            {"k", "kernel", "kv", nil, "Path to kernel.bin/kernel.elf from external/ObfuscationKernel"},
+            {"k", "kernel", "kv", nil, "Explicit kernel image override (otherwise build distro_image from the selected SDK)"},
             {nil, "timeout", "kv", "20", "QEMU timeout in seconds"},
             {nil, "display", "kv", "none", "QEMU display backend: none or sdl"},
             {nil, "interactive", "k", nil, "Keep QEMU running until the window/process exits"}
@@ -168,30 +187,24 @@ task("qemu-distro")
         os.execv("xmake", {"-y", "-b", image_target})
 
         local arch, spec = task_require_arch(config.get("arch") or "x86_64")
-        local systoolchain = project.required_package("systoolchain")
-        if systoolchain == nil then
-            raise("the systoolchain package is not resolved; rerun xmake f -c -y -a %s", arch)
+        local prefix = config.get("systoolchain_dir")
+        if not prefix then
+            local systoolchain = project.required_package("systoolchain")
+            assert(systoolchain, "the systoolchain package is not resolved")
+            prefix = systoolchain:installdir()
         end
-        local qemu = path.absolute(path.join(systoolchain:installdir(), "bin", spec.qemu_system))
-        assert(os.isfile(qemu), "systoolchain is missing packaged QEMU: %s", qemu)
-
+        local qemu = path.absolute(path.join(prefix, "bin", spec.qemu_system))
+        assert(os.isfile(qemu), "SysToolchain is missing QEMU: %s", qemu)
         local project_dir = os.projectdir()
         local kernel = option.get("kernel")
         if not kernel then
-            local kernel_dir = path.join(project_dir, "external", "ObfuscationKernel")
-            local kernels = os.files(path.join(kernel_dir, "build", "**", "kernel.bin"))
-            if #kernels == 0 then
-                kernels = os.files(path.join(kernel_dir, "build", "**", "kernel.elf"))
-            end
-            if #kernels == 0 then
-                raise("kernel image not found under external/ObfuscationKernel/build; build the kernel submodule first")
-            end
-            kernel = kernels[1]
+            os.execv("xmake", {"-y", "-b", "distro_image"})
+            kernel = path.join(task_builddir(config), "distro", "kernel.bin")
         end
 
         local image = fs == "simplefs"
-            and path.join(project_dir, "build", "rootfs.simplefs.img")
-            or path.join(project_dir, "build", "rootfs.ext4.img")
+            and path.join(task_builddir(config), "rootfs.simplefs.img")
+            or path.join(task_builddir(config), "rootfs.ext4.img")
 
         local args = {
             path.join(project_dir, "scripts", "qemu_distro.py"),
@@ -216,8 +229,7 @@ task("qemu-distro-window")
         description = "Build/run the system GUI distro path with a graphical display and keep the window open",
         options = {
             {"f", "fs", "kv", "simplefs", "Root filesystem image to run: simplefs"},
-            {"k", "kernel", "kv", nil, "Path to kernel.bin/kernel.elf from external/ObfuscationKernel"},
-            {nil, "kernel-mode", "kv", "release", "Kernel mode to build when --kernel is omitted"},
+            {"k", "kernel", "kv", nil, "Explicit kernel image override (otherwise build distro_image from the selected SDK)"},
             {nil, "display", "kv", "sdl", "QEMU display backend: sdl or none"},
             {nil, "timeout", "kv", nil, "Run headless marker validation instead of keeping the window open"}
         }
@@ -231,26 +243,12 @@ task("qemu-distro-window")
         if fs ~= "simplefs" then
             raise("qemu-distro-window currently requires simplefs so the early System GUI module loader can read /boot/modules")
         end
+        -- Build the OS extension against the configured SDK; never enter a
+        -- kernel source checkout or select a globbed architecture artifact.
         local kernel = option.get("kernel")
         if not kernel then
-            local arch = task_normalize_arch(config.get("arch") or "x86_64")
-            local mode = option.get("kernel-mode") or "release"
-            local kernel_dir = path.join(project, "external", "ObfuscationKernel")
-            os.execv("xmake", {"f", "-P", ".", "-y", "-m", mode, "-a", arch, "--kernel_gui=y"}, {curdir = kernel_dir})
-            os.execv("xmake", {"-P", ".", "-y", "-b", "okernel_image"}, {curdir = kernel_dir})
-            local candidates = {
-                path.join(kernel_dir, "build", "linux", arch, mode, "kernel.bin"),
-                path.join(project, "build", "linux", arch, mode, "kernel.bin"),
-            }
-            for _, candidate in ipairs(candidates) do
-                if os.isfile(candidate) then
-                    kernel = candidate
-                    break
-                end
-            end
-            if not kernel then
-                raise("built kernel image not found for %s/%s", arch, mode)
-            end
+            os.execv("xmake", {"-y", "-b", "distro_image"})
+            kernel = path.join(task_builddir(config), "distro", "kernel.bin")
         end
         local args = {
             "qemu-distro",

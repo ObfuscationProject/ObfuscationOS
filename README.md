@@ -1,150 +1,121 @@
 # ObfuscationOS
 
-ObfuscationOS is now a tiny userland distribution for ObfuscationKernel.  The
-repository builds a freestanding SDK, `libokcrt.a`, MVP user programs, and two
-root filesystem images.
+ObfuscationOS owns the distribution: user programs, libc shim, root filesystem,
+external drivers and compatibility code, external kernel extensions, and the
+System GUI. ObfuscationKernel owns core kernel mechanisms, native interfaces,
+boot/runtime code, and the low-level kernel compositor/debug GUI.
 
-## Kernel Submodule
+## Independent kernel SDK
 
-The kernel lives outside this tree:
+There is no kernel source checkout or submodule in this repository. Build and
+export the independent kernel repository first:
 
 ```sh
-git submodule update --init --recursive external/ObfuscationKernel
-xmake build kernel-submodule-check
+cd ../ObfuscationKernel
+xmake f -y -a x86_64 -m debug
+xmake -y -b kernel-sdk
+cd ../ObfuscationOS
+xmake f -y -a x86_64 -m debug
+xmake -y -b kernel-sdk-check
+xmake -y -b distro_image
 ```
 
-The expected baseline matches the repository gitlink:
-`2e22c7a619d58f012ab27577a16dd4a469734c8d`.
+The default input is `../ObfuscationKernel/build/sdk/<arch>/<mode>`. It can be
+copied anywhere and selected explicitly with `--kernel_sdk=/path/to/sdk`.
+ObfuscationOS never builds kernel sources. The SDK contains public headers,
+`libokernel.a`, boot/runtime archive, linker script, boot image, and a manifest
+with architecture, build mode, ABI/compiler information and SHA-256 hashes.
+Missing, modified, or mismatched artifacts fail validation; no source-header
+fallback or architecture globbing is used. The manifest content hash also enters
+the compiler signature, so replacing an SDK invalidates consumer objects even
+when copied headers retain old timestamps.
+
+The `distro_image` target compiles OS-owned System GUI extension sources and
+links them to the SDK archives. It is a statically linked boot extension; it
+does not claim to implement arbitrary ELF module relocation/loading.
 
 ## Build
 
-The first-stage 64-bit architectures are `x86_64`, `aarch64`, `rv64`, and
-`loongarch64`.
+The four current userland targets remain `x86_64`, `aarch64`, `rv64`, and
+`loongarch64`. The kernel independently retains all ten architecture profiles.
+Export the matching kernel SDK before configuring each OS architecture/mode.
+`arch-matrix` uses this default per-architecture layout; it rejects a single
+`--kernel_sdk` override. A local toolchain override used by that matrix must
+contain all four compiler triples in its `bin` directory.
 
 ```sh
-xmake f -c -y -a x86_64
-xmake build sysroot
-xmake build apps
-xmake build rootfs-simplefs
-xmake build rootfs-ext4
+xmake -y -b sysroot
+xmake -y -b apps
+xmake -y -b rootfs-simplefs
+xmake -y -b rootfs-ext4
+xmake -y -b linux-driver-compat
 ```
 
-The top-level `xmake.lua` wires in the `systoolchain` package. Architecture data,
-target package selection, targets, and developer tasks live under `xmake/` to
-match the kernel submodule layout.
+Outputs are isolated by architecture and mode under `build/<arch>/<mode>/`:
 
-Useful validation commands:
+- `sysroot/include` and `sysroot/lib/libokcrt.a`
+- `apps/*.elf`
+- `lib/liblinux-driver-compat.a`
+- `rootfs.simplefs.img` and `rootfs.ext4.img`
+- `distro/kernel.elf` and `distro/kernel.bin`
+
+Validation:
 
 ```sh
-xmake arch-matrix
-xmake distro-test --kernel=external/ObfuscationKernel/build/linux/x86_64/debug/kernel.bin
+python3 -B -m unittest discover -s tests/tools -p 'test_*.py'
+xmake -y -b uapi-test
+xmake -y -b libc-test
+xmake -y -b compat-test
+xmake distro-test --no-qemu
 ```
 
-The root repository also has GitHub Actions CI in `.github/workflows/ci.yml`.
-It checks the kernel submodule baseline, UAPI, libc shim, and both root
-filesystem image formats for the x86_64 first-stage distro.
-
-Primary outputs:
-
-- `sysroot/include`
-- `sysroot/lib/libokcrt.a`
-- `build/apps/*.elf`
-- `build/rootfs.simplefs.img`
-- `build/rootfs.ext4.img`
+`compat-test` is an x86_64 host model test. Linux driver compatibility remains a
+model, not a complete implementation of Linux kernel driver APIs. CI builds
+and uploads the kernel SDK in a separate job; the OS job consumes only that
+artifact. See [docs/CI.md](docs/CI.md).
 
 ## Toolchain
 
-The freestanding compiler and matching QEMU system emulator are provided by
-`systoolchain 0.1.0` from the project `ObfuscationRepo`. ObfuscationOS always
-builds that package from its pinned sources during configuration; package
-installation performs the compiler and QEMU validation before consumers run:
+By default both projects resolve `systoolchain 0.1.0` from ObfuscationRepo with
+its existing source-build policy. For an already installed toolchain, configure
+both projects with the explicit opt-in:
 
 ```sh
-xmake f -c -y -a x86_64
+xmake f -y -a x86_64 -m debug --systoolchain_dir=/path/to/systoolchain
 ```
 
-Supported target triples are:
+The directory must contain `bin/<target>-gcc`, G++, Binutils, and the matching
+QEMU executable for QEMU tasks. The OS extension compiler must match the SDK
+compiler target and GCC version. This avoids silently mixing C++ object ABIs.
 
-- `x86_64-elf`
-- `aarch64-elf`
-- `riscv64-elf`
-- `loongarch64-elf`
+## User programs and GUI
 
-## User Programs
+The image contains `init`, `oksh`, basic file/identity utilities, `settings`,
+`tasks`, `notes`, `about`, and `kmodload`. `oksh` remains builtin-only until
+real process execution and `fork/exec/wait/pipe` are implemented.
 
-The MVP image includes:
-
-- `init`
-- `oksh`
-- `hello`
-- `cat`
-- `ls`
-- `stat`
-- `mkdir`
-- `rm`
-- `pwd`
-- `whoami`
-- `uname`
-- `uptime`
-- `touch`
-- `settings`
-- `tasks`
-- `notes`
-- `about`
-- `kmodload`
-
-`oksh` is intentionally builtin-only until the kernel grows `fork`, `execve`,
-`wait`, `pipe`, `select`, and `poll`.
-
-## System GUI
-
-The kernel submodule provides the low-level `kernel-gui` compositor service and
-debug chrome in C++. The user-visible greeter and desktop shell live on the OS
-side at
-`modules/system-gui/system-gui.okmod` and is staged into the root filesystem as
-`/boot/modules/system-gui.okmod`. The dock applications are standalone tiny-c
-ELF programs staged in `/bin` (`oksh`, `settings`, `tasks`, `notes`, and
-`about`), not OKMOD packages. After the kernel has completed boot, the OS module
-loader (`/bin/kmodload --all`, and the current boot fallback until full
-`execve` handoff is enabled) loads only the desktop package with
-`OK_SYS_LOAD_MODULE`. The desktop module consumes `gui.compositor` /
-`gui.desktop`, exports `gui.system-desktop`, and opens a pre-desktop
-ObfuscationOS Login greeter with root selected as the default user. The greeter
-also supports a mouse-opened user dropdown, and pressing Enter logs in as the
-selected user. Login switches to the System Shell renderer and then starts the
-Tiny Shell, System Settings, Task Manager, Notes, and About ELF apps as the
-selected user. These System dock launchers route to OS user apps instead of the
-kernel debug shell/file/task launchers. Text-mode TUI boot is selected by
-startup parameters/mode rather than by a GUI session picker.
+The OS owns `modules/system-gui/`, including desktop/greeter policy and its
+configuration package staged at `/boot/modules/system-gui.okmod`. The low-level
+compositor remains in the kernel. Current GUI application behavior is an
+in-kernel model associated with ELF metadata, not isolated user-mode execution.
 See [docs/GUI.md](docs/GUI.md).
 
-## Root Filesystems
+## Root filesystems and QEMU
 
-`rootfs-simplefs` creates a flat SimpleFS image for the current kernel path.  It
-maps paths such as `/bin/init` to root entries such as `init`, with 512-byte
-blocks and a maximum of 32 entries.
-
-`rootfs-ext4` creates a standard EXT4 image with `/bin/init` and
-`/etc/os-release`.  It is validated offline with `e2fsck -n`.
-
-## QEMU
-
-After the kernel submodule has been built:
+SimpleFS is the current early module-loading path (flat entries, 512-byte
+blocks, at most 32 entries). EXT4 images are checked offline with `e2fsck -n`.
 
 ```sh
-xmake qemu-distro --fs=simplefs --kernel=external/ObfuscationKernel/build/linux/x86_64/debug/kernel.bin
-xmake qemu-distro --fs=ext4 --kernel=external/ObfuscationKernel/build/linux/x86_64/debug/kernel.bin
+xmake qemu-distro --fs=simplefs
+xmake qemu-distro --fs=ext4
 xmake qemu-distro-window --fs=simplefs
 xmake qemu-distro-window --fs=simplefs --display=none --timeout=10
 ```
 
-`qemu-distro` is the headless smoke path used by CI. `qemu-distro-window`
-builds a release GUI kernel when `--kernel` is omitted, attaches the SimpleFS
-rootfs, loads the System GUI desktop package from `/boot/modules`, and keeps the
-SDL QEMU window open until it exits. QEMU is launched by absolute path from the
-resolved `systoolchain` package; machine, CPU, devices, storage, and display
-arguments remain managed by ObfuscationOS. Passing `--timeout` validates the
-same System GUI path headlessly and exits after the boot marker. The headless
-release smoke marker for that path is `OK_SYSTEM_GUI boot=complete`;
-debug-kernel distro tests still accept the debug boot marker. QEMU runs against
-a temporary rootfs copy so an open GUI window does not lock the staged image.
+These tasks build the OS image from the configured kernel SDK. They never
+reconfigure or rebuild a kernel repository. An explicit `--kernel=/path/to/image`
+can override the selected image for testing. QEMU uses a temporary rootfs copy.
+A debug boot marker verifies the kernel model tests; it is not proof that real
+user-mode execution, hardware SMP, or dynamic native module loading works.
+The OS runner requires `OK_SYSTEM_GUI boot=complete` after extension startup;
+kernel boot/test markers alone do not complete distribution validation.

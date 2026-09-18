@@ -4,6 +4,8 @@ import os
 import shutil
 from pathlib import Path
 
+from kernel_sdk import validate_sdk
+
 
 def copy_tree(src: Path, dst: Path) -> None:
     if not src.exists():
@@ -17,23 +19,16 @@ def copy_tree(src: Path, dst: Path) -> None:
             shutil.copy2(root_path / name, out_dir / name)
 
 
-def find_kernel_uapi(kernel_dir: Path) -> Path | None:
-    if not kernel_dir.exists():
-        return None
-    for include in (kernel_dir / "uapi" / "include", kernel_dir / "include"):
-        syscall = include / "ok" / "uapi" / "syscall.h"
-        if syscall.is_file():
-            return syscall.parent
-    return None
-
-
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--project", required=True)
     parser.add_argument("--sysroot", required=True)
     parser.add_argument("--lib", required=True)
     parser.add_argument("--arch", required=True)
+    parser.add_argument("--kernel-sdk", required=True, type=Path)
+    parser.add_argument("--mode", required=True)
     args = parser.parse_args()
+    validate_sdk(args.kernel_sdk, args.arch, args.mode)
 
     project = Path(args.project)
     sysroot = Path(args.sysroot)
@@ -45,12 +40,8 @@ def main() -> int:
     include_dir.mkdir(parents=True)
     lib_dir.mkdir(parents=True)
 
-    kernel_uapi = find_kernel_uapi(project / "external" / "ObfuscationKernel")
-    if kernel_uapi is None:
-        kernel_uapi = project / "uapi" / "include"
-        print(f"[sysroot] external kernel UAPI not found, using local fallback: {kernel_uapi}")
-    else:
-        print(f"[sysroot] using kernel UAPI: {kernel_uapi}")
+    kernel_uapi = args.kernel_sdk / "include" / "ok" / "uapi"
+    print(f"[sysroot] using exported kernel UAPI: {kernel_uapi}")
 
     copy_tree(kernel_uapi, include_dir / "ok" / "uapi")
     copy_tree(project / "sdk" / "include", include_dir)

@@ -1,5 +1,8 @@
 # Pre-Desktop System GUI Implementation Plan
 
+> Historical design record. Repository boundaries and build commands were replaced
+> by the artifact SDK refactor; see `docs/GUI.md` and the current README.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use inline execution in this session because the user already approved implementation. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Make GUI boot stop at a real login greeter, move full desktop visuals into System GUI, and stop `qemu-distro-window` from forcing kernel rebuilds.

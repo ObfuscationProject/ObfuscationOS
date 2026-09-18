@@ -6,12 +6,32 @@ on:
   workflow_dispatch:
 
 jobs:
-  distro:
+  kernel-sdk:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
         with:
-          submodules: recursive
+          repository: ObfuscationProject/ObfuscationKernel
+      - uses: xmake-io/github-action-setup-xmake@v1
+        with:
+          xmake-version: latest
+      - name: Build independent kernel SDK
+        run: |
+          xmake f -y -m debug -a x86_64
+          xmake -y -b kernel-sdk
+      - uses: actions/upload-artifact@v4
+        with:
+          name: kernel-sdk-x86_64-debug
+          path: build/sdk/x86_64/debug
+  distro:
+    needs: kernel-sdk
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: kernel-sdk-x86_64-debug
+          path: kernel-sdk
       - uses: xmake-io/github-action-setup-xmake@v1
         with:
           xmake-version: latest
@@ -19,15 +39,20 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y build-essential e2fsprogs
-      - name: Configure distro
-        run: xmake f -c -y -m debug -a x86_64
-      - name: Validate kernel submodule
-        run: xmake -y -b kernel-submodule-check
-      - name: Validate UAPI and libc
+      - name: Configure distro using artifacts
+        run: xmake f -y -m debug -a x86_64 --kernel_sdk=kernel-sdk
+      - name: Validate artifacts, UAPI and libc
         run: |
+          xmake -y -b artifact-test
+          xmake -y -b kernel-sdk-check
           xmake -y -b uapi-test
           xmake -y -b libc-test
-      - name: Build root filesystem images
+          xmake -y -b compat-test
+      - name: Build distribution images and extensions
         run: |
+          xmake -y -b distro_image
+          xmake -y -b linux-driver-compat
           xmake -y -b rootfs-simplefs
           xmake -y -b rootfs-ext4
+      - name: Verify OS extension in QEMU
+        run: xmake qemu-distro --fs=simplefs --timeout=30

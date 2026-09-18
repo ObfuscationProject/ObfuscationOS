@@ -1,5 +1,8 @@
 # System Desktop GUI Implementation Plan
 
+> Historical design record. Repository boundaries and build commands were replaced
+> by the artifact SDK refactor; see `docs/GUI.md` and the current README.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use inline execution in this session because subagent spawning was not explicitly requested. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Add a filesystem-loaded system desktop GUI module, root documentation, and lightweight GitHub Actions CI.

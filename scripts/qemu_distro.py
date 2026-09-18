@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import os
 import select
 import shutil
 import subprocess
@@ -128,33 +129,53 @@ def command_for(qemu: Path, arch: str, kernel: Path, rootfs: Path, display: str)
 
 
 def run_until_marker(command: list[str], timeout: float) -> int:
-    process = subprocess.Popen(command, text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+    process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
     assert process.stdout is not None
     deadline = time.monotonic() + timeout
-    markers = ("ObfuscationOS init: userland online", "OK_SYSTEM_GUI boot=complete", "OK_DEBUG boot=complete", "OK_TEST_PASS ")
-    seen_boot = False
+    pending = b""
+    result = 124
 
-    while time.monotonic() < deadline:
-        readable, _, _ = select.select([process.stdout], [], [], 0.1)
-        if readable:
-            line = process.stdout.readline()
-            if line:
-                print(line, end="")
-                if any(marker in line for marker in markers):
-                    seen_boot = True
-                    break
-        if process.poll() is not None:
-            break
+    def inspect_line(raw: bytes) -> int | None:
+        line = raw.decode(errors="replace")
+        print(line, end="" if line.endswith("\n") else "\n")
+        if line.startswith("OK_TEST_FAIL ") or "boot=degraded" in line or "boot=failed" in line:
+            return 1
+        # Kernel boot and test markers precede extension startup. Only the
+        # OS-owned final marker proves the distribution extension started.
+        if line.startswith("OK_SYSTEM_GUI boot=complete"):
+            return 0
+        return None
 
-    if process.poll() is None:
-        process.terminate()
-        try:
-            process.wait(timeout=1.0)
-        except subprocess.TimeoutExpired:
-            process.kill()
+    try:
+        while time.monotonic() < deadline:
+            readable, _, _ = select.select([process.stdout], [], [], 0.1)
+            if not readable:
+                continue
+            chunk = os.read(process.stdout.fileno(), 4096)
+            if not chunk:
+                if pending:
+                    inspected = inspect_line(pending)
+                    if inspected is not None:
+                        result = inspected
+                break
+            pending += chunk
+            while b"\n" in pending:
+                line, pending = pending.split(b"\n", 1)
+                inspected = inspect_line(line + b"\n")
+                if inspected is not None:
+                    return inspected
+    finally:
+        if process.poll() is None:
+            process.terminate()
+            try:
+                process.wait(timeout=1.0)
+            except subprocess.TimeoutExpired:
+                process.kill()
+                process.wait()
+        else:
             process.wait()
-
-    return 0 if seen_boot else 124
+        process.stdout.close()
+    return result
 
 
 def run_interactive(command: list[str]) -> int:
@@ -208,7 +229,7 @@ def main() -> int:
             return run_interactive(command)
         code = run_until_marker(command, args.timeout)
         if code == 124:
-            print("[qemu-distro] timeout before boot/userland marker", file=sys.stderr)
+            print("[qemu-distro] timeout before OS extension completion marker", file=sys.stderr)
         return code
 
 

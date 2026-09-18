@@ -76,18 +76,26 @@ function ok_user_require_arch(arch)
     return normalized, spec
 end
 
+function ok_user_kernel_sdk()
+    return path.absolute(get_config("kernel_sdk") or path.join(os.projectdir(), "..", "ObfuscationKernel", "build", "sdk", ok_user_current_arch(), get_config("mode") or "release"), os.projectdir())
+end
+
 function ok_user_kernel_uapi_include()
-    local kernel_include = path.join(os.projectdir(), "external", "ObfuscationKernel", "include")
-    if os.isfile(path.join(kernel_include, "ok", "uapi", "syscall.h")) then
-        return kernel_include
-    end
-    return path.join(os.projectdir(), "uapi", "include")
+    return path.join(ok_user_kernel_sdk(), "include")
+end
+
+function ok_user_builddir()
+    return path.join(os.projectdir(), "build", ok_user_current_arch(), get_config("mode") or "release")
 end
 
 function add_ok_user_toolchain()
     local _, spec = ok_user_require_arch(ok_user_current_arch())
-    set_toolchains("cross@systoolchain")
-    add_packages("systoolchain")
+    if get_config("systoolchain_dir") then
+        set_toolchains("ok-user-local-cross")
+    else
+        set_toolchains("cross@systoolchain")
+        add_packages("systoolchain")
+    end
     add_defines(spec.define)
 end
 
@@ -143,4 +151,28 @@ function ok_user_run_python(batchcmds, script, args)
         table.insert(argv, arg)
     end
     batchcmds:vrunv("python3", argv)
+end
+
+if get_config("systoolchain_dir") then
+    toolchain("ok-user-local-cross")
+        set_kind("standalone")
+        local _, spec = ok_user_require_arch(ok_user_current_arch())
+        local bindir = path.join(path.absolute(get_config("systoolchain_dir"), os.projectdir()), "bin")
+        set_bindir(bindir)
+        on_check(function (toolchain)
+            for _, tool in ipairs({"gcc", "g++", "ar", "objcopy"}) do
+                assert(os.isfile(path.join(bindir, spec.triple .. "-" .. tool)),
+                    "local SysToolchain is missing %s-%s in %s", spec.triple, tool, bindir)
+            end
+            assert(os.iorunv(path.join(bindir, spec.triple .. "-gcc"), {"-dumpmachine"}):trim() == spec.triple,
+                "local SysToolchain compiler target mismatch")
+            return true
+        end)
+        set_toolset("cc", path.join(bindir, spec.triple .. "-gcc"))
+        set_toolset("cxx", path.join(bindir, spec.triple .. "-g++"))
+        set_toolset("as", path.join(bindir, spec.triple .. "-gcc"))
+        set_toolset("ld", path.join(bindir, spec.triple .. "-g++"))
+        set_toolset("ar", path.join(bindir, spec.triple .. "-ar"))
+        set_toolset("objcopy", path.join(bindir, spec.triple .. "-objcopy"))
+    toolchain_end()
 end

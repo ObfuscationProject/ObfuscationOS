@@ -1,15 +1,9 @@
 # External dependencies
 
-`ObfuscationKernel` is expected at `external/ObfuscationKernel` and should be
-kept at the `v0.1.0-2` baseline commit
-`b8a4d5af31141663686587b97409c53f29114f2e`.
+The kernel is no longer a submodule or source dependency here. Build
+ObfuscationKernel independently and consume its exported SDK from
+`../ObfuscationKernel/build/sdk/<arch>/<mode>`, or configure
+`--kernel_sdk=/absolute/path/to/sdk`.
 
-Initialize it with:
-
-```sh
-git submodule update --init --recursive external/ObfuscationKernel
-```
-
-The userland build can fall back to the local `uapi/include` headers while the
-submodule is unavailable, but `xmake build kernel-submodule-check` requires the
-real checkout.
+See the repository README for the artifact manifest, build and validation
+commands. Do not restore a kernel checkout under this directory.

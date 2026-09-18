@@ -1,5 +1,8 @@
 # Pre-Desktop System GUI Design
 
+> Historical design record. Repository boundaries and build commands were replaced
+> by the artifact SDK refactor; see `docs/GUI.md` and the current README.
+
 ## Goal
 
 ObfuscationOS boots into a real pre-desktop login state in GUI mode. The full desktop shell, taskbar, launcher, and app windows appear only after a user logs in. Whether the system starts in GUI or TUI mode is controlled by boot parameters, not by a GUI session picker.

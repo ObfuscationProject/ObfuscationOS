@@ -1,5 +1,8 @@
 # System Desktop GUI Design
 
+> Historical design record. Repository boundaries and build commands were replaced
+> by the artifact SDK refactor; see `docs/GUI.md` and the current README.
+
 ## Goal
 
 ObfuscationOS should load a base GUI that feels like a real system desktop, not an okernel test surface. The base desktop belongs to the OS repository as a module package and is loaded after kernel boot through a kernel module loader.
