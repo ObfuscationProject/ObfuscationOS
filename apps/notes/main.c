@@ -5,7 +5,7 @@
 
 int main(int argc, char **argv)
 {
-    const char *path = argc > 1 ? argv[1] : "/tmp/notes.txt";
+    const char *path = argc > 1 ? argv[1] : "/home/notes.txt";
     if (argc > 2)
     {
         int fd = open(path, O_CREAT | O_WRONLY | O_TRUNC, 0600);
@@ -28,6 +28,12 @@ int main(int argc, char **argv)
             close(fd);
             return 1;
         }
+        if (fsync(fd) != 0)
+        {
+            perror("sync");
+            close(fd);
+            return 1;
+        }
         close(fd);
         printf("Saved %s\n", path);
         return 0;
@@ -36,7 +42,7 @@ int main(int argc, char **argv)
     if (fd < 0)
     {
         puts("Usage: notes [path] [text to save]");
-        puts("Default note: /tmp/notes.txt (retained until reboot)");
+        puts("Default note: /home/notes.txt (persistent when booted with ext4)");
         return 1;
     }
     char buffer[256];

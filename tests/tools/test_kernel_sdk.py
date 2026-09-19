@@ -28,8 +28,9 @@ class KernelSdkTests(unittest.TestCase):
             content = bytes(510) + b"\x55\xaa" if name.endswith("boot16.bin") else name.encode()
             path.write_bytes(content)
             files[name] = hashlib.sha256(content).hexdigest()
-        self.manifest = {"schema": 1, "abi_version": 1, "kernel_version": "0.1.0", "arch": "x86_64",
+        self.manifest = {"schema": 1, "abi_version": 2, "kernel_version": "0.1.0", "arch": "x86_64",
                          "mode": "debug", "triple": "x86_64-elf", "image_format": "bios-disk",
+                         "cxxflags": [], "asflags": [], "ldflags": [], "defines": [],
                          "compiler": {"family": "gcc", "version": "14.2.0"}, "files": files}
         self.save()
 
@@ -43,6 +44,19 @@ class KernelSdkTests(unittest.TestCase):
         for arch, mode in (("aarch64", "debug"), ("x86_64", "release")):
             with self.subTest(arch=arch, mode=mode), self.assertRaisesRegex(ValueError, "mismatch"):
                 validate_sdk(self.sdk, arch, mode)
+
+    def test_reject_old_native_interface_abi(self):
+        self.manifest["abi_version"] = 1
+        self.save()
+        with self.assertRaisesRegex(ValueError, "abi_version mismatch"):
+            validate_sdk(self.sdk, "x86_64", "debug")
+
+    def test_assembler_abi_flags_are_required(self):
+        for invalid in (None, "-mabi=64", [64]):
+            self.manifest["asflags"] = invalid
+            self.save()
+            with self.subTest(flags=invalid), self.assertRaisesRegex(ValueError, "asflags"):
+                validate_sdk(self.sdk, "x86_64", "debug")
 
     def test_matching_compiler_abi(self):
         with patch("kernel_sdk.subprocess.check_output", side_effect=["x86_64-elf\n", "14.2.0\n"]):

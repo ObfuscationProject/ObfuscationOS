@@ -8,6 +8,8 @@
 #include <unistd.h>
 
 static long last_number;
+static uintptr_t metadata_size = 123;
+static uint64_t metadata_blocks;
 
 long ok_syscall0(long number)
 {
@@ -48,7 +50,8 @@ long ok_syscall2(long number, long arg0, long arg1)
         memset(st, 0, sizeof(*st));
         st->type = OK_NODE_REGULAR;
         st->mode = OK_MODE_REGULAR | 0400;
-        st->size = 123;
+        st->size = metadata_size;
+        st->blocks = metadata_blocks;
         st->link_count = 1;
         st->block_size = 512;
         return 0;
@@ -155,6 +158,14 @@ int main(void)
     if (fstat(42, &st) != 0 || st.st_size != 123 || last_number != OK_SYS_FSTAT) {
         return 9;
     }
+    metadata_size = (uintptr_t)__LONG_MAX__ + 1u;
+    if (stat("/too-large", &st) != -1 || errno != EOVERFLOW || st.st_size != 123)
+        return 30;
+    metadata_size = 123;
+    metadata_blocks = (uint64_t)~0u + 1;
+    if (fstat(42, &st) != -1 || errno != EOVERFLOW || st.st_size != 123)
+        return 31;
+    metadata_blocks = 0;
     if (mkdir("/tmp", 0700) != 0 || last_number != OK_SYS_MKDIR) {
         return 10;
     }

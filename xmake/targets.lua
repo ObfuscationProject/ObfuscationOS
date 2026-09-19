@@ -1,4 +1,4 @@
-local app_names = {"init", "oksh", "posix-check", "hello", "cat", "ls", "stat", "mkdir", "rm", "pwd", "whoami", "uname", "uptime", "touch", "settings", "tasks", "notes", "about", "kmodload"}
+local app_names = {"init", "oksh", "posix-check", "hello", "cat", "ls", "stat", "mkdir", "rm", "pwd", "whoami", "uname", "uptime", "touch", "settings", "tasks", "notes", "about", "sync", "kmodload"}
 
 local arch, arch_spec = ok_user_require_arch(ok_user_current_arch())
 local project = os.projectdir()
@@ -186,6 +186,7 @@ local function add_kernel_sdk_flags(target)
     add_sdk_identity(target)
     target:add("includedirs", path.join(sdk, "include"))
     target:add("cxxflags", manifest.cxxflags, {force = true})
+    target:add("asflags", manifest.asflags, {force = true})
     target:add("defines", manifest.defines)
     target:add("ldflags", manifest.ldflags, {force = true})
 end
@@ -207,7 +208,8 @@ target_end()
 
 target("distro_image")
     add_deps("boot-archive", {inherit = false})
-    add_files(path.join(project, "modules/boot/archive.cpp"), path.join(project, "modules/boot/archive.S"))
+    add_files(path.join(project, "modules/boot/archive.cpp"), path.join(project, "modules/boot/archive.S"),
+              path.join(project, "modules/boot/storage.cpp"), path.join(project, "drivers/virtio/block.cpp"))
     add_defines('OK_BOOT_ARCHIVE_INCLUDE="' .. path.join(build, "boot.okar.inc") .. '"')
     set_kind("binary")
     set_default(false)

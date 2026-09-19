@@ -16,7 +16,7 @@ from qemu_distro import command_for
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--arch", required=True, choices=("x86_64", "aarch64", "rv64", "loongarch64"))
+    parser.add_argument("--arch", required=True, choices=("i386", "x86_64", "aarch64", "arm32", "rv64", "rv32", "loongarch64", "mips", "mips64", "ppc"))
     parser.add_argument("--qemu", required=True, type=Path)
     parser.add_argument("--kernel", required=True, type=Path)
     parser.add_argument("--rootfs", required=True, type=Path)

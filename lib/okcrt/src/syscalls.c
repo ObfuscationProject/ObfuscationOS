@@ -4,10 +4,13 @@
 #include <stdarg.h>
 #include <stddef.h>
 #include <sys/stat.h>
+#include <sys/uio.h>
 #include <unistd.h>
 
-static void copy_stat(struct stat *dst, const struct ok_stat *src)
+static int copy_stat(struct stat *dst, const struct ok_stat *src)
 {
+    if (src->size > (uintptr_t)__LONG_MAX__ || src->blocks > (uint64_t)~0u)
+        return (int)ok_syscall_ret(-OK_EOVERFLOW);
     dst->st_ino = 0;
     dst->st_mode = src->mode;
     dst->st_nlink = src->link_count;
@@ -23,6 +26,7 @@ static void copy_stat(struct stat *dst, const struct ok_stat *src)
     dst->st_mtim.nanoseconds = 0;
     dst->st_ctim.seconds = 0;
     dst->st_ctim.nanoseconds = 0;
+    return 0;
 }
 
 void _Exit(int status)
@@ -96,8 +100,7 @@ int stat(const char *path, struct stat *st)
     if (result < 0) {
         return -1;
     }
-    copy_stat(st, &kst);
-    return 0;
+    return copy_stat(st, &kst);
 }
 
 int fstat(int fd, struct stat *st)
@@ -107,8 +110,7 @@ int fstat(int fd, struct stat *st)
     if (result < 0) {
         return -1;
     }
-    copy_stat(st, &kst);
-    return 0;
+    return copy_stat(st, &kst);
 }
 
 int mkdir(const char *path, mode_t mode)
@@ -161,3 +163,20 @@ int dup2(int oldfd, int newfd)
 {
     return (int)ok_syscall_ret(ok_syscall2(OK_SYS_DUP2, oldfd, newfd));
 }
+
+ssize_t pread(int fd, void *buf, size_t count, off_t offset)
+{ return (ssize_t)ok_syscall_ret(ok_syscall4(OK_SYS_PREAD64, fd, (long)buf, (long)count, offset)); }
+ssize_t pwrite(int fd, const void *buf, size_t count, off_t offset)
+{ return (ssize_t)ok_syscall_ret(ok_syscall4(OK_SYS_PWRITE64, fd, (long)buf, (long)count, offset)); }
+ssize_t readv(int fd, const struct iovec *vectors, int count)
+{ return (ssize_t)ok_syscall_ret(ok_syscall3(OK_SYS_READV, fd, (long)vectors, count)); }
+ssize_t writev(int fd, const struct iovec *vectors, int count)
+{ return (ssize_t)ok_syscall_ret(ok_syscall3(OK_SYS_WRITEV, fd, (long)vectors, count)); }
+int fsync(int fd)
+{ return (int)ok_syscall_ret(ok_syscall1(OK_SYS_FSYNC, fd)); }
+int fdatasync(int fd)
+{ return (int)ok_syscall_ret(ok_syscall1(OK_SYS_FDATASYNC, fd)); }
+int ftruncate(int fd, off_t length)
+{ return (int)ok_syscall_ret(ok_syscall2(OK_SYS_FTRUNCATE, fd, length)); }
+int truncate(const char *path, off_t length)
+{ return (int)ok_syscall_ret(ok_syscall2(OK_SYS_TRUNCATE, (long)path, length)); }

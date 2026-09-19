@@ -23,12 +23,16 @@ def validate_sdk(sdk: Path, arch: str, mode: str, compiler: Path | None = None) 
     if not manifest_path.is_file():
         raise ValueError(f"kernel SDK missing: {manifest_path}; build 'xmake -b kernel-sdk' in ObfuscationKernel first")
     manifest = json.loads(manifest_path.read_text())
-    expected = {"schema": 1, "abi_version": 1, "arch": arch, "mode": mode, "triple": ARCH_TRIPLES.get(arch)}
+    expected = {"schema": 1, "abi_version": 2, "arch": arch, "mode": mode, "triple": ARCH_TRIPLES.get(arch)}
     for key, value in expected.items():
         if value is None or manifest.get(key) != value:
             raise ValueError(f"kernel SDK {key} mismatch: expected {value!r}, found {manifest.get(key)!r}")
     if not manifest.get("kernel_version"):
         raise ValueError("kernel SDK has no kernel version")
+    for field in ("cxxflags", "asflags", "ldflags", "defines"):
+        flags = manifest.get(field)
+        if not isinstance(flags, list) or not all(isinstance(flag, str) for flag in flags):
+            raise ValueError(f"kernel SDK has invalid or missing {field}")
     image_format = manifest.get("image_format")
     if image_format not in {"bios-disk", "elf", "linux-image"}:
         raise ValueError(f"unsupported kernel image format: {image_format}")

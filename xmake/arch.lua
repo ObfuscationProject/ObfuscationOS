@@ -1,6 +1,36 @@
-OK_USER_ARCHES = {"x86_64", "aarch64", "rv64", "loongarch64"}
+OK_USER_ARCHES = {"i386", "x86_64", "aarch64", "arm32", "rv64", "rv32", "loongarch64", "mips", "mips64", "ppc"}
 
 OK_USER_ARCH_SPECS = {
+    i386 = {
+        define = "OK_USER_ARCH_I386", source = "i386",
+        triple = "i386-elf", qemu_system = "qemu-system-i386",
+        cflags = {"-m32"}, asflags = {"-m32"}, ldflags = {"-m32"},
+    },
+    arm32 = {
+        define = "OK_USER_ARCH_ARM32", source = "arm32",
+        triple = "arm-none-eabi", qemu_system = "qemu-system-arm",
+        cflags = {"-march=armv7-a", "-marm"}, asflags = {"-march=armv7-a", "-marm"}, ldflags = {"-march=armv7-a", "-marm"},
+    },
+    rv32 = {
+        define = "OK_USER_ARCH_RV32", source = "rv32",
+        triple = "riscv32-elf", qemu_system = "qemu-system-riscv32",
+        cflags = {"-mcmodel=medany", "-msmall-data-limit=0"}, asflags = {"-mcmodel=medany"}, ldflags = {"-mcmodel=medany"},
+    },
+    mips = {
+        define = "OK_USER_ARCH_MIPS", source = "mips",
+        triple = "mips-elf", qemu_system = "qemu-system-mips",
+        cflags = {"-march=mips32r2", "-G0", "-mno-abicalls", "-fno-pic"}, asflags = {"-march=mips32r2", "-G0", "-mno-abicalls", "-fno-pic"}, ldflags = {"-march=mips32r2", "-G0", "-mno-abicalls", "-fno-pic"},
+    },
+    mips64 = {
+        define = "OK_USER_ARCH_MIPS64", source = "mips64",
+        triple = "mips64-elf", qemu_system = "qemu-system-mips64",
+        cflags = {"-march=mips64r2", "-mabi=64", "-G0", "-mno-abicalls", "-fno-pic"}, asflags = {"-march=mips64r2", "-mabi=64", "-G0", "-mno-abicalls", "-fno-pic"}, ldflags = {"-march=mips64r2", "-mabi=64", "-G0", "-mno-abicalls", "-fno-pic", "-Wl,--oformat=elf64-bigmips"},
+    },
+    ppc = {
+        define = "OK_USER_ARCH_PPC", source = "ppc",
+        triple = "powerpc-eabi", qemu_system = "qemu-system-ppc",
+        cflags = {"-msoft-float", "-msdata=none"}, asflags = {"-msoft-float", "-msdata=none"}, ldflags = {"-msoft-float", "-msdata=none"},
+    },
     x86_64 = {
         define = "OK_USER_ARCH_X86_64",
         source = "x86_64",
@@ -24,7 +54,7 @@ OK_USER_ARCH_SPECS = {
         source = "rv64",
         triple = "riscv64-elf",
         qemu_system = "qemu-system-riscv64",
-        cflags = {"-mcmodel=medany"},
+        cflags = {"-mcmodel=medany", "-msmall-data-limit=0"},
         asflags = {"-mcmodel=medany"},
         ldflags = {},
     },
@@ -70,7 +100,7 @@ function ok_user_require_arch(arch)
     local normalized = ok_user_normalize_arch(arch)
     local spec = OK_USER_ARCH_SPECS[normalized]
     if spec == nil then
-        raise("unsupported first-stage userland arch '%s'; use one of: %s",
+        raise("unsupported userland arch '%s'; use one of: %s",
               tostring(normalized), table.concat(OK_USER_ARCHES, ", "))
     end
     return normalized, spec
@@ -131,7 +161,7 @@ function add_ok_user_cflags()
 end
 
 function add_ok_user_linkflags()
-    if ok_user_current_arch() == "aarch64" then
+    if ok_user_current_arch() == "aarch64" or ok_user_current_arch() == "arm32" then
         add_ldflags("-Wl,--defsym,OK_USER_BASE=0x10000000", {force = true})
     end
     local _, spec = ok_user_require_arch(ok_user_current_arch())

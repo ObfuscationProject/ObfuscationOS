@@ -10,8 +10,8 @@
 #define DT_REG 8
 
 struct dirent {
-    unsigned long d_ino;
-    long d_off;
+    uint64_t d_ino;
+    int64_t d_off;
     unsigned short d_reclen;
     unsigned char d_type;
     char d_name[256];

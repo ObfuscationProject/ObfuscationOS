@@ -3,6 +3,6 @@
 
 #define CHAR_BIT 8
 #define PATH_MAX 256
-#define NAME_MAX 255
+#define NAME_MAX 31
 
 #endif

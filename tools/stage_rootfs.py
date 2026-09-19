@@ -23,6 +23,7 @@ APPS = (
     "tasks",
     "notes",
     "about",
+    "sync",
     "kmodload",
 )
 
@@ -58,6 +59,10 @@ def main() -> int:
     bin_dir.mkdir(parents=True)
     etc_dir.mkdir(parents=True)
     modules_dir.mkdir(parents=True)
+    (out / "home").mkdir()
+    (out / "dev").mkdir()
+    (out / "tmp").mkdir()
+    (out / "tmp").chmod(0o1777)
 
     for app in APPS:
         src = apps_dir / f"{app}.elf"

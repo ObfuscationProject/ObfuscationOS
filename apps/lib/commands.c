@@ -65,7 +65,7 @@ int cmd_cat(int argc, char **argv)
 
 static int list_dir(const char *path)
 {
-    unsigned char buffer[512];
+    _Alignas(8) unsigned char buffer[512];
     int fd = open(path, O_RDONLY | O_DIRECTORY);
     if (fd < 0) {
         perror(path);

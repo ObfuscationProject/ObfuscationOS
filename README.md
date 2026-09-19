@@ -36,12 +36,12 @@ does not claim to implement arbitrary ELF module relocation/loading.
 
 ## Build
 
-The four current userland targets remain `x86_64`, `aarch64`, `rv64`, and
-`loongarch64`. The kernel independently retains all ten architecture profiles.
+The userland targets are `i386`, `x86_64`, `aarch64`, `arm32`, `rv64`, `rv32`,
+`loongarch64`, `mips`, `mips64` and `ppc`, matching all ten kernel profiles.
 Export the matching kernel SDK before configuring each OS architecture/mode.
 `arch-matrix` uses this default per-architecture layout; it rejects a single
 `--kernel_sdk` override. A local toolchain override used by that matrix must
-contain all four compiler triples in its `bin` directory.
+contain all ten compiler triples in its `bin` directory.
 
 ```sh
 xmake -y -b sysroot
@@ -91,11 +91,17 @@ compiler target and GCC version. This avoids silently mixing C++ object ABIs.
 ## User programs and GUI
 
 The image contains `init`, `oksh`, basic file/identity utilities, `settings`,
-`tasks`, `notes`, `about`, `posix-check`, and `kmodload`. `/init` and `oksh` execute
-in protected user mode on all four distribution profiles. `oksh` runs external
+`tasks`, `notes`, `about`, `sync`, `posix-check`, and `kmodload`. `/init` and `oksh` execute
+in protected user mode on all ten distribution profiles. `oksh` runs external
 programs with fork/exec/wait and supports a two-program pipeline; cd/echo/help
 remain builtins. Debug init runs native acceptance first; release init starts
 the shell directly.
+
+The libc shim includes scalar/vectored and positioned file I/O, truncate and
+sync wrappers alongside process, pipe, path and metadata operations. Native
+transfers are bounded to 4096 bytes, with at most 16 iovecs. General memory
+mapping, signals, threads and sockets still return `ENOSYS`; the common UAPI
+does not provide platform-specific Linux binary compatibility.
 
 The OS owns `modules/system-gui/`, including desktop/greeter policy and its
 configuration package staged at `/boot/modules/system-gui.okmod`. The low-level
@@ -105,12 +111,17 @@ See [docs/GUI.md](docs/GUI.md).
 
 ## Root filesystems and QEMU
 
-The distro embeds an immutable boot archive containing `/init`, `/bin` programs
-and configuration. That archive supplies real executable bytes to the kernel VFS.
-The current virtio block implementation is RAM-backed modeling, so attaching an
-image is not proof of device-backed rootfs reads. SimpleFS packaging uses flat
-entries, 512-byte blocks and at most 32 entries; EXT4 images are checked offline
-with `e2fsck -n`. Writable VFS files do not survive a reboot.
+The distro embeds an immutable archive as a rescue root. A supported clean ext4
+disk is mounted before native startup, so `/init` and applications execute from
+real device-backed files. The external Virtio driver supports x86_64/i386,
+AArch64/ARM32, RV64/RV32 and LoongArch. MIPS/MIPS64/PPC currently use the archive
+root while their PCI host bridge transports remain unimplemented.
+
+The initial ext4 writer supports linear directories and extent-backed regular
+files, including create, read/write, truncate, unlink, mkdir/rmdir and FLUSH.
+It explicitly rejects journals, checksums and other unsupported modern features.
+`tools/mkext4.py` selects the supported non-journalled format and checks it with
+`e2fsck`. See [storage](docs/STORAGE.md) and [driver](docs/VIRTIO_BLOCK.md).
 
 ```sh
 xmake qemu-distro --fs=simplefs
@@ -121,7 +132,11 @@ xmake qemu-distro-window --fs=simplefs --display=none --timeout=10
 
 These tasks build the OS image from the configured kernel SDK. They never
 reconfigure or rebuild a kernel repository. An explicit `--kernel=/path/to/image`
-can override the selected image for testing. QEMU uses a temporary rootfs copy.
+can override the selected image for testing. QEMU normally uses a temporary
+rootfs copy. `xmake qemu-distro --fs=ext4 --persist --interactive` reuses the
+existing ext4 image and preserves writes. Run `sync` before closing QEMU; Notes
+synchronizes its own saves. Explicitly rebuilding `rootfs-ext4` replaces the
+generated image with freshly staged files.
 A debug boot marker verifies the kernel model tests; it is not proof that real
 user-mode execution, hardware SMP, or dynamic native module loading works.
 The OS runner requires `OK_SYSTEM_GUI boot=complete` after extension startup;
@@ -138,5 +153,7 @@ python3 scripts/qemu_distro.py --arch x86_64 --qemu /usr/bin/qemu-system-x86_64 
 
 The native option also requires real timer preemption and the init/POSIX/pipeline
 acceptance marker. Default GUI smoke tests keep their original narrower scope.
+Here `scope=hardware` identifies executed QEMU guest instructions and device
+transactions; physical machines and hardware SMP are separate validation work.
 See the Kernel SDK provider's `docs/NATIVE_EXECUTION.md` for syscall limits and
 per-architecture evidence, and [GUI design and screenshots](docs/gui/README.md).

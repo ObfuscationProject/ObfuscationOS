@@ -1,6 +1,12 @@
-local task_arches = {"x86_64", "aarch64", "rv64", "loongarch64"}
+local task_arches = {"i386", "x86_64", "aarch64", "arm32", "rv64", "rv32", "loongarch64", "mips", "mips64", "ppc"}
 
 local task_arch_specs = {
+    i386 = {qemu_system = "qemu-system-i386"},
+    arm32 = {qemu_system = "qemu-system-arm"},
+    rv32 = {qemu_system = "qemu-system-riscv32"},
+    mips = {qemu_system = "qemu-system-mips"},
+    mips64 = {qemu_system = "qemu-system-mips64"},
+    ppc = {qemu_system = "qemu-system-ppc"},
     x86_64 = {qemu_system = "qemu-system-x86_64"},
     aarch64 = {qemu_system = "qemu-system-aarch64"},
     rv64 = {qemu_system = "qemu-system-riscv64"},
@@ -64,13 +70,13 @@ task("arch-matrix")
         config.load()
 
         if config.get("kernel_sdk") then
-            raise("arch-matrix requires the default per-architecture SDK layout; a single --kernel_sdk override cannot represent four architectures")
+            raise("arch-matrix requires the default per-architecture SDK layout; a single --kernel_sdk override cannot represent ten architectures")
         end
         if config.get("systoolchain_dir") then
             local bindir = path.join(path.absolute(config.get("systoolchain_dir")), "bin")
-            for _, triple in ipairs({"x86_64-elf", "aarch64-elf", "riscv64-elf", "loongarch64-elf"}) do
+            for _, triple in ipairs({"i386-elf", "x86_64-elf", "aarch64-elf", "arm-none-eabi", "riscv64-elf", "riscv32-elf", "loongarch64-elf", "mips-elf", "mips64-elf", "powerpc-eabi"}) do
                 assert(os.isfile(path.join(bindir, triple .. "-gcc")),
-                    "arch-matrix local toolchain must contain all four compilers; missing %s-gcc", triple)
+                    "arch-matrix local toolchain must contain all ten compilers; missing %s-gcc", triple)
             end
         end
 
@@ -148,9 +154,13 @@ task("distro-test")
                 checked("qemu-distro simplefs", {
                     "qemu-distro", "--fs=simplefs", "-k", kernel, "--timeout=" .. (option.get("timeout") or "20")
                 })
-                checked("qemu-distro ext4", {
-                    "qemu-distro", "--fs=ext4", "-k", kernel, "--timeout=" .. (option.get("timeout") or "20")
-                })
+                if current_arch == "mips" or current_arch == "mips64" or current_arch == "ppc" then
+                    print("[distro-test] SKIP native ext4: " .. current_arch .. " has no persistent block transport; offline packaging was checked")
+                else
+                    checked("qemu-distro ext4", {
+                        "qemu-distro", "--fs=ext4", "-k", kernel, "--timeout=" .. (option.get("timeout") or "20")
+                    })
+                end
             end
         end
 
@@ -170,6 +180,7 @@ task("qemu-distro")
             {"k", "kernel", "kv", nil, "Explicit kernel image override (otherwise build distro_image from the selected SDK)"},
             {nil, "timeout", "kv", "20", "QEMU timeout in seconds"},
             {nil, "display", "kv", "none", "QEMU display backend: none or sdl"},
+            {nil, "persist", "k", nil, "Reuse ext4 disk and preserve guest writes; run sync before closing QEMU"},
             {nil, "require-native", "k", nil, "Require debug userland and hardware timer acceptance"},
             {nil, "interactive", "k", nil, "Keep QEMU running until the window/process exits"}
         }
@@ -185,7 +196,11 @@ task("qemu-distro")
         end
 
         local image_target = fs == "simplefs" and "rootfs-simplefs" or "rootfs-ext4"
-        os.execv("xmake", {"-y", "-b", image_target})
+        local image = path.join(task_builddir(config), fs == "simplefs" and "rootfs.simplefs.img" or "rootfs.ext4.img")
+        if option.get("persist") and fs ~= "ext4" then raise("--persist requires --fs=ext4") end
+        if not option.get("persist") or not os.isfile(image) then
+            os.execv("xmake", {"-y", "-b", image_target})
+        end
 
         local arch, spec = task_require_arch(config.get("arch") or "x86_64")
         local prefix = config.get("systoolchain_dir")
@@ -203,9 +218,6 @@ task("qemu-distro")
             kernel = path.join(task_builddir(config), "distro", "kernel.bin")
         end
 
-        local image = fs == "simplefs"
-            and path.join(task_builddir(config), "rootfs.simplefs.img")
-            or path.join(task_builddir(config), "rootfs.ext4.img")
 
         local args = {
             path.join(project_dir, "scripts", "qemu_distro.py"),
@@ -219,6 +231,9 @@ task("qemu-distro")
         }
         if option.get("interactive") then
             table.insert(args, "--interactive")
+        end
+        if option.get("persist") then
+            table.insert(args, "--persist")
         end
         if option.get("require-native") then
             table.insert(args, "--require-native")

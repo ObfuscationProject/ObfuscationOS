@@ -29,6 +29,13 @@ xmake qemu-distro --fs=simplefs --require-native --timeout=30
 
 CI requires the OS-owned System GUI completion marker, actual native timer
 preemption, and the debug init/POSIX/external-pipeline acceptance marker in QEMU.
+It also boots a real Virtio-backed ext4 root twice, saves and synchronizes a note,
+reads it after restart, and checks the disk with `e2fsck` and `debugfs`. This
+uses the explicitly supported non-journalled ext4 format; it does not establish
+crash consistency or physical hardware support. The local architecture matrix
+contains ten native profiles; the CI job currently exercises x86_64 only.
+`distro-test` still builds ext4 images on MIPS/MIPS64/PPC but explicitly skips
+their native ext4 boot check until those platforms have a block transport.
 Broader packaging checks remain available through `xmake distro-test`. The model
 tests retain their separate scope; their boot markers alone do not prove native
 execution. Native execution does not imply hardware SMP or runtime module loading.

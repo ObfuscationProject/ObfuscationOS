@@ -5,8 +5,8 @@
 - Consume a validated Kernel SDK with matching architecture, mode and compiler
   ABI. Do not embed a kernel checkout, use source-header fallbacks or build the
   kernel sources from this repository.
-- Preserve x86_64, aarch64, rv64 and loongarch64 userland profiles. The independent
-  kernel retains ten profiles; do not silently narrow that matrix.
+- Preserve all ten userland/kernel profiles: i386, x86_64, aarch64, arm32, rv64,
+  rv32, loongarch64, mips, mips64 and ppc. Do not silently narrow that matrix.
 - Use xmake. Kernel extensions use freestanding C++23. Use templates/static
   dispatch for hot algorithms; runtime module/device boundaries may use OOP.
 - Statically composing an OS extension is not runtime ELF module loading.

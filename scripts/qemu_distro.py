@@ -25,12 +25,12 @@ def normalize_arch(arch: str) -> str:
     return aliases.get(arch, arch)
 
 
-def virtio_disk_args(disk: Path) -> list[str]:
+def virtio_disk_args(disk: Path, mmio: bool = False) -> list[str]:
     return [
         "-drive",
         f"file={disk},format=raw,if=none,id=fsdisk",
         "-device",
-        "virtio-blk-pci,drive=fsdisk",
+        "virtio-blk-device,drive=fsdisk" if mmio else "virtio-blk-pci,drive=fsdisk",
     ]
 
 
@@ -39,11 +39,13 @@ def ramfb_args() -> list[str]:
 
 
 def command_for(qemu: Path, arch: str, kernel: Path, rootfs: Path, display: str) -> list[str]:
-    if arch not in {"x86_64", "aarch64", "rv64", "loongarch64"}:
+    if arch not in {"i386", "x86_64", "aarch64", "arm32", "rv64", "rv32", "loongarch64", "mips", "mips64", "ppc"}:
         raise SystemExit(f"qemu-distro is not configured for {arch}")
 
     common = ["-serial", "stdio", "-monitor", "none", "-no-reboot", "-display", display]
-    if arch == "x86_64" and kernel.suffix == ".bin":
+    if arch == "i386":
+        common += ["-cpu", "max"]
+    if arch in {"x86_64", "i386"} and kernel.suffix == ".bin":
         return [
             str(qemu),
             "-drive",
@@ -56,7 +58,7 @@ def command_for(qemu: Path, arch: str, kernel: Path, rootfs: Path, display: str)
             *ramfb_args(),
             *virtio_disk_args(rootfs),
         ]
-    if arch == "x86_64":
+    if arch in {"x86_64", "i386"}:
         return [
             str(qemu),
             "-m",
@@ -69,13 +71,13 @@ def command_for(qemu: Path, arch: str, kernel: Path, rootfs: Path, display: str)
             *ramfb_args(),
             *virtio_disk_args(rootfs),
         ]
-    if arch == "aarch64":
+    if arch in {"aarch64", "arm32"}:
         return [
             str(qemu),
             "-M",
             "virt",
             "-cpu",
-            "cortex-a57",
+            "cortex-a57" if arch == "aarch64" else "cortex-a15",
             "-m",
             "512M",
             "-kernel",
@@ -87,9 +89,9 @@ def command_for(qemu: Path, arch: str, kernel: Path, rootfs: Path, display: str)
             "virtio-keyboard-device",
             "-device",
             "virtio-mouse-device",
-            *virtio_disk_args(rootfs),
+            *virtio_disk_args(rootfs, mmio=True),
         ]
-    if arch == "rv64":
+    if arch in {"rv64", "rv32"}:
         return [
             str(qemu),
             "-M",
@@ -107,8 +109,13 @@ def command_for(qemu: Path, arch: str, kernel: Path, rootfs: Path, display: str)
             "virtio-keyboard-device",
             "-device",
             "virtio-mouse-device",
-            *virtio_disk_args(rootfs),
+            *virtio_disk_args(rootfs, mmio=True),
         ]
+    if arch in {"mips", "mips64", "ppc"}:
+        cpu = ["-cpu", "MIPS64R2-generic"] if arch == "mips64" else []
+        return [str(qemu), "-M", "ppce500" if arch == "ppc" else "malta",
+                *cpu, "-m", "256M", "-kernel", str(kernel), *common,
+                *virtio_disk_args(rootfs)]
     return [
         str(qemu),
         "-M",
@@ -128,7 +135,7 @@ def command_for(qemu: Path, arch: str, kernel: Path, rootfs: Path, display: str)
     ]
 
 
-def run_until_marker(command: list[str], timeout: float, require_native: bool = False) -> int:
+def run_until_marker(command: list[str], timeout: float, require_native: bool = False, require_storage: bool = False) -> int:
     process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
     assert process.stdout is not None
     deadline = time.monotonic() + timeout
@@ -145,6 +152,10 @@ def run_until_marker(command: list[str], timeout: float, require_native: bool = 
         # OS-owned final marker proves the distribution extension started.
         if "acceptance=FAIL" in line or "shell_pipeline=FAIL" in line or line.startswith("POSIX_CHECK failed:"):
             return 1
+        if require_storage and (line.startswith("OK_STORAGE source=archive") or line.startswith("OK_NATIVE startup=")):
+            return 1
+        if line.startswith("OK_STORAGE scope=hardware source=virtio filesystem=ext4 mode=rw"):
+            observed.add("storage")
         if line.startswith("OK_SYSTEM_GUI boot=complete"):
             observed.add("gui")
         if line.startswith("OK_USERLAND scope=hardware acceptance=pass shell_pipeline=pass"):
@@ -152,6 +163,8 @@ def run_until_marker(command: list[str], timeout: float, require_native: bool = 
         if line.startswith("OK_NATIVE scope=hardware timer=preempted"):
             observed.add("preemption")
         required = {"gui", "userland", "preemption"} if require_native else {"gui"}
+        if require_storage:
+            required.add("storage")
         if required <= observed:
             return 0
         return None
@@ -217,7 +230,10 @@ def main() -> int:
     parser.add_argument("--timeout", type=float, default=20.0)
     parser.add_argument("--display", default="none", choices=("none", "sdl"), help="QEMU display backend")
     parser.add_argument("--interactive", action="store_true", help="Keep QEMU running until the window/process exits")
+    parser.add_argument("--persist", action="store_true", help="Use the supplied ext4 image directly; preserve guest writes")
     args = parser.parse_args()
+    if args.persist and args.fs != "ext4":
+        raise SystemExit("--persist requires --fs ext4")
 
     arch = normalize_arch(args.arch)
     qemu = args.qemu.resolve()
@@ -231,14 +247,15 @@ def main() -> int:
         raise SystemExit(f"rootfs image does not exist: {rootfs}")
 
     with tempfile.TemporaryDirectory(prefix="obfuscationos-qemu-") as temp_dir:
-        runtime_rootfs = Path(temp_dir) / rootfs.name
-        shutil.copy2(rootfs, runtime_rootfs)
+        runtime_rootfs = rootfs if args.persist else Path(temp_dir) / rootfs.name
+        if not args.persist:
+            shutil.copy2(rootfs, runtime_rootfs)
         command = command_for(qemu, arch, kernel, runtime_rootfs, args.display)
         print(f"[qemu-distro] arch={arch} fs={args.fs} qemu={qemu} kernel={kernel} rootfs={rootfs}")
         if args.interactive:
             print(f"[qemu-distro] display={args.display} interactive=1")
             return run_interactive(command)
-        code = run_until_marker(command, args.timeout, args.require_native)
+        code = run_until_marker(command, args.timeout, args.require_native, args.fs == "ext4")
         if code == 124:
             print("[qemu-distro] timeout before required OS completion markers", file=sys.stderr)
         return code
