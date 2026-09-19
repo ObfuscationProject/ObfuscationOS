@@ -8,15 +8,33 @@ sources to provide the driver.
 
 The transport is selected at compile time. ARM32/AArch64 and RV32/RV64 scan their
 QEMU virt Virtio MMIO apertures and support legacy version 1 and modern version
-2. x86/i386 and LoongArch use the modern PCI capabilities of transitional or
-modern Virtio block devices. PCI discovery currently scans bus 0. The x86 block
-BARs are assigned within `0x30000000..0x32000000`, inside the existing kernel
+2. x86/i386, LoongArch, MIPS/MIPS64 Malta and PPC ppce500 use the modern PCI
+capabilities of transitional or modern Virtio block devices. PCI discovery
+currently scans bus 0. The x86 block BARs are assigned within
+`0x30000000..0x32000000`, inside the existing kernel
 identity map and above the supported runner's RAM. LoongArch uses
 `0x50000000..0x52000000`, separately from the GUI input BAR window.
 
-Use `virtio-blk-device` on the ARM/RISC-V runners and `virtio-blk-pci` on x86 and
-LoongArch. MIPS/MIPS64 and PPC currently return `not_found`; their PCI host bridge
-support is a separate task. No architecture falls back to an in-memory fake disk.
+Malta uses PCI BAR addresses `0x10000000..0x12000000` through the GT64120 memory
+window, accessed by the CPU through uncached KSEG1. The GT configuration index
+is little-endian; its configuration data dword follows the native big-endian
+CPU layout established by the QEMU kernel loader. MIPS64 KSEG1 pointers are
+sign-extended. DMA descriptors use physical RAM addresses with the KSEG bits
+removed. Device BAR registers, requests and split rings use the modern Virtio
+little-endian format on both MIPS profiles.
+
+The ppce500 Kernel boot artifact reserves supervisor TLB1 slot 2 for the
+uncached, guarded PCI window at `0xc0000000..0xd0000000`. Its host bridge outbound
+window maps that CPU range to the same PCI addresses, and its inbound window
+maps PCI `0..0x10000000` to RAM at the same addresses. Block BARs use
+`0xc0000000..0xc2000000`. The configuration index is native big-endian at CCSR
+`0xe0008000`, while configuration data and device registers are little-endian.
+The queue uses identity-mapped RAM within the 256 MiB DMA window. These host
+bridge mappings are essential Kernel platform support; the block driver remains
+an external OS SDK consumer.
+
+Use `virtio-blk-device` on the ARM/RISC-V runners and `virtio-blk-pci` on the
+remaining profiles. No architecture falls back to an in-memory fake disk.
 
 The driver negotiates `VIRTIO_F_VERSION_1` on modern transports and the block
 read-only/flush features. It exposes 512-byte sectors, submits up to 4 KiB per
@@ -47,9 +65,12 @@ python3 scripts/test_virtio_block.py \
   --output /tmp/virtio-block-x86
 ```
 
-The same runner supports `i386`, `arm32`, `aarch64`, `rv32`, `rv64` and
-`loongarch64`; use the matching SDK and toolchain. Add `--modern-mmio` on ARM or
-RISC-V to exercise MMIO version 2 independently of QEMU's legacy default.
+The same runner supports all ten profiles; use the matching SDK and toolchain.
+MIPS retains QEMU's Malta `24Kf` default, MIPS64 uses `MIPS64R2-generic`, and PPC
+uses the `ppce500` e500v2 default. Add `--modern-mmio` on ARM or RISC-V to exercise
+MMIO version 2 independently of QEMU's legacy default, or `--modern-pci` on PCI
+profiles to exercise a device with its legacy interface disabled. PPC requires
+an SDK exported after the boot artifact gained the PCI TLB and ATMU mappings.
 
 The probe validates SDK contents and compiler identity, extracts exactly one
 `boot.S.o` member from the SDK boot archive, and compiles only OS-owned sources.

@@ -154,13 +154,9 @@ task("distro-test")
                 checked("qemu-distro simplefs", {
                     "qemu-distro", "--fs=simplefs", "-k", kernel, "--timeout=" .. (option.get("timeout") or "20")
                 })
-                if current_arch == "mips" or current_arch == "mips64" or current_arch == "ppc" then
-                    print("[distro-test] SKIP native ext4: " .. current_arch .. " has no persistent block transport; offline packaging was checked")
-                else
-                    checked("qemu-distro ext4", {
-                        "qemu-distro", "--fs=ext4", "-k", kernel, "--timeout=" .. (option.get("timeout") or "20")
-                    })
-                end
+                checked("qemu-distro ext4", {
+                    "qemu-distro", "--fs=ext4", "-k", kernel, "--timeout=" .. (option.get("timeout") or "20")
+                })
             end
         end
 

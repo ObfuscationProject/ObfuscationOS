@@ -91,14 +91,16 @@ compiler target and GCC version. This avoids silently mixing C++ object ABIs.
 ## User programs and GUI
 
 The image contains `init`, `oksh`, basic file/identity utilities, `settings`,
-`tasks`, `notes`, `about`, `sync`, `posix-check`, and `kmodload`. `/init` and `oksh` execute
+`tasks`, `notes`, `about`, `sync`, `mv`, `ln`, `posix-check`, and `kmodload`. `/init` and `oksh` execute
 in protected user mode on all ten distribution profiles. `oksh` runs external
 programs with fork/exec/wait and supports a two-program pipeline; cd/echo/help
 remain builtins. Debug init runs native acceptance first; release init starts
 the shell directly.
 
 The libc shim includes scalar/vectored and positioned file I/O, truncate and
-sync wrappers alongside process, pipe, path and metadata operations. Native
+sync wrappers alongside process, pipe, path and metadata operations. Rename and
+hard-link calls include dirfd-relative variants; `linkat` currently accepts flags
+zero, and symbolic-link traversal is not implemented. Native
 transfers are bounded to 4096 bytes, with at most 16 iovecs. General memory
 mapping, signals, threads and sockets still return `ENOSYS`; the common UAPI
 does not provide platform-specific Linux binary compatibility.
@@ -113,12 +115,13 @@ See [docs/GUI.md](docs/GUI.md).
 
 The distro embeds an immutable archive as a rescue root. A supported clean ext4
 disk is mounted before native startup, so `/init` and applications execute from
-real device-backed files. The external Virtio driver supports x86_64/i386,
-AArch64/ARM32, RV64/RV32 and LoongArch. MIPS/MIPS64/PPC currently use the archive
-root while their PCI host bridge transports remain unimplemented.
+real device-backed files. The external Virtio driver supports all ten profiles, including Malta
+MIPS/MIPS64 PCI and ppce500 PPC PCI. The archive remains the rescue root when
+no supported disk is present.
 
 The initial ext4 writer supports linear directories and extent-backed regular
-files, including create, read/write, truncate, unlink, mkdir/rmdir and FLUSH.
+files, including create, read/write, truncate, unlink, rename, hard links,
+mkdir/rmdir and FLUSH.
 It explicitly rejects journals, checksums and other unsupported modern features.
 `tools/mkext4.py` selects the supported non-journalled format and checks it with
 `e2fsck`. See [storage](docs/STORAGE.md) and [driver](docs/VIRTIO_BLOCK.md).

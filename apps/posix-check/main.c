@@ -4,6 +4,7 @@
 #include <ok/dirent.h>
 #include <stdio.h>
 #include <string.h>
+#include <sys/stat.h>
 #include <sys/wait.h>
 #include <sys/uio.h>
 #include <unistd.h>
@@ -28,6 +29,94 @@ static int child_status(pid_t pid)
         return -1;
     return WIFEXITED(status) ? WEXITSTATUS(status) : 128 + WTERMSIG(status);
 }
+
+static int check_file_names(void)
+{
+    const char *source = "/tmp/posix-names/left/source";
+    const char *target = "/tmp/posix-names/right/target";
+    CHECK(mkdir("/tmp/posix-names", 0700) == 0);
+    CHECK(mkdir("/tmp/posix-names/left", 0700) == 0);
+    CHECK(mkdir("/tmp/posix-names/right", 0700) == 0);
+    int left = open("/tmp/posix-names/left", O_RDONLY | O_DIRECTORY);
+    int right = open("/tmp/posix-names/right", O_RDONLY | O_DIRECTORY);
+    CHECK(left >= 0 && right >= 0);
+    int original = open(source, O_CREAT | O_EXCL | O_RDWR, 0600);
+    int replaced = open(target, O_CREAT | O_EXCL | O_RDWR, 0600);
+    CHECK(original >= 0 && replaced >= 0);
+    CHECK(write(original, "source", 6) == 6 && write(replaced, "old", 3) == 3);
+
+    // Both pathname slots must be copied before any namespace mutation.
+    CHECK(ok_syscall2(OK_SYS_RENAME, 1, (long)target) == -EFAULT);
+    CHECK(ok_syscall2(OK_SYS_RENAME, (long)source, 1) == -EFAULT);
+    CHECK(ok_syscall2(OK_SYS_LINK, 1, (long)target) == -EFAULT);
+    CHECK(ok_syscall2(OK_SYS_LINK, (long)source, 1) == -EFAULT);
+    CHECK(ok_syscall4(OK_SYS_RENAMEAT, left, 1, right, (long)"target") == -EFAULT);
+    CHECK(ok_syscall4(OK_SYS_RENAMEAT, left, (long)"source", right, 1) == -EFAULT);
+    CHECK(ok_syscall5(OK_SYS_LINKAT, left, 1, right, (long)"unused", 0) == -EFAULT);
+    CHECK(ok_syscall5(OK_SYS_LINKAT, left, (long)"source", right, 1, 0) == -EFAULT);
+    CHECK(linkat(left, "source", right, "bad-flags", 1) == -1 && errno == EINVAL);
+    CHECK(renameat(-1, "source", right, "unused") == -1 && errno == EBADF);
+    CHECK(linkat(left, "source", -1, "unused", 0) == -1 && errno == EBADF);
+    struct stat st;
+    CHECK(stat("/tmp/posix-names/right/bad-flags", &st) == -1 && errno == ENOENT);
+
+    CHECK(renameat(left, "source", right, "target") == 0);
+    CHECK(stat(source, &st) == -1 && errno == ENOENT);
+    CHECK(stat(target, &st) == 0 && st.st_nlink == 1 && st.st_size == 6);
+    CHECK(fstat(replaced, &st) == 0 && st.st_nlink == 0 && st.st_size == 3);
+    char bytes[8] = {0};
+    CHECK(pread(replaced, bytes, sizeof(bytes), 0) == 3 && memcmp(bytes, "old", 3) == 0);
+    CHECK(pwrite(replaced, "OLD", 3, 0) == 3);
+    CHECK(pread(original, bytes, sizeof(bytes), 0) == 6 && memcmp(bytes, "source", 6) == 0);
+
+    CHECK(chdir("/tmp/posix-names") == 0);
+    CHECK(rename("right/target", "left/moved") == 0);
+    CHECK(stat("right/target", &st) == -1 && errno == ENOENT);
+    CHECK(link("left/moved", "left/alias") == 0);
+    CHECK(fstat(original, &st) == 0 && st.st_nlink == 2);
+    CHECK(linkat(left, "alias", right, "linked", 0) == 0);
+    CHECK(fstat(original, &st) == 0 && st.st_nlink == 3);
+    CHECK(renameat(right, "linked", AT_FDCWD, "right/from-cwd") == 0);
+    CHECK(linkat(AT_FDCWD, "left/moved", right, "extra", 0) == 0);
+    CHECK(fstat(original, &st) == 0 && st.st_nlink == 4);
+    CHECK(link("left/moved", "left/alias") == -1 && errno == EEXIST);
+
+    // Renaming between two names of one inode leaves both names intact.
+    CHECK(rename("left/moved", "left/alias") == 0);
+    CHECK(stat("left/moved", &st) == 0 && st.st_nlink == 4);
+    CHECK(stat("left/alias", &st) == 0 && st.st_nlink == 4);
+    CHECK(pwrite(original, "S", 1, 0) == 1);
+    int alias = open("right/from-cwd", O_RDONLY);
+    CHECK(alias >= 0);
+    CHECK(read(alias, bytes, sizeof(bytes)) == 6 && memcmp(bytes, "Source", 6) == 0);
+    CHECK(close(alias) == 0);
+    CHECK(unlink("left/moved") == 0 && fstat(original, &st) == 0 && st.st_nlink == 3);
+    CHECK(unlink("left/alias") == 0 && fstat(original, &st) == 0 && st.st_nlink == 2);
+    CHECK(unlink("right/from-cwd") == 0 && fstat(original, &st) == 0 && st.st_nlink == 1);
+    CHECK(unlink("right/extra") == 0 && fstat(original, &st) == 0 && st.st_nlink == 0);
+    CHECK(pwrite(original, "!", 1, 6) == 1);
+    CHECK(pread(original, bytes, sizeof(bytes), 0) == 7 && memcmp(bytes, "Source!", 7) == 0);
+    CHECK(pread(replaced, bytes, sizeof(bytes), 0) == 3 && memcmp(bytes, "OLD", 3) == 0);
+    CHECK(close(original) == 0 && close(replaced) == 0);
+    CHECK(chdir("left") == 0);
+    CHECK(rename("/tmp/posix-names/left", "/tmp/posix-names/moved") == 0);
+    char cwd[64];
+    CHECK(getcwd(cwd, sizeof(cwd)) == cwd && strcmp(cwd, "/tmp/posix-names/moved") == 0);
+    int created = (int)ok_syscall4(OK_SYS_OPENAT, left, (long)"created", O_CREAT | O_RDWR, 0600);
+    CHECK(created >= 0 && write(created, "directory", 9) == 9 && close(created) == 0);
+    CHECK(chdir("/") == 0 && ok_syscall1(OK_SYS_FCHDIR, left) == 0);
+    CHECK(getcwd(cwd, sizeof(cwd)) == cwd && strcmp(cwd, "/tmp/posix-names/moved") == 0);
+    CHECK(unlink("created") == 0);
+    CHECK(close(left) == 0 && close(right) == 0);
+    CHECK(chdir("/") == 0);
+    CHECK(rmdir("/tmp/posix-names/moved") == 0);
+    CHECK(rmdir("/tmp/posix-names/right") == 0);
+    CHECK(rmdir("/tmp/posix-names") == 0);
+    int parent = open("/tmp", O_RDONLY | O_DIRECTORY);
+    CHECK(parent >= 0 && fsync(parent) == 0 && close(parent) == 0);
+    return 0;
+}
+
 int main(int argc, char **argv)
 {
     CHECK(argc == 1 && argv && strcmp(argv[0], "posix-check") == 0);
@@ -95,6 +184,7 @@ int main(int argc, char **argv)
     CHECK(truncate("/tmp/posix-io", 2) == 0);
     CHECK(lseek(file, 0, SEEK_END) == 2);
     CHECK(close(file) == 0 && unlink("/tmp/posix-io") == 0);
+    CHECK(check_file_names() == 0);
     pid_t child = fork();
     CHECK(child >= 0);
     if (child == 0)
@@ -210,6 +300,6 @@ int main(int argc, char **argv)
     }
     CHECK(child_status(child) == 0);
     puts("OK_POSIX scope=hardware fork=pass isolation=pass exec=pass wait=pass pipe=pass efault=pass readonly=pass "
-         "orphan=pass exit_status=pass file_io=pass vector_io=pass sync=pass");
+         "orphan=pass exit_status=pass file_io=pass vector_io=pass sync=pass rename=pass hardlink=pass");
     return 0;
 }

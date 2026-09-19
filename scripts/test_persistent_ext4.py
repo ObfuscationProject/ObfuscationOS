@@ -3,6 +3,7 @@
 from __future__ import annotations
 import argparse
 import os
+import re
 from pathlib import Path
 import select
 import shutil
@@ -71,18 +72,42 @@ def main():
     with tempfile.TemporaryDirectory(prefix='ok-ext4-hardware-') as directory:
         disk = Path(directory) / 'persistent.img'
         shutil.copy2(args.rootfs, disk)
-        guest(args, disk, [(f'notes /home/persistent.txt {token}', b'Saved /home/persistent.txt'),
+        guest(args, disk, [(f'notes /home/pending.txt {token}', b'Saved /home/pending.txt'),
+                           ('mv /home/pending.txt /home/persistent.txt', b''),
+                           ('ln /home/persistent.txt /home/alias.txt', b''),
+                           ('mv /home/persistent.txt /home/alias.txt', b''),
+                           ('cat /home/persistent.txt', token.encode()),
+                           ('cat /home/alias.txt', token.encode()),
+                           ('mkdir /home/draft', b''),
+                           (f'notes /home/draft/item {token}', b'Saved /home/draft/item'),
+                           ('mv /home/draft /home/archive', b''),
                            ('sync', b'Filesystem synchronized')], args.out/'first-boot.log')
         subprocess.run(['e2fsck', '-fn', str(disk)], check=True)
         guest(args, disk, [('cat /home/persistent.txt', token.encode()),
+                           ('cat /home/alias.txt', token.encode()),
+                           ('cat /home/archive/item', token.encode()),
                            ('sync', b'Filesystem synchronized')], args.out/'second-boot.log')
         subprocess.run(['e2fsck', '-fn', str(disk)], check=True)
         contents = subprocess.check_output(['debugfs', '-R', 'cat /home/persistent.txt', str(disk)])
         if contents != (token + '\n').encode():
             raise RuntimeError('offline ext4 reader disagrees with native filesystem')
+        inode_numbers = []
+        for path in ('/home/persistent.txt', '/home/alias.txt'):
+            metadata = subprocess.check_output(['debugfs', '-R', 'stat ' + path, str(disk)])
+            inode = re.search(rb'Inode:\s+(\d+)', metadata)
+            links = re.search(rb'Links:\s+(\d+)', metadata)
+            if not inode or not links or int(links[1]) != 2:
+                raise RuntimeError('offline hard-link count differs from native filesystem')
+            inode_numbers.append(inode[1])
+        if inode_numbers[0] != inode_numbers[1]:
+            raise RuntimeError('hard links refer to different on-disk inodes')
+        for path in ('/home/pending.txt', '/home/draft'):
+            missing = subprocess.run(['debugfs', '-R', 'stat ' + path, str(disk)], capture_output=True, check=True)
+            if b'File not found' not in missing.stderr or b'Inode:' in missing.stdout:
+                raise RuntimeError('renamed source remains visible: ' + path)
         (args.out/'offline-content.txt').write_bytes(contents)
         shutil.copy2(disk, args.out/'verified.img')
-    print(f'PASS scope=hardware arch={args.arch} virtio=read-write-flush ext4=root-exec-reboot fsck=clean')
+    print(f'PASS scope=hardware arch={args.arch} virtio=read-write-flush ext4=root-exec-reboot rename=pass hardlink=pass fsck=clean')
 
 
 if __name__ == '__main__':

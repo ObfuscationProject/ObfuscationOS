@@ -185,6 +185,32 @@ int cmd_rm(int argc, char **argv)
     return rc;
 }
 
+int cmd_mv(int argc, char **argv)
+{
+    if (argc != 3) {
+        fputs("usage: mv SOURCE DEST\n", stderr);
+        return 2;
+    }
+    if (rename(argv[1], argv[2]) < 0) {
+        perror("mv");
+        return 1;
+    }
+    return 0;
+}
+
+int cmd_ln(int argc, char **argv)
+{
+    if (argc != 3) {
+        fputs("usage: ln SOURCE DEST\n", stderr);
+        return 2;
+    }
+    if (link(argv[1], argv[2]) < 0) {
+        perror("ln");
+        return 1;
+    }
+    return 0;
+}
+
 int cmd_echo(int argc, char **argv)
 {
     for (int i = 1; i < argc; ++i) {
@@ -288,6 +314,8 @@ static const struct command_entry COMMANDS[] = {
     {"stat", cmd_stat, "show file metadata"},
     {"mkdir", cmd_mkdir, "create directories"},
     {"rm", cmd_rm, "remove files"},
+    {"mv", cmd_mv, "rename a path"},
+    {"ln", cmd_ln, "create a hard link"},
     {"pwd", cmd_pwd, "print working directory"},
     {"cd", cmd_cd, "change directory"},
     {"whoami", cmd_whoami, "print effective user"},

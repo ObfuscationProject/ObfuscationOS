@@ -3,11 +3,13 @@
 #include <ok/dirent.h>
 #include <ok/uapi/syscall.h>
 #include <stddef.h>
+#include <stdio.h>
 #include <string.h>
 #include <sys/stat.h>
 #include <unistd.h>
 
 static long last_number;
+static long last_arguments[5];
 static uintptr_t metadata_size = 123;
 static uint64_t metadata_blocks;
 
@@ -39,12 +41,21 @@ long ok_syscall1(long number, long arg0)
     if (number == OK_SYS_UNLINK) {
         return -OK_ENOENT;
     }
+    if (number == OK_SYS_RMDIR) {
+        last_arguments[0] = arg0;
+        return arg0 ? 0 : -OK_EFAULT;
+    }
     return -OK_ENOSYS;
 }
 
 long ok_syscall2(long number, long arg0, long arg1)
 {
     last_number = number;
+    if (number == OK_SYS_RENAME || number == OK_SYS_LINK) {
+        last_arguments[0] = arg0;
+        last_arguments[1] = arg1;
+        return arg0 && arg1 ? 0 : -OK_EFAULT;
+    }
     if (number == OK_SYS_STAT || number == OK_SYS_FSTAT) {
         struct ok_stat *st = (struct ok_stat *)arg1;
         memset(st, 0, sizeof(*st));
@@ -95,22 +106,29 @@ long ok_syscall3(long number, long arg0, long arg1, long arg2)
 
 long ok_syscall4(long number, long arg0, long arg1, long arg2, long arg3)
 {
-    (void)arg0;
-    (void)arg1;
-    (void)arg2;
-    (void)arg3;
     last_number = number;
+    if (number == OK_SYS_RENAMEAT) {
+        last_arguments[0] = arg0;
+        last_arguments[1] = arg1;
+        last_arguments[2] = arg2;
+        last_arguments[3] = arg3;
+        return arg1 && arg3 ? 0 : -OK_EFAULT;
+    }
     return -OK_ENOSYS;
 }
 
 long ok_syscall5(long number, long arg0, long arg1, long arg2, long arg3, long arg4)
 {
-    (void)arg0;
-    (void)arg1;
-    (void)arg2;
-    (void)arg3;
-    (void)arg4;
     last_number = number;
+    if (number == OK_SYS_LINKAT) {
+        last_arguments[0] = arg0;
+        last_arguments[1] = arg1;
+        last_arguments[2] = arg2;
+        last_arguments[3] = arg3;
+        last_arguments[4] = arg4;
+        if (arg4) return -OK_EINVAL;
+        return arg1 && arg3 ? 0 : -OK_EFAULT;
+    }
     return -OK_ENOSYS;
 }
 
@@ -202,6 +220,39 @@ int main(void)
     }
     if (memcmp("a", "b", 1) >= 0) {
         return 20;
+    }
+    const char oldpath[] = "old";
+    const char newpath[] = "new";
+    if (rename(oldpath, newpath) != 0 || last_number != OK_SYS_RENAME ||
+        last_arguments[0] != (long)oldpath || last_arguments[1] != (long)newpath) {
+        return 32;
+    }
+    if (link(oldpath, newpath) != 0 || last_number != OK_SYS_LINK ||
+        last_arguments[0] != (long)oldpath || last_arguments[1] != (long)newpath) {
+        return 33;
+    }
+    if (renameat(AT_FDCWD, oldpath, 9, newpath) != 0 || last_number != OK_SYS_RENAMEAT ||
+        last_arguments[0] != AT_FDCWD || last_arguments[1] != (long)oldpath ||
+        last_arguments[2] != 9 || last_arguments[3] != (long)newpath) {
+        return 34;
+    }
+    if (linkat(8, oldpath, AT_FDCWD, newpath, 0) != 0 || last_number != OK_SYS_LINKAT ||
+        last_arguments[0] != 8 || last_arguments[1] != (long)oldpath ||
+        last_arguments[2] != AT_FDCWD || last_arguments[3] != (long)newpath || last_arguments[4] != 0) {
+        return 35;
+    }
+    if (linkat(8, oldpath, 9, newpath, 1) != -1 || errno != EINVAL || last_arguments[4] != 1) {
+        return 36;
+    }
+    if (rename(NULL, newpath) != -1 || errno != EFAULT ||
+        link(oldpath, NULL) != -1 || errno != EFAULT ||
+        renameat(8, NULL, 9, newpath) != -1 || errno != EFAULT ||
+        linkat(8, oldpath, 9, NULL, 0) != -1 || errno != EFAULT) {
+        return 37;
+    }
+    if (rmdir(oldpath) != 0 || last_number != OK_SYS_RMDIR || last_arguments[0] != (long)oldpath ||
+        rmdir(NULL) != -1 || errno != EFAULT) {
+        return 38;
     }
     return 0;
 }

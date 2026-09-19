@@ -15,6 +15,7 @@
 #define O_TRUNC OK_O_TRUNC
 #define O_APPEND OK_O_APPEND
 #define O_DIRECTORY OK_O_DIRECTORY
+#define AT_FDCWD OK_AT_FDCWD
 
 int open(const char *path, int flags, ...);
 

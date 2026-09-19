@@ -217,7 +217,8 @@ class PciTransport
   public:
     Status discover()
     {
-#if !defined(__x86_64__) && !defined(__i386__) && !defined(__loongarch__)
+#if !defined(__x86_64__) && !defined(__i386__) && !defined(__loongarch__) && !defined(__mips__) &&                     \
+    !defined(__powerpc__) && !defined(__PPC__)
         return Status::not_found("Virtio PCI is unavailable on this platform");
 #else
         for (u8 slot = 0; slot < 32; ++slot)
@@ -309,6 +310,17 @@ class PciTransport
         return result;
 #elif defined(__loongarch__)
         return read<u32>(0x20000000 + (uptr{slot_} << 15) + (uptr{function_} << 12) + (offset & 0xfc));
+#elif defined(__mips__)
+        // Malta firmware configures native-endian GT data, with an LE index.
+        write<u32>(malta_bridge() + 0xcf8, config_address(offset));
+        const u32 value = *reinterpret_cast<volatile u32 *>(malta_bridge() + 0xcfc);
+        barrier();
+        return value;
+#elif defined(__powerpc__) || defined(__PPC__)
+        // ppce500 reverses that arrangement: BE index, LE configuration data.
+        *reinterpret_cast<volatile u32 *>(0xe0008000) = config_address(offset);
+        barrier();
+        return read<u32>(0xe0008004);
 #else
         static_cast<void>(offset);
         return 0xffffffff;
@@ -322,6 +334,14 @@ class PciTransport
         asm volatile("outl %0, %1" ::"a"(value), "Nd"(u16{0xcfc}));
 #elif defined(__loongarch__)
         write<u32>(0x20000000 + (uptr{slot_} << 15) + (uptr{function_} << 12) + (offset & 0xfc), value);
+#elif defined(__mips__)
+        write<u32>(malta_bridge() + 0xcf8, config_address(offset));
+        *reinterpret_cast<volatile u32 *>(malta_bridge() + 0xcfc) = value;
+        barrier();
+#elif defined(__powerpc__) || defined(__PPC__)
+        *reinterpret_cast<volatile u32 *>(0xe0008000) = config_address(offset);
+        barrier();
+        write<u32>(0xe0008004, value);
 #else
         static_cast<void>(offset);
         static_cast<void>(value);
@@ -339,6 +359,16 @@ class PciTransport
         asm volatile("outw %0, %1" ::"a"(value), "Nd"(static_cast<u16>(0xcfc + (offset & 2))));
 #elif defined(__loongarch__)
         write<u16>(0x20000000 + (uptr{slot_} << 15) + (uptr{function_} << 12) + offset, value);
+#elif defined(__mips__)
+        // GT config data is a native-endian dword even though its index and
+        // the PCI device BARs are little-endian. Do not echo W1C status bits.
+        const u32 prior = offset == 4 ? 0 : config32(offset);
+        const auto shift = (offset & 2) * 8;
+        config32(offset, (prior & ~(0xffffu << shift)) | (u32{value} << shift));
+#elif defined(__powerpc__) || defined(__PPC__)
+        *reinterpret_cast<volatile u32 *>(0xe0008000) = config_address(offset);
+        barrier();
+        write<u16>(0xe0008004 + (offset & 2), value);
 #else
         static_cast<void>(offset);
         static_cast<void>(value);
@@ -349,6 +379,10 @@ class PciTransport
         config16(4, static_cast<u16>(config32(4)) & ~u16(7));
 #if defined(__loongarch__)
         uptr next = 0x50000000 + uptr{slot_} * 0x100000;
+#elif defined(__mips__)
+        uptr next = 0x10000000 + uptr{slot_} * 0x100000;
+#elif defined(__powerpc__) || defined(__PPC__)
+        uptr next = 0xc0000000 + uptr{slot_} * 0x100000;
 #else
         uptr next = 0x30000000 + uptr{slot_} * 0x100000;
 #endif
@@ -373,7 +407,7 @@ class PciTransport
             next = (next + size - 1) & ~uptr(size - 1);
             if (next > end || size > end - next || (wide && bar == 5))
                 return Status::unsupported("Virtio PCI BARs exceed the platform window");
-            bars_[bar] = next;
+            bars_[bar] = map_bar(next);
             bar_sizes_[bar] = size;
             config32(offset, static_cast<u32>(next) | (original & 15));
             if (wide)
@@ -422,6 +456,23 @@ class PciTransport
         return Status::success();
     }
     u8 slot_{}, function_{};
+    u32 config_address(u16 offset) const
+    {
+        return 0x80000000 | (u32{slot_} << 11) | (u32{function_} << 8) | (offset & 0xfc);
+    }
+    static uptr malta_bridge()
+    {
+        return static_cast<uptr>(static_cast<i32>(0xbbe00000u));
+    }
+    static uptr map_bar(uptr address)
+    {
+#if defined(__mips__)
+        // Uncached KSEG1 must retain its sign extension under the n64 ABI.
+        return static_cast<uptr>(static_cast<i32>(address | 0xa0000000u));
+#else
+        return address;
+#endif
+    }
     std::array<uptr, 6> bars_{};
     std::array<u32, 6> bar_sizes_{};
     uptr common_{}, notify_{}, device_{}, isr_{}, queue_notify_{};

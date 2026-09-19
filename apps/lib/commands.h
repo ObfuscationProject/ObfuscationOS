@@ -13,6 +13,8 @@ int cmd_ls(int argc, char **argv);
 int cmd_stat(int argc, char **argv);
 int cmd_mkdir(int argc, char **argv);
 int cmd_rm(int argc, char **argv);
+int cmd_mv(int argc, char **argv);
+int cmd_ln(int argc, char **argv);
 int cmd_echo(int argc, char **argv);
 int cmd_pwd(int argc, char **argv);
 int cmd_cd(int argc, char **argv);

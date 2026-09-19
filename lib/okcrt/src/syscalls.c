@@ -3,6 +3,7 @@
 #include <ok/syscall.h>
 #include <stdarg.h>
 #include <stddef.h>
+#include <stdio.h>
 #include <sys/stat.h>
 #include <sys/uio.h>
 #include <unistd.h>
@@ -121,6 +122,33 @@ int mkdir(const char *path, mode_t mode)
 int unlink(const char *path)
 {
     return (int)ok_syscall_ret(ok_syscall1(OK_SYS_UNLINK, (long)path));
+}
+
+int rmdir(const char *path)
+{
+    return (int)ok_syscall_ret(ok_syscall1(OK_SYS_RMDIR, (long)path));
+}
+
+int rename(const char *oldpath, const char *newpath)
+{
+    return (int)ok_syscall_ret(ok_syscall2(OK_SYS_RENAME, (long)oldpath, (long)newpath));
+}
+
+int renameat(int olddirfd, const char *oldpath, int newdirfd, const char *newpath)
+{
+    return (int)ok_syscall_ret(ok_syscall4(OK_SYS_RENAMEAT, olddirfd, (long)oldpath,
+                                        newdirfd, (long)newpath));
+}
+
+int link(const char *oldpath, const char *newpath)
+{
+    return (int)ok_syscall_ret(ok_syscall2(OK_SYS_LINK, (long)oldpath, (long)newpath));
+}
+
+int linkat(int olddirfd, const char *oldpath, int newdirfd, const char *newpath, int flags)
+{
+    return (int)ok_syscall_ret(ok_syscall5(OK_SYS_LINKAT, olddirfd, (long)oldpath,
+                                        newdirfd, (long)newpath, flags));
 }
 
 char *getcwd(char *buf, size_t size)

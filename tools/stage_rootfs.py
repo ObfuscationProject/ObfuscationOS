@@ -14,6 +14,8 @@ APPS = (
     "stat",
     "mkdir",
     "rm",
+    "mv",
+    "ln",
     "pwd",
     "whoami",
     "uname",

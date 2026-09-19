@@ -13,17 +13,24 @@ from kernel_sdk import validate_sdk, assemble_image
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--arch", required=True, choices=("i386", "x86_64", "aarch64", "arm32", "rv32", "rv64", "loongarch64"))
+    parser.add_argument("--arch", required=True, choices=("i386", "x86_64", "aarch64", "arm32", "rv32", "rv64", "loongarch64", "mips", "mips64", "ppc"))
     parser.add_argument("--kernel-sdk", required=True, type=Path)
     parser.add_argument("--toolchain", required=True, type=Path)
     parser.add_argument("--output", required=True, type=Path)
     parser.add_argument("--qemu")
     parser.add_argument("--modern-mmio", action="store_true")
+    parser.add_argument("--modern-pci", action="store_true")
     args = parser.parse_args()
+    mmio = args.arch in ("aarch64", "arm32", "rv32", "rv64")
+    if args.modern_pci and mmio:
+        parser.error("--modern-pci requires a PCI architecture")
+    if args.modern_mmio and not mmio:
+        parser.error("--modern-mmio requires an MMIO architecture")
     sdk, out = args.kernel_sdk.resolve(), args.output.resolve()
     out.mkdir(parents=True, exist_ok=True)
     triple = {"i386":"i386-elf", "x86_64":"x86_64-elf", "aarch64":"aarch64-elf", "arm32":"arm-none-eabi",
-              "rv32":"riscv32-elf", "rv64":"riscv64-elf", "loongarch64":"loongarch64-elf"}[args.arch]
+              "rv32":"riscv32-elf", "rv64":"riscv64-elf", "loongarch64":"loongarch64-elf",
+              "mips":"mips-elf", "mips64":"mips64-elf", "ppc":"powerpc-eabi"}[args.arch]
     prefix = args.toolchain.resolve() / "bin" / (triple + "-")
     cxx, ar, objcopy = [str(prefix) + name for name in ("g++", "ar", "objcopy")]
     manifest = validate_sdk(sdk, args.arch, "debug", Path(cxx))
@@ -38,7 +45,8 @@ def main() -> int:
     subprocess.run([cxx, *flags, "-c", str(ROOT / "drivers/virtio/block.cpp"), "-o", str(driver)], check=True)
     qemu = args.qemu or {"i386":"qemu-system-i386", "x86_64":"qemu-system-x86_64", "aarch64":"qemu-system-aarch64",
                          "arm32":"qemu-system-arm", "rv32":"qemu-system-riscv32", "rv64":"qemu-system-riscv64",
-                         "loongarch64":"qemu-system-loongarch64"}[args.arch]
+                         "loongarch64":"qemu-system-loongarch64", "mips":"qemu-system-mips",
+                         "mips64":"qemu-system-mips64", "ppc":"qemu-system-ppc"}[args.arch]
     disk = out / "scratch.img"
     initial = bytes([0xa5]) * (1024 * 512)
     disk.write_bytes(initial)
@@ -54,13 +62,17 @@ def main() -> int:
         assemble_image(elf, image, sdk, manifest["image_format"], Path(objcopy))
         if args.arch in ("i386", "x86_64"):
             command = [qemu, "-m", "128M", "-drive", f"file={image},format=raw,if=ide", "-boot", "c"]
+        elif args.arch in ("mips", "mips64", "ppc"):
+            command = [qemu, "-M", "ppce500" if args.arch == "ppc" else "malta", "-m", "256M", "-kernel", str(image)]
+            if args.arch == "mips64":
+                command += ["-cpu", "MIPS64R2-generic"]
         else:
             command = [qemu, "-M", "virt", "-m", "2G" if args.arch == "loongarch64" else "256M", "-kernel", str(image)]
             if args.arch in ("arm32", "aarch64"):
                 command += ["-cpu", "cortex-a15" if args.arch == "arm32" else "cortex-a57"]
             if args.arch in ("rv32", "rv64"):
                 command += ["-bios", "none"]
-        if args.arch in ("aarch64", "arm32", "rv32", "rv64") and args.modern_mmio:
+        if args.modern_mmio:
             command += ["-global", "virtio-mmio.force-legacy=false"]
         if scenario != "absent":
             backing = str(disk)
@@ -69,8 +81,8 @@ def main() -> int:
                 fault.write_text('[inject-error]\nevent = "read_aio"\nerrno = "5"\nsector = "40"\nonce = "on"\nimmediately = "on"\n')
                 backing = f"blkdebug:{fault}:{disk}"
             drive = f"file={backing},format=raw,if=none,id=testdisk" + (",readonly=on" if scenario == "readonly" else "")
-            transport = "virtio-blk-device" if args.arch in ("aarch64", "arm32", "rv32", "rv64") else "virtio-blk-pci"
-            command += ["-drive", drive, "-device", transport + ",drive=testdisk"]
+            transport = "virtio-blk-device" if mmio else "virtio-blk-pci"
+            command += ["-drive", drive, "-device", transport + ",drive=testdisk" + (",disable-legacy=on" if args.modern_pci else "")]
         command += ["-display", "none", "-serial", "stdio", "-monitor", "none", "-no-reboot"]
         try:
             result = subprocess.run(command, capture_output=True, timeout=5)

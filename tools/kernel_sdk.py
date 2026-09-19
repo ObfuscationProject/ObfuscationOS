@@ -23,7 +23,7 @@ def validate_sdk(sdk: Path, arch: str, mode: str, compiler: Path | None = None) 
     if not manifest_path.is_file():
         raise ValueError(f"kernel SDK missing: {manifest_path}; build 'xmake -b kernel-sdk' in ObfuscationKernel first")
     manifest = json.loads(manifest_path.read_text())
-    expected = {"schema": 1, "abi_version": 2, "arch": arch, "mode": mode, "triple": ARCH_TRIPLES.get(arch)}
+    expected = {"schema": 1, "abi_version": 3, "arch": arch, "mode": mode, "triple": ARCH_TRIPLES.get(arch)}
     for key, value in expected.items():
         if value is None or manifest.get(key) != value:
             raise ValueError(f"kernel SDK {key} mismatch: expected {value!r}, found {manifest.get(key)!r}")

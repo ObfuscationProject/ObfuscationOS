@@ -11,14 +11,14 @@ use the embedded archive rescue root.
 `rootfs-ext4` creates ext4 with 4 KiB blocks, 256-byte inodes, initialized inode
 tables and the explicit features `extent,filetype,sparse_super,large_file`.
 The first writer does not implement JBD2 journalling, metadata checksums,
-64-bit descriptors, directory indexes, symlink traversal, rename or hard-link
-creation. It supports inline extent mutation (four physical runs), sparse holes,
-regular files and ordinary directories. See the Kernel's
+64-bit descriptors, directory indexes or symlink traversal. It supports inline extent mutation (four physical runs), sparse holes,
+regular files, hard links, rename and ordinary directories. See the Kernel's
 `docs/modules/ext4-storage.md` for bounds and on-disk checks.
 
-Real Virtio disk transports currently cover i386, x86_64, ARM32, AArch64, RV32,
-RV64 and LoongArch. MIPS/MIPS64/PPC run native applications from the archive and
-need separate PCI host bridge support for persistent disks. Disk discovery and
+Real Virtio disk transports cover all ten profiles: i386, x86_64, ARM32,
+AArch64, RV32, RV64, LoongArch, MIPS, MIPS64 and PPC. Malta uses its PCI host
+bridge through uncached KSEG1; ppce500 uses the Kernel SDK PCI mapping and
+bridge windows. Disk discovery and
 queue transfer are OS drivers, not kernel architecture dispatch.
 
 ## Keep data across sessions
@@ -36,7 +36,9 @@ The persistent task reuses an existing image without regenerating it. Inside
 
 ```text
 notes /home/my-note.txt Saved in ext4
-cat /home/my-note.txt
+mv /home/my-note.txt /home/saved.txt
+ln /home/saved.txt /home/alias.txt
+cat /home/alias.txt
 sync
 ```
 
@@ -62,7 +64,8 @@ python3 scripts/test_persistent_ext4.py --arch x86_64 \
 ```
 
 This starts two separate QEMU instances using the same writable disk: native
-`/init`/POSIX acceptance, save+sync, reboot, read+sync. It requires the real ext4
+`/init`/POSIX acceptance, save, file/directory rename, hard links, sync, reboot
+and read+sync. It requires the real ext4
 mount marker, runs `e2fsck -fn` after each VM, and checks the saved bytes with
-`debugfs`. The original rootfs image is untouched; logs and a verified copy are
+`debugfs`, including shared inode identity, link counts and removal of old names. The original rootfs image is untouched; logs and a verified copy are
 written beneath `--out`. This is QEMU execution, not physical-board validation.

@@ -25,6 +25,21 @@ void emit(const char *text)
         {
         }
         *reinterpret_cast<volatile u8 *>(0x1fe001e0) = static_cast<u8>(*text++);
+#elif defined(__mips__)
+#if __SIZEOF_POINTER__ == 8
+        constexpr uptr uart = 0xffffffffb80003f8ull;
+#else
+        constexpr uptr uart = 0xb80003f8;
+#endif
+        while (!(*reinterpret_cast<volatile u8 *>(uart + 5) & 32))
+        {
+        }
+        *reinterpret_cast<volatile u8 *>(uart) = static_cast<u8>(*text++);
+#elif defined(__powerpc__) || defined(__PPC__)
+        while (!(*reinterpret_cast<volatile u8 *>(0xe0004505) & 32))
+        {
+        }
+        *reinterpret_cast<volatile u8 *>(0xe0004500) = static_cast<u8>(*text++);
 #else
         ++text;
 #endif
