@@ -2,8 +2,9 @@
 
 The exported native headers provide chmod/fchmod/fchmodat and
 chown/fchown/fchownat. ObfuscationOS consumes an explicit architecture/mode SDK
-with ABI 70, UAPI 0.12.0 and native_metadata_profile
-checked-mode-root-owner-u32-v1. Source-header fallback is not supported.
+with native_metadata_profile checked-mode-root-owner-u32-v1, introduced with
+ABI 70 / UAPI 0.12.0 and unchanged in the current ABI 74 / UAPI 0.16.0 SDK.
+Source-header fallback is not supported.
 
 okcrt preserves the complete 32-bit mode/uid/gid values, uses syscall6 with every
 unused argument zero, and translates checked kernel errors into errno. The at
