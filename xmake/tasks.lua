@@ -53,6 +53,9 @@ local function task_configure_args(config, mode, arch)
             table.insert(args, "--" .. name .. "=" .. path.absolute(config.get(name)))
         end
     end
+    for _, name in ipairs({"native_init_acceptance", "native_vm_acceptance", "native_udp_probe"}) do
+        table.insert(args, "--" .. name .. "=" .. (config.get(name) and "y" or "n"))
+    end
     return args
 end
 
@@ -133,9 +136,18 @@ task("distro-test")
             return code
         end
 
-        local configured = checked("configure", task_configure_args(config, mode, current_arch))
+        local restore_args = task_configure_args(config, current_mode, current_arch)
+        local acceptance_args = task_configure_args(config, mode, current_arch)
+        if mode == "debug" then
+            for i, arg in ipairs(acceptance_args) do
+                if arg:find("--native_init_acceptance=", 1, true) == 1 then
+                    acceptance_args[i] = "--native_init_acceptance=y"
+                end
+            end
+        end
+        local configured = checked("configure", acceptance_args)
         if configured ~= 0 then
-            os.execv("xmake", task_configure_args(config, current_mode, current_arch))
+            os.execv("xmake", restore_args)
             raise("distro-test configuration failed")
         end
         checked("distro_image", {"-y", "-b", "distro_image"})
@@ -151,16 +163,22 @@ task("distro-test")
                 table.insert(failed, "qemu-distro")
                 print("[distro-test] qemu-distro skipped: kernel image not found")
             else
-                checked("qemu-distro simplefs", {
+                local simplefs_args = {
                     "qemu-distro", "--fs=simplefs", "-k", kernel, "--timeout=" .. (option.get("timeout") or "20")
-                })
-                checked("qemu-distro ext4", {
+                }
+                local ext4_args = {
                     "qemu-distro", "--fs=ext4", "-k", kernel, "--timeout=" .. (option.get("timeout") or "20")
-                })
+                }
+                if mode == "debug" then
+                    table.insert(simplefs_args, "--require-native")
+                    table.insert(ext4_args, "--require-native")
+                end
+                checked("qemu-distro simplefs", simplefs_args)
+                checked("qemu-distro ext4", ext4_args)
             end
         end
 
-        os.execv("xmake", task_configure_args(config, current_mode, current_arch))
+        os.execv("xmake", restore_args)
         if #failed > 0 then
             raise("distro test failed for: %s", table.concat(failed, ", "))
         end
@@ -169,15 +187,16 @@ task_end()
 
 task("qemu-distro")
     set_menu {
-        usage = "xmake qemu-distro --fs=<simplefs|ext4>",
+        usage = "xmake qemu-distro --fs=<simplefs|ext4|ext4-journalled>",
         description = "Run the external kernel with an ObfuscationOS rootfs image",
         options = {
-            {"f", "fs", "kv", "simplefs", "Root filesystem image to run: simplefs or ext4"},
+            {"f", "fs", "kv", "simplefs", "Root filesystem image: simplefs, ext4 or ext4-journalled"},
             {"k", "kernel", "kv", nil, "Explicit kernel image override (otherwise build distro_image from the selected SDK)"},
+            {nil, "qemu", "kv", nil, "Explicit QEMU executable override"},
             {nil, "timeout", "kv", "20", "QEMU timeout in seconds"},
             {nil, "display", "kv", "none", "QEMU display backend: none or sdl"},
-            {nil, "persist", "k", nil, "Reuse ext4 disk and preserve guest writes; run sync before closing QEMU"},
-            {nil, "require-native", "k", nil, "Require debug userland and hardware timer acceptance"},
+            {nil, "persist", "k", nil, "Reuse the ext4 disk and preserve guest writes"},
+            {nil, "require-native", "k", nil, "Select and require explicit native init/timer acceptance"},
             {nil, "interactive", "k", nil, "Keep QEMU running until the window/process exits"}
         }
     }
@@ -186,34 +205,60 @@ task("qemu-distro")
         import("core.project.config")
         import("core.project.project")
         config.load()
+        local login = config.get("native_console_login")
+        if login and option.get("require-native") then
+            raise("native_console_login cannot run startup acceptance before authentication")
+        end
+        if option.get("require-native") and not (config.get("native_init_acceptance") or
+                config.get("native_vm_acceptance") or config.get("native_udp_probe")) then
+            os.execv("xmake", {"f", "-y", "--native_init_acceptance=y"})
+            config.load()
+        end
         local fs = option.get("fs") or "simplefs"
-        if fs ~= "simplefs" and fs ~= "ext4" then
+        if fs ~= "simplefs" and fs ~= "ext4" and fs ~= "ext4-journalled" then
             raise("unsupported fs: %s", fs)
         end
-
-        local image_target = fs == "simplefs" and "rootfs-simplefs" or "rootfs-ext4"
-        local image = path.join(task_builddir(config), fs == "simplefs" and "rootfs.simplefs.img" or "rootfs.ext4.img")
-        if option.get("persist") and fs ~= "ext4" then raise("--persist requires --fs=ext4") end
-        if not option.get("persist") or not os.isfile(image) then
+        if login and (fs ~= "ext4-journalled" or not option.get("interactive")) then
+            raise("native_console_login requires --fs=ext4-journalled --interactive")
+        end
+        local images = {
+            simplefs = {"rootfs-simplefs", "rootfs.simplefs.img"},
+            ext4 = {"rootfs-ext4", "rootfs.ext4.img"},
+            ["ext4-journalled"] = {"rootfs-ext4-journalled", "rootfs.ext4-journalled.img"},
+        }
+        local image_target = images[fs][1]
+        if login then images[fs][2] = "rootfs.login.ext4-journalled.img" end
+        local image = path.join(task_builddir(config), images[fs][2])
+        local persist = option.get("persist") or login
+        if persist and fs == "simplefs" then raise("--persist requires an ext4 filesystem") end
+        if not persist or not os.isfile(image) then
             os.execv("xmake", {"-y", "-b", image_target})
         end
 
         local arch, spec = task_require_arch(config.get("arch") or "x86_64")
-        local prefix = config.get("systoolchain_dir")
-        if not prefix then
-            local systoolchain = project.required_package("systoolchain")
-            assert(systoolchain, "the systoolchain package is not resolved")
-            prefix = systoolchain:installdir()
+        local qemu = option.get("qemu")
+        if qemu then
+            qemu = path.absolute(qemu)
+        else
+            local prefix = config.get("systoolchain_dir")
+            if not prefix then
+                local systoolchain = project.required_package("systoolchain")
+                assert(systoolchain, "the systoolchain package is not resolved")
+                prefix = systoolchain:installdir()
+            end
+            qemu = path.absolute(path.join(prefix, "bin", spec.qemu_system))
         end
-        local qemu = path.absolute(path.join(prefix, "bin", spec.qemu_system))
-        assert(os.isfile(qemu), "SysToolchain is missing QEMU: %s", qemu)
+        assert(os.isfile(qemu), "QEMU executable is missing: %s", qemu)
         local project_dir = os.projectdir()
         local kernel = option.get("kernel")
         if not kernel then
             os.execv("xmake", {"-y", "-b", "distro_image"})
             kernel = path.join(task_builddir(config), "distro", "kernel.bin")
         end
-
+        if login then
+            os.execv("python3", {"-B", path.join(project_dir, "tools", "console_login_disk.py"),
+                "--image", image, "--root", path.join(task_builddir(config), "rootfs")})
+        end
 
         local args = {
             path.join(project_dir, "scripts", "qemu_distro.py"),
@@ -228,7 +273,7 @@ task("qemu-distro")
         if option.get("interactive") then
             table.insert(args, "--interactive")
         end
-        if option.get("persist") then
+        if persist then
             table.insert(args, "--persist")
         end
         if option.get("require-native") then
