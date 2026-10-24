@@ -5,7 +5,7 @@
 #include <sys/types.h>
 
 struct stat {
-    unsigned long st_ino;
+    uint64_t st_ino;
     mode_t st_mode;
     unsigned int st_nlink;
     unsigned int st_uid;
@@ -20,8 +20,10 @@ struct stat {
 };
 
 #define S_IFMT OK_MODE_TYPE_MASK
+#define S_IFCHR OK_MODE_CHARACTER_DEVICE
 #define S_IFREG OK_MODE_REGULAR
 #define S_IFDIR OK_MODE_DIRECTORY
+#define S_IFLNK OK_MODE_SYMLINK
 #define S_IRUSR 0400
 #define S_IWUSR 0200
 #define S_IXUSR 0100
@@ -32,11 +34,18 @@ struct stat {
 #define S_IWOTH 0002
 #define S_IXOTH 0001
 
+#define S_ISCHR(mode) (((mode) & S_IFMT) == S_IFCHR)
 #define S_ISREG(mode) (((mode) & S_IFMT) == S_IFREG)
 #define S_ISDIR(mode) (((mode) & S_IFMT) == S_IFDIR)
+#define S_ISLNK(mode) (((mode) & S_IFMT) == S_IFLNK)
 
 int stat(const char *path, struct stat *st);
+int lstat(const char *path, struct stat *st);
 int fstat(int fd, struct stat *st);
+int fstatat(int dirfd, const char *path, struct stat *st, int flags);
 int mkdir(const char *path, mode_t mode);
+int chmod(const char *path, mode_t mode);
+int fchmod(int fd, mode_t mode);
+int fchmodat(int dirfd, const char *path, mode_t mode, int flags);
 
 #endif
