@@ -40,7 +40,7 @@ def main() -> int:
         raise RuntimeError("SDK must contain one explicit boot.S.o artifact")
     boot = out / "boot.o"
     boot.write_bytes(subprocess.check_output([ar, "p", str(boot_archive), "boot.S.o"]))
-    flags = ["-std=c++23", *manifest["cxxflags"], "-fno-builtin", "-fno-rtti", "-Werror", "-I", str(sdk / "include"), "-I", str(ROOT)]
+    flags = ["-std=c++23", *manifest["cxxflags"], "-fno-builtin", "-Werror", "-I", str(sdk / "include"), "-I", str(ROOT)]
     driver = out / "driver.o"
     subprocess.run([cxx, *flags, "-c", str(ROOT / "drivers/virtio/block.cpp"), "-o", str(driver)], check=True)
     qemu = args.qemu or {"i386":"qemu-system-i386", "x86_64":"qemu-system-x86_64", "aarch64":"qemu-system-aarch64",
@@ -52,13 +52,13 @@ def main() -> int:
     disk.write_bytes(initial)
     expected = bytearray(initial)
     expected[40*512:56*512] = bytes((i ^ 0x5a) & 255 for i in range(8192))
-    for scenario in ("write", "reopen", "readonly", "read_error", "absent"):
+    for scenario in ("write", "reopen", "readonly", "read_error", "absent", "delayed", "timeout"):
         obj, elf, image = [out / (scenario + suffix) for suffix in (".o", ".elf", ".bin")]
-        defines = {"readonly": "OK_BLOCK_READ_ONLY", "absent": "OK_BLOCK_NO_DEVICE", "read_error": "OK_BLOCK_READ_ERROR"}
+        defines = {"readonly": "OK_BLOCK_READ_ONLY", "absent": "OK_BLOCK_NO_DEVICE", "read_error": "OK_BLOCK_READ_ERROR", "delayed": "OK_BLOCK_DELAYED", "timeout": "OK_BLOCK_TIMEOUT"}
         define = ["-D" + defines[scenario]] if scenario in defines else []
         subprocess.run([cxx, *flags, *define, "-c", str(ROOT / "tests/drivers/virtio_block_probe.cpp"), "-o", str(obj)], check=True)
         subprocess.run([cxx, *manifest["ldflags"], "-nostdlib", "-static", "-Wl,--build-id=none", "-Wl,-T," + str(sdk / "boot/linker.ld"),
-                        str(boot), str(driver), str(obj), "-lgcc", "-o", str(elf)], check=True)
+                        str(boot), str(driver), str(obj), str(sdk / "lib/libokernel.a"), "-lgcc", "-o", str(elf)], check=True)
         assemble_image(elf, image, sdk, manifest["image_format"], Path(objcopy))
         if args.arch in ("i386", "x86_64"):
             command = [qemu, "-m", "128M", "-drive", f"file={image},format=raw,if=ide", "-boot", "c"]
@@ -74,6 +74,9 @@ def main() -> int:
                 command += ["-bios", "none"]
         if args.modern_mmio:
             command += ["-global", "virtio-mmio.force-legacy=false"]
+        if scenario in ("delayed", "timeout"):
+            disk.write_bytes(initial)
+            expected = bytearray(initial)
         if scenario != "absent":
             backing = str(disk)
             if scenario == "read_error":
@@ -81,11 +84,13 @@ def main() -> int:
                 fault.write_text('[inject-error]\nevent = "read_aio"\nerrno = "5"\nsector = "40"\nonce = "on"\nimmediately = "on"\n')
                 backing = f"blkdebug:{fault}:{disk}"
             drive = f"file={backing},format=raw,if=none,id=testdisk" + (",readonly=on" if scenario == "readonly" else "")
+            if scenario == "delayed": drive += ",iops=1"
+            if scenario == "timeout": drive += ",bps=128"
             transport = "virtio-blk-device" if mmio else "virtio-blk-pci"
             command += ["-drive", drive, "-device", transport + ",drive=testdisk" + (",disable-legacy=on" if args.modern_pci else "")]
         command += ["-display", "none", "-serial", "stdio", "-monitor", "none", "-no-reboot"]
         try:
-            result = subprocess.run(command, capture_output=True, timeout=5)
+            result = subprocess.run(command, capture_output=True, timeout=10 if scenario in ("delayed", "timeout") else 5)
             serial = result.stdout + result.stderr
         except subprocess.TimeoutExpired as error:
             serial = (error.stdout or b"") + (error.stderr or b"")
@@ -93,7 +98,7 @@ def main() -> int:
         (out / (scenario + ".log")).write_text(text)
         print(scenario + ":\n" + text, end="")
         marker = {"write":"write=pass flush=pass ring_wrap=pass", "reopen":"reopen=pass", "readonly":"readonly=pass",
-                  "read_error":"read_error=pass recovery=pass", "absent":"absent=pass"}[scenario]
+                  "read_error":"read_error=pass recovery=pass", "absent":"absent=pass", "delayed":"delayed=pass elapsed=pass bytes=pass", "timeout":"timeout=pass elapsed=pass retired_queue=pass"}[scenario]
         if "VIRTIO_BLOCK_PASS scope=hardware " + marker not in text or "VIRTIO_BLOCK_FAIL" in text:
             raise RuntimeError("Virtio block hardware probe failed: " + scenario)
         if disk.read_bytes() != expected:

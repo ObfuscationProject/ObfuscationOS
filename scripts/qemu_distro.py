@@ -4,6 +4,8 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
+import json
 import os
 import select
 import shutil
@@ -38,9 +40,23 @@ def ramfb_args() -> list[str]:
     return ["-device", "ramfb"]
 
 
-def command_for(qemu: Path, arch: str, kernel: Path, rootfs: Path, display: str) -> list[str]:
+def entropy_args(arch: str, *, enabled: bool) -> list[str]:
+    if arch not in {"i386", "x86_64", "aarch64", "arm32", "rv64", "rv32", "loongarch64", "mips", "mips64", "ppc"}:
+        raise ValueError("unknown entropy device architecture")
+    mmio = arch in {"aarch64", "arm32", "rv64", "rv32"}
+    result = ["-global", "virtio-mmio.force-legacy=false"] if mmio else []
+    if enabled:
+        result += ["-object", "rng-random,id=entropy0,filename=/dev/urandom",
+                   "-device", ("virtio-rng-device" if mmio else "virtio-rng-pci-non-transitional") + ",rng=entropy0"]
+    return result
+
+
+def command_for(qemu: Path, arch: str, kernel: Path, rootfs: Path, display: str,
+                *, native_profile: bool = False, entropy: str = "virtio") -> list[str]:
     if arch not in {"i386", "x86_64", "aarch64", "arm32", "rv64", "rv32", "loongarch64", "mips", "mips64", "ppc"}:
         raise SystemExit(f"qemu-distro is not configured for {arch}")
+    if entropy not in {"virtio", "none"}:
+        raise ValueError("entropy must be virtio or none")
 
     common = ["-serial", "stdio", "-monitor", "none", "-no-reboot", "-display", display]
     if arch == "i386":
@@ -57,6 +73,7 @@ def command_for(qemu: Path, arch: str, kernel: Path, rootfs: Path, display: str)
             *common,
             *ramfb_args(),
             *virtio_disk_args(rootfs),
+            *entropy_args(arch, enabled=entropy == "virtio"),
         ]
     if arch in {"x86_64", "i386"}:
         return [
@@ -70,6 +87,7 @@ def command_for(qemu: Path, arch: str, kernel: Path, rootfs: Path, display: str)
             *common,
             *ramfb_args(),
             *virtio_disk_args(rootfs),
+            *entropy_args(arch, enabled=entropy == "virtio"),
         ]
     if arch in {"aarch64", "arm32"}:
         return [
@@ -90,6 +108,7 @@ def command_for(qemu: Path, arch: str, kernel: Path, rootfs: Path, display: str)
             "-device",
             "virtio-mouse-device",
             *virtio_disk_args(rootfs, mmio=True),
+            *entropy_args(arch, enabled=entropy == "virtio"),
         ]
     if arch in {"rv64", "rv32"}:
         return [
@@ -110,12 +129,18 @@ def command_for(qemu: Path, arch: str, kernel: Path, rootfs: Path, display: str)
             "-device",
             "virtio-mouse-device",
             *virtio_disk_args(rootfs, mmio=True),
+            *entropy_args(arch, enabled=entropy == "virtio"),
         ]
     if arch in {"mips", "mips64", "ppc"}:
         cpu = ["-cpu", "MIPS64R2-generic"] if arch == "mips64" else []
+        if arch == "ppc" and native_profile:
+            # The native BookE/SPE contract uses a measured single-CPU QEMU
+            # profile. Existing external qualifiers add these options after
+            # command_for(), so only an explicit caller may request them here.
+            cpu = ["-cpu", "e500v2_v22", "-smp", "1", "-accel", "tcg,thread=single"]
         return [str(qemu), "-M", "ppce500" if arch == "ppc" else "malta",
                 *cpu, "-m", "256M", "-kernel", str(kernel), *common,
-                *virtio_disk_args(rootfs)]
+                *virtio_disk_args(rootfs), *entropy_args(arch, enabled=entropy == "virtio")]
     return [
         str(qemu),
         "-M",
@@ -132,10 +157,12 @@ def command_for(qemu: Path, arch: str, kernel: Path, rootfs: Path, display: str)
         "-device",
         "virtio-mouse-pci",
         *virtio_disk_args(rootfs),
+        *entropy_args(arch, enabled=entropy == "virtio"),
     ]
 
 
-def run_until_marker(command: list[str], timeout: float, require_native: bool = False, require_storage: bool = False) -> int:
+def run_until_marker(command: list[str], timeout: float, require_native: bool = False,
+                     require_storage: bool = False, require_journalled: bool = False) -> int:
     process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
     assert process.stdout is not None
     deadline = time.monotonic() + timeout
@@ -156,15 +183,35 @@ def run_until_marker(command: list[str], timeout: float, require_native: bool = 
             return 1
         if line.startswith("OK_STORAGE scope=hardware source=virtio filesystem=ext4 mode=rw"):
             observed.add("storage")
+            if line.rstrip().endswith("journal=ordered-data"):
+                observed.add("journalled-storage")
         if line.startswith("OK_SYSTEM_GUI boot=complete"):
             observed.add("gui")
         if line.startswith("OK_USERLAND scope=hardware acceptance=pass shell_pipeline=pass"):
             observed.add("userland")
         if line.startswith("OK_NATIVE scope=hardware timer=preempted"):
             observed.add("preemption")
-        required = {"gui", "userland", "preemption"} if require_native else {"gui"}
+        if line.startswith("OK_PATH scope=hardware relative_exec=pass symlink=pass"):
+            observed.add("paths")
+        if line.startswith("OK_TIME_NATIVE scope=hardware monotonic=pass sleep=pass absolute=pass sibling=pass validation=pass"):
+            observed.add("time")
+        if line.startswith("OK_SLEEP_NATIVE scope=hardware sole_sleeper=pass"):
+            observed.add("sole-sleeper")
+        if line.startswith("OK_POLL_NATIVE scope=hardware nonblock=pass readiness=pass timeout=pass wake=pass peer_close=pass"):
+            observed.add("poll")
+        if line.startswith("OK_VM_NATIVE scope=hardware map=pass zero=pass protect=pass unmap=pass fork=pass pressure=pass"):
+            observed.add("vm")
+        if line.startswith("OK_VM_PAGED scope=hardware pages=192 fork=pass none=pass remap=pass rollback=pass cleanup=pass"):
+            observed.add("paged-vm")
+        if line.startswith("OK_VM_SHARED scope=hardware fork=pass private_isolation=pass protect=pass none=pass partial_unmap=pass fixed=pass exec_exit=pass pressure=pass cleanup=pass"):
+            observed.add("shared-vm")
+        if line.startswith("OK_VM_FILE_PRIVATE scope=hardware ext4=pass offset=pass short_length=pass tail_zero=pass errno=pass unlink=pass private_write=pass fork=pass"):
+            observed.add("file-private-vm")
+        required = {"gui", "userland", "preemption", "paths", "vm", "paged-vm", "shared-vm", "time", "sole-sleeper", "poll"} if require_native else {"gui"}
         if require_storage:
-            required.add("storage")
+            required.update(("storage", "file-private-vm"))
+        if require_journalled:
+            required.add("journalled-storage")
         if required <= observed:
             return 0
         return None
@@ -225,15 +272,19 @@ def main() -> int:
     parser.add_argument("--arch", required=True)
     parser.add_argument("--kernel", required=True, type=Path)
     parser.add_argument("--rootfs", required=True, type=Path)
-    parser.add_argument("--fs", choices=("simplefs", "ext4"), required=True)
+    parser.add_argument("--fs", choices=("simplefs", "ext4", "ext4-journalled"), required=True)
     parser.add_argument("--require-native", action="store_true", help="Require actual userland acceptance and timer preemption")
+    parser.add_argument("--native-profile", action="store_true", help="Select the qualified native PPC CPU profile")
+    parser.add_argument("--entropy", choices=("virtio", "none"), default="virtio",
+                        help="Attach a modern Virtio RNG or run an explicit no-device control")
     parser.add_argument("--timeout", type=float, default=20.0)
     parser.add_argument("--display", default="none", choices=("none", "sdl"), help="QEMU display backend")
     parser.add_argument("--interactive", action="store_true", help="Keep QEMU running until the window/process exits")
     parser.add_argument("--persist", action="store_true", help="Use the supplied ext4 image directly; preserve guest writes")
+    parser.add_argument("--failure-dir", type=Path, help="Preserve a failed run's actual scratch disk in a new directory")
     args = parser.parse_args()
-    if args.persist and args.fs != "ext4":
-        raise SystemExit("--persist requires --fs ext4")
+    if args.persist and args.fs not in ("ext4", "ext4-journalled"):
+        raise SystemExit("--persist requires an ext4 filesystem")
 
     arch = normalize_arch(args.arch)
     qemu = args.qemu.resolve()
@@ -250,12 +301,24 @@ def main() -> int:
         runtime_rootfs = rootfs if args.persist else Path(temp_dir) / rootfs.name
         if not args.persist:
             shutil.copy2(rootfs, runtime_rootfs)
-        command = command_for(qemu, arch, kernel, runtime_rootfs, args.display)
+        command = command_for(qemu, arch, kernel, runtime_rootfs, args.display,
+                              native_profile=args.native_profile, entropy=args.entropy)
         print(f"[qemu-distro] arch={arch} fs={args.fs} qemu={qemu} kernel={kernel} rootfs={rootfs}")
         if args.interactive:
             print(f"[qemu-distro] display={args.display} interactive=1")
             return run_interactive(command)
-        code = run_until_marker(command, args.timeout, args.require_native, args.fs == "ext4")
+        code = run_until_marker(command, args.timeout, args.require_native,
+                                args.fs in ("ext4", "ext4-journalled"), args.fs == "ext4-journalled")
+        if code and args.failure_dir:
+            failed = args.failure_dir.resolve()
+            failed.mkdir(parents=True, exist_ok=False)
+            saved = failed / runtime_rootfs.name
+            shutil.copy2(runtime_rootfs, saved)
+            record = {"architecture": arch, "exit_code": code, "command": command,
+                      "scope": "failed-qemu-guest-disk", "disk": saved.name,
+                      "disk_sha256": hashlib.sha256(saved.read_bytes()).hexdigest(),
+                      "kernel_sha256": hashlib.sha256(kernel.read_bytes()).hexdigest()}
+            (failed / "result.json").write_text(json.dumps(record, indent=2) + "\n")
         if code == 124:
             print("[qemu-distro] timeout before required OS completion markers", file=sys.stderr)
         return code
