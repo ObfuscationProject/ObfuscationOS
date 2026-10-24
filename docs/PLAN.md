@@ -61,6 +61,15 @@ Exit gate: on ten profiles a musl `sh` runs scripts with expansion, pipelines,
 redirection and command lists; the utility set passes its own test suite in the
 guest. Depends on kernel WT1.1 (quotas); job control arrives with WT2.2.
 
+Scaffold on branch `feat/musl-primary`:
+- `ports/README.md`, `ports/{musl,dash,toybox}/port.json`: pinned-source descriptors
+  (archive hash, licence, dependencies, qualified profiles, state). musl 1.2.5 is
+  pinned from `tools/musl_source.py`; dash and toybox stay `planned` until the
+  licence decision record selects the shell and utility set.
+- `tools/ports.py` (validate, order) and `tests/tools/test_ports.py`.
+Next: `xmake port-build --name=musl --arch=...` driving the descriptor with the
+`<arch>-linux-musl` toolchain family; rootfs profiles `ext4`, `simplefs`, `release`.
+
 ### WT1.6 `chore/sdk75-consumer` (S)
 
 Consume the ABI 75 SDK from kernel WT1.1/WT1.2: `tools/kernel_sdk.py` admission,
@@ -100,6 +109,11 @@ virtio-gpu, virtio-input, ramfb, PS/2 and USB HID drivers move here from the
 kernel and are exposed through the display/input UAPI from kernel WT2.6; `seatd`
 hands leases to the compositor. Exit: a user-space program allocates a buffer and
 presents it; input events reach user space.
+
+Scaffold on branch `feat/display-input-drivers`: `drivers/display/README.md` and
+`drivers/input/README.md` record which kernel backends migrate (ramfb, virtio-gpu,
+virtio-input, PS/2, USB HID), the contract against the draft `ok/uapi/display.h`
+and `input.h`, and the exit gate. Code follows the kernel display mechanism.
 
 ## P3
 
