@@ -225,7 +225,7 @@ contract; QEMU8.2.2 LoongArch still supplies malformed RAM cells. A rejected
 firmware profile is never silently replaced with a guessed map. Raw capture now exists on all ten entry
 paths. Typed owned discovery and its standalone probes are integrated; full RAM
 qualification, capacity policy and allocator integration remain open; see the Kernel
-[boot handoff audit](../../../../ObfuscationKernel/docs/BOOT_MEMORY_HANDOFF.md).
+[boot handoff audit](../../../../ObfuscationKernel/docs/qualification/BOOT_MEMORY_HANDOFF.md).
 
 `S3.jbd2-plan` records the independent checksum-v3 codec and ordered, committed,
 revoke-filtered replay plan. `scripts/test_jbd2.py` uses a synthetic fixture with

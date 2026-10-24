@@ -15,3 +15,12 @@
   mismatch handling, distribution image linkage, rootfs packaging and QEMU
   desktop integration after boundary changes.
 - Documentation, source comments and identifiers are English.
+- New applications and services target musl over the Linux personality; okcrt
+  is for init, login, rescue and native acceptance only (docs/decisions/0001).
+- `modules/system-gui` is frozen to regression fixes; desktop work goes to the
+  user-space compositor and applications (docs/decisions/0002).
+- Qualification receipts and prototype trees go to the ObfuscationEvidence
+  repository, never into this working tree (docs/decisions/0003). Per-slice
+  notes live under docs/qualification/; docs/plans/STATUS.md is generated.
+- Work is organised as paired worktrees described in docs/PLAN.md; a worktree
+  that changes the SDK contract has a paired Kernel worktree.

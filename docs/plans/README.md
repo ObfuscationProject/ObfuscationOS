@@ -1,6 +1,12 @@
 # Complete workstation implementation plan
 
 Status: proposed design and implementation backlog, **not implemented support**.
+The generated [capability matrix](STATUS.md) is the single per-requirement status
+table; regenerate it from the ledger instead of editing it. The worktree-level
+execution plan is [PLAN.md](../PLAN.md).
+The generated [capability matrix](STATUS.md) is the single per-requirement status
+table; regenerate it from the ledger instead of editing it. The worktree-level
+execution plan is [PLAN.md](../PLAN.md).
 Implementation has started; [progress and evidence](IMPLEMENTATION_PROGRESS.md)
 record completed slices and remaining gates separately from this target design.
 The [milestone status review](MILESTONE_STATUS.md) compares current behavior with

@@ -5,6 +5,9 @@ external drivers and compatibility code, external kernel extensions, and the
 System GUI. ObfuscationKernel owns core kernel mechanisms, native interfaces,
 boot/runtime code, and the low-level kernel compositor/debug GUI.
 
+The [worktree implementation plan](docs/PLAN.md) and the [decision records](docs/decisions/README.md)
+describe how work is organised; the generated [capability matrix](docs/plans/STATUS.md)
+is the per-requirement state.
 The [complete workstation implementation plan](docs/plans/README.md) describes
 the proposed path to a user-space desktop, POSIX.1-2024, musl, modern/full-scope
 ext4, IPv4/IPv6 networking and supervised services on all ten profiles. It is a

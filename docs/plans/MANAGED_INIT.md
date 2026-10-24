@@ -5,7 +5,7 @@ supervisor. It requires an exported SDK33 with
 `native_init_profile=designated-pid1-adoption-v1` and
 `native_signal_profile=bounded-bootcpu-v1`. The kernel reserves user-visible
 PID 1 and adopts Linux user descendants to that live process; `/init` supplies
-the distribution policy. The [SDK33 init contract](../KERNEL_SDK33_INIT.md)
+the distribution policy. The [SDK33 init contract](../qualification/KERNEL_SDK33_INIT.md)
 records the boundary. The OS build validates the SDK artifact manifest and
 never compiles kernel source.
 
