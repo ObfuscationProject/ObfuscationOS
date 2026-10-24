@@ -45,13 +45,30 @@ def flat_name(root: Path, path: Path) -> str:
     return "_".join(parts)
 
 
-def collect_files(root: Path) -> list[tuple[str, Path]]:
+def parse_omit(value: str | None) -> frozenset[str]:
+    """Flat names excluded from a SimpleFS image.
+
+    SimpleFS is the fixed 32-entry rescue/test image; the format is deliberately
+    unchanged. A full rootfs stages more than 32 files, so image-specific
+    omissions select which flat names are packed. The omitted names must exist
+    in the staged root so a typo cannot silently drop nothing.
+    """
+    if not value:
+        return frozenset()
+    return frozenset(item for item in value.split(",") if item)
+
+
+def collect_files(root: Path, omit: frozenset[str] = frozenset()) -> list[tuple[str, Path]]:
     files: list[tuple[str, Path]] = []
     seen: set[str] = set()
+    omitted: set[str] = set()
     for dirpath, _, filenames in os.walk(root):
         for filename in sorted(filenames):
             path = Path(dirpath) / filename
             name = flat_name(root, path)
+            if name in omit:
+                omitted.add(name)
+                continue
             if len(name.encode("utf-8")) >= NAME_CAPACITY:
                 raise SystemExit(f"SimpleFS flat name too long: {name}")
             if name in seen:
@@ -59,6 +76,9 @@ def collect_files(root: Path) -> list[tuple[str, Path]]:
             seen.add(name)
             files.append((name, path))
     files.sort(key=lambda item: item[0])
+    missing = omit - omitted
+    if missing:
+        raise SystemExit(f"SimpleFS omit list names files that are not staged: {', '.join(sorted(missing))}")
     if len(files) > MAX_ENTRIES:
         raise SystemExit(f"SimpleFS supports at most {MAX_ENTRIES} entries, got {len(files)}")
     return files
@@ -103,8 +123,8 @@ def make_entry(name: str, start_block: int, payload_size: int) -> bytes:
     )
 
 
-def pack(root: Path, out: Path) -> None:
-    files = collect_files(root)
+def pack(root: Path, out: Path, omit: frozenset[str] = frozenset()) -> None:
+    files = collect_files(root, omit)
     entries: list[bytes] = []
     data = bytearray()
     current_block = DATA_START_BLOCK
@@ -176,13 +196,13 @@ def list_image(image: Path) -> None:
         print(f"{name}\t{size}")
 
 
-def verify(image: Path, root: Path | None) -> None:
+def verify(image: Path, root: Path | None, omit: frozenset[str] = frozenset()) -> None:
     entries, blob = read_image(image)
     if root is None:
         print(f"[simplefs] verified {image} ({len(entries)} entries)")
         return
 
-    expected = {name: path.read_bytes() for name, path in collect_files(root)}
+    expected = {name: path.read_bytes() for name, path in collect_files(root, omit)}
     actual = {name: blob[start : start + size] for name, start, size in entries}
     if expected != actual:
         raise SystemExit("SimpleFS roundtrip mismatch")
@@ -206,6 +226,7 @@ def main() -> int:
     pack_parser = sub.add_parser("pack")
     pack_parser.add_argument("--root", required=True)
     pack_parser.add_argument("--out", required=True)
+    pack_parser.add_argument("--omit", help="comma-separated flat names excluded from the image")
 
     ls_parser = sub.add_parser("ls")
     ls_parser.add_argument("image")
@@ -213,6 +234,7 @@ def main() -> int:
     verify_parser = sub.add_parser("verify")
     verify_parser.add_argument("image")
     verify_parser.add_argument("--root")
+    verify_parser.add_argument("--omit", help="comma-separated flat names excluded from the image")
 
     extract_parser = sub.add_parser("extract")
     extract_parser.add_argument("image")
@@ -220,11 +242,11 @@ def main() -> int:
 
     args = parser.parse_args()
     if args.cmd == "pack":
-        pack(Path(args.root), Path(args.out))
+        pack(Path(args.root), Path(args.out), parse_omit(args.omit))
     elif args.cmd == "ls":
         list_image(Path(args.image))
     elif args.cmd == "verify":
-        verify(Path(args.image), Path(args.root) if args.root else None)
+        verify(Path(args.image), Path(args.root) if args.root else None, parse_omit(args.omit))
     elif args.cmd == "extract":
         extract(Path(args.image), Path(args.out))
     return 0

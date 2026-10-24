@@ -417,6 +417,13 @@ target("rootfs-stage")
     end)
 target_end()
 
+-- SimpleFS is the fixed 32-entry rescue/test image; its on-disk format is kept
+-- unchanged. The full staged root exceeds that cap, so the supervised service
+-- programs (started only from ext4 roots through services*.conf) are omitted
+-- here. The archive unit tests still require an unfiltered 33+-entry root to
+-- be rejected.
+local simplefs_omit = "logd,logger,timed,timectl,resolved,resolvectl,mountctl,service-ctl"
+
 target("rootfs-simplefs")
     set_kind("phony")
     set_default(false)
@@ -425,8 +432,8 @@ target("rootfs-simplefs")
         local project = os.projectdir()
         local root = path.join(build, "rootfs")
         local image = path.join(build, "rootfs.simplefs.img")
-        run_python(batchcmds, "mksimplefs.py", {"pack", "--root", root, "--out", image})
-        run_python(batchcmds, "mksimplefs.py", {"verify", image, "--root", root})
+        run_python(batchcmds, "mksimplefs.py", {"pack", "--root", root, "--out", image, "--omit", simplefs_omit})
+        run_python(batchcmds, "mksimplefs.py", {"verify", image, "--root", root, "--omit", simplefs_omit})
     end)
 target_end()
 

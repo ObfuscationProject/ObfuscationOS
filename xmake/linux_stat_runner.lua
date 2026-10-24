@@ -1,3 +1,7 @@
+-- Standalone fixture project. This file is NOT included from the repository
+-- xmake.lua; tools/build_linux_stat_runner.py copies this file as the xmake.lua of a private native build project.
+-- Its okcrt/kernel-sdk-check targets therefore do not clash with xmake/targets.lua.
+
 set_project("sdk23-linux-stat-native-runner")
 set_languages("c11")
 add_rules("mode.debug", "mode.release")

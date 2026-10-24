@@ -1,3 +1,7 @@
+-- Standalone fixture project. This file is NOT included from the repository
+-- xmake.lua; tools/write_seal_recipe_inputs.py pins this file as the shared-files fixture recipe.
+-- Its okcrt/kernel-sdk-check targets therefore do not clash with xmake/targets.lua.
+
 set_project("shared-files-native-acceptance")
 set_languages("c11")
 add_rules("mode.debug", "mode.release")

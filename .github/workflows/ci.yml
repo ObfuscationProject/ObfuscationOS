@@ -5,9 +5,18 @@ on:
   pull_request:
   workflow_dispatch:
 
+# Fast lane: one 64-bit little-endian, one 32-bit and one big-endian profile.
+# The full ten-architecture matrix runs locally (xmake arch-matrix) before merges
+# that touch architecture-sensitive code. SysToolchain is resolved as an xmake
+# package; until SysToolchain publishes release archives it is built from source,
+# so the package cache is keyed on the toolchain version and architecture.
 jobs:
   kernel-sdk:
     runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: [x86_64, arm32, ppc]
     steps:
       - uses: actions/checkout@v4
         with:
@@ -15,39 +24,55 @@ jobs:
       - uses: xmake-io/github-action-setup-xmake@v1
         with:
           xmake-version: latest
+      - name: Cache SysToolchain package
+        uses: actions/cache@v4
+        with:
+          path: ~/.xmake/packages/s/systoolchain
+          key: systoolchain-0.1.0-${{ runner.os }}-${{ matrix.arch }}
       - name: Build independent kernel SDK
         run: |
-          xmake f -y -m debug -a x86_64
+          xmake f -y -m debug -a ${{ matrix.arch }}
           xmake -y -b kernel-sdk
       - uses: actions/upload-artifact@v4
         with:
-          name: kernel-sdk-x86_64-debug
-          path: build/sdk/x86_64/debug
+          name: kernel-sdk-${{ matrix.arch }}-debug
+          path: build/sdk/${{ matrix.arch }}/debug
   distro:
     needs: kernel-sdk
     runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: [x86_64, arm32, ppc]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
         with:
-          name: kernel-sdk-x86_64-debug
+          name: kernel-sdk-${{ matrix.arch }}-debug
           path: kernel-sdk
       - uses: xmake-io/github-action-setup-xmake@v1
         with:
           xmake-version: latest
+      - name: Cache SysToolchain package
+        uses: actions/cache@v4
+        with:
+          path: ~/.xmake/packages/s/systoolchain
+          key: systoolchain-0.1.0-${{ runner.os }}-${{ matrix.arch }}
       - name: Install host dependencies
         run: |
           sudo apt-get update
           sudo apt-get install -y build-essential e2fsprogs qemu-system-x86
       - name: Configure distro using artifacts
-        run: xmake f -y -m debug -a x86_64 --kernel_sdk=kernel-sdk
+        run: xmake f -y -m debug -a ${{ matrix.arch }} --kernel_sdk=kernel-sdk
       - name: Validate artifacts, UAPI and libc
         run: |
           xmake -y -b artifact-test
           xmake -y -b kernel-sdk-check
           xmake -y -b uapi-test
           xmake -y -b libc-test
-          xmake -y -b compat-test
+      - name: Host compatibility models (x86_64 host model)
+        if: matrix.arch == 'x86_64'
+        run: xmake -y -b compat-test
       - name: Build distribution images and extensions
         run: |
           xmake -y -b distro_image
@@ -57,6 +82,7 @@ jobs:
       - name: Verify desktop and native userland in QEMU
         run: xmake qemu-distro --fs=simplefs --require-native --timeout=30
       - name: Verify ext4 persistence across boots
+        if: matrix.arch == 'x86_64'
         run: |
           python3 scripts/test_persistent_ext4.py --arch x86_64 \
             --qemu /usr/bin/qemu-system-x86_64 \
