@@ -2,23 +2,35 @@
 """Build a deterministic, directly mapped boot archive from the OS rootfs."""
 import argparse
 import hashlib
+import stat
 import struct
 from pathlib import Path
 
 
 def pack(root: Path) -> bytes:
-    if not root.is_dir():
+    try:
+        directory = stat.S_ISDIR(root.lstat().st_mode)
+    except FileNotFoundError:
+        directory = False
+    if not directory:
         raise ValueError(f"archive root is not an existing directory: {root}")
     entries = sorted(root.rglob("*"), key=lambda p: p.relative_to(root).as_posix())
     output = bytearray(struct.pack("<4sIII", b"OKAR", 1, len(entries), 0))
     for entry in entries:
-        if entry.is_symlink() or not (entry.is_file() or entry.is_dir()):
+        host_mode = entry.lstat().st_mode
+        kind = stat.S_IFMT(host_mode)
+        if kind not in (stat.S_IFREG, stat.S_IFDIR):
             raise ValueError(f"unsupported archive entry: {entry}")
+        permissions = 0o3777 if kind == stat.S_IFDIR else 0o777
+        if host_mode & ~(kind | permissions):
+            raise ValueError(f"unsupported archive permissions {host_mode:o}: {entry}")
         path = ("/" + entry.relative_to(root).as_posix()).encode("ascii")
         if len(path) >= 128 or any(len(p) >= 32 for p in path.split(b"/")):
             raise ValueError(f"archive path exceeds kernel limits: {entry}")
-        contents = entry.read_bytes() if entry.is_file() else b""
-        mode = (0o100000 if entry.is_file() else 0o040000) | (entry.stat().st_mode & 0o777)
+        contents = entry.read_bytes() if kind == stat.S_IFREG else b""
+        # OKAR ownership is root-owned at import; host UID/GID are never encoded.
+        # Preserve approved permissions exactly instead of silently masking them.
+        mode = kind | (host_mode & permissions)
         output.extend(struct.pack("<IIII", len(path), len(contents), mode, 0))
         output.extend(path)
         output.extend(contents)
