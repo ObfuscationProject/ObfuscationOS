@@ -586,7 +586,10 @@ target("artifact-test")
     set_kind("phony")
     set_default(false)
     on_buildcmd(function (target, batchcmds)
-        batchcmds:vrunv("python3", {"-B", "-m", "unittest", "discover", "-s", path.join(project, "tests", "tools"), "-p", "test_*.py"})
+        -- Fifteen tool suites compile fixtures against the configured SDK and
+        -- require OK_TEST_KERNEL_SDK; run the whole discovery with it set.
+        batchcmds:vrunv("python3", {"-B", "-m", "unittest", "discover", "-s", path.join(project, "tests", "tools"), "-p", "test_*.py"},
+            {envs = {OK_TEST_KERNEL_SDK = sdk, PYTHONDONTWRITEBYTECODE = "1"}})
     end)
 target_end()
 

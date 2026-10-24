@@ -211,7 +211,16 @@ task("qemu-distro")
         end
         if option.get("require-native") and not (config.get("native_init_acceptance") or
                 config.get("native_vm_acceptance") or config.get("native_udp_probe")) then
-            os.execv("xmake", {"f", "-y", "--native_init_acceptance=y"})
+            -- Re-pass the saved toolchain/SDK options: a partial `xmake f` evaluates
+            -- the description scope without them and resolves (and builds) the
+            -- systoolchain package instead of using the configured local directory.
+            local argv = task_configure_args(config, config.get("mode") or "release",
+                                             task_normalize_arch(config.get("arch")))
+            local prefix = "--native_init_acceptance="
+            for i, a in ipairs(argv) do
+                if a:sub(1, #prefix) == prefix then argv[i] = prefix .. "y" end
+            end
+            os.execv("xmake", argv)
             config.load()
         end
         local fs = option.get("fs") or "simplefs"

@@ -34,6 +34,9 @@ kernel worktrees in ObfuscationKernel `docs/PLAN.md`.
   cache, SDK artifact per architecture.
 - `xmake/README.md` documents which Lua files are included and which are
   standalone fixture projects; the two fixture projects carry header comments.
+- `qemu-distro --require-native` re-passes the saved `systoolchain_dir` and
+  `kernel_sdk` options when it reconfigures; the previous partial `xmake f`
+  dropped them and resolved (and built from source) the systoolchain package.
 - 46 per-slice notes moved to `docs/qualification/`; `IMPLEMENTATION_PROGRESS.md`
   trimmed to the current continuation, history frozen in ObfuscationEvidence;
   `STATUS.md` generated from the ledger; decision records 0001–0003.
