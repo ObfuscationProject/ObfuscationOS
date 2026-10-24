@@ -8,11 +8,13 @@ on:
 # Fast lane: one 64-bit little-endian, one 32-bit and one big-endian profile.
 # The full ten-architecture matrix runs locally (xmake arch-matrix) before merges
 # that touch architecture-sensitive code. SysToolchain is resolved as an xmake
-# package; until SysToolchain publishes release archives it is built from source,
-# so the package cache is keyed on the toolchain version and architecture.
+# package from its GitHub release archives; the installed package is cached per
+# toolchain version and architecture. The packaged QEMU links the host GLib,
+# Pixman and SDL2 shared libraries.
 jobs:
   kernel-sdk:
     runs-on: ubuntu-24.04
+    timeout-minutes: 60
     strategy:
       fail-fast: false
       matrix:
@@ -24,6 +26,10 @@ jobs:
       - uses: xmake-io/github-action-setup-xmake@v1
         with:
           xmake-version: latest
+      - name: Install QEMU runtime libraries
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libglib2.0-0t64 libpixman-1-0 libsdl2-2.0-0
       - name: Cache SysToolchain package
         uses: actions/cache@v4
         with:
@@ -40,6 +46,7 @@ jobs:
   distro:
     needs: kernel-sdk
     runs-on: ubuntu-24.04
+    timeout-minutes: 90
     strategy:
       fail-fast: false
       matrix:
@@ -61,7 +68,8 @@ jobs:
       - name: Install host dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y build-essential e2fsprogs qemu-system-x86
+          sudo apt-get install -y build-essential e2fsprogs qemu-system-x86 \
+            libglib2.0-0t64 libpixman-1-0 libsdl2-2.0-0
       - name: Configure distro using artifacts
         run: xmake f -y -m debug -a ${{ matrix.arch }} --kernel_sdk=kernel-sdk
       - name: Validate artifacts, UAPI and libc

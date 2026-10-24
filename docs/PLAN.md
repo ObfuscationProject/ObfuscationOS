@@ -30,8 +30,10 @@ kernel worktrees in ObfuscationKernel `docs/PLAN.md`.
 - F1 repaired without changing the SimpleFS format: `rootfs-simplefs` omits the
   eight ext4-only service programs (`tools/mksimplefs.py --omit`), the unfiltered
   38-entry root is still rejected.
-- CI: three-architecture fast lane (x86_64, arm32, ppc), SysToolchain package
-  cache, SDK artifact per architecture.
+- CI: three-architecture fast lane (x86_64, arm32, ppc) consuming the
+  SysToolchain release archives (installed package cached per architecture,
+  QEMU runtime libraries installed, 60/90-minute job timeouts), SDK artifact per
+  architecture.
 - `xmake/README.md` documents which Lua files are included and which are
   standalone fixture projects; the two fixture projects carry header comments.
 - `qemu-distro --require-native` re-passes the saved `systoolchain_dir` and

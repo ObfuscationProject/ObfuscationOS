@@ -90,9 +90,10 @@ artifact. See [docs/CI.md](docs/CI.md).
 
 ## Toolchain
 
-By default both projects resolve `systoolchain 0.1.0` from ObfuscationRepo with
-its existing source-build policy. For an already installed toolchain, configure
-both projects with the explicit opt-in:
+By default both projects resolve `systoolchain 0.1.0` from ObfuscationRepo,
+which downloads the checksum-verified SysToolchain release archive; the packaged
+QEMU needs the host GLib, Pixman and SDL2 shared libraries. For an already
+installed toolchain, configure both projects with the explicit opt-in:
 
 ```sh
 xmake f -y -a x86_64 -m debug --systoolchain_dir=/path/to/systoolchain

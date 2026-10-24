@@ -13,7 +13,7 @@ if not get_config("systoolchain_dir") then
     add_repositories("obfuscation-repo https://github.com/ObfuscationProject/ObfuscationRepo.git")
     add_requires("systoolchain 0.1.0", {
         system = false,
-        configs = {build_from_source = true}
+        configs = {build_from_source = false}
     })
 end
 
