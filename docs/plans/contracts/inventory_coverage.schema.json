@@ -1,0 +1,72 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://obfuscationos.invalid/schemas/inventory-coverage-v1.json",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "ledger_revision", "inventories"],
+  "properties": {
+    "schema_version": {"const": 1},
+    "ledger_revision": {"type": "string", "minLength": 1},
+    "inventories": {
+      "type": "array",
+      "minItems": 4,
+      "uniqueItems": true,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "source_index", "mappings"],
+        "properties": {
+          "id": {"enum": ["posix-clauses-options", "linux-abi-layouts", "ext4-feature-combinations", "internet-rfc-clauses"]},
+          "source_index": {
+            "anyOf": [
+              {"type": "null"},
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["artifact", "sha256", "reviewer", "reviewed_on"],
+                "properties": {
+                  "artifact": {"type": "string", "minLength": 1},
+                  "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+                  "reviewer": {"type": "string", "minLength": 1},
+                  "reviewed_on": {"type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$"}
+                }
+              }
+            ]
+          },
+          "mappings": {
+            "type": "array",
+            "minItems": 0,
+            "uniqueItems": true,
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["unit_id", "requirement_links", "test_ids"],
+              "properties": {
+                "unit_id": {"type": "string", "minLength": 1},
+                "requirement_links": {
+                  "type": "array", "minItems": 1, "uniqueItems": true,
+                  "items": {
+                    "type": "object", "additionalProperties": false,
+                    "required": ["requirement_id", "source_id", "source_section", "ledger_source_version", "ledger_source_section", "relation", "reviewer", "reviewed_on"],
+                    "properties": {
+                      "requirement_id": {"type": "string", "minLength": 1},
+                      "source_id": {"type": "string", "minLength": 1},
+                      "source_section": {"type": "string", "minLength": 1},
+                      "ledger_source_version": {"type": "string", "minLength": 1},
+                      "ledger_source_section": {"type": "string", "minLength": 1},
+                      "relation": {"type": "string", "minLength": 1},
+                      "reviewer": {"type": "string", "minLength": 1},
+                      "reviewed_on": {"type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$"}
+                    }
+                  }
+                },
+                "test_ids": {"type": "array", "minItems": 1, "uniqueItems": true,
+                             "items": {"type": "string", "minLength": 1}}
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

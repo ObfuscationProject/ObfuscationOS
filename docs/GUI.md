@@ -1,5 +1,9 @@
 # System GUI
 
+For the proposed isolated user-space compositor, toolkit and system applications,
+see the [desktop implementation plan](plans/DESKTOP_APPS.md). This document
+describes the current prelinked implementation, not that future architecture.
+
 ObfuscationOS owns the system desktop. ObfuscationKernel owns the basic compositor,
 window services, platform presentation and kernel diagnostics. OS builds consume
 an exported, matching architecture/mode Kernel SDK; there is no kernel checkout
@@ -33,8 +37,15 @@ and previews text; Notes supports editing and Ctrl+S.
 
 GUI notes are saved as `/tmp/notes-root.txt` or `/tmp/notes-user.txt` with mode 0600.
 Reopening a window reloads its file, but `/tmp` does not persist across reboot.
-The native `notes` CLI has a separate default path, `/tmp/notes.txt`, and accepts
-an explicit path. These interfaces currently use the existing ASCII bitmap font.
+The native `notes` CLI has a separate default path, `/home/notes.txt`, and accepts
+an explicit path. It saves through an exclusive temporary file in the same
+directory, checks the file sync and close, replaces the destination, and checks
+the parent directory sync. Before replacement, a failure preserves the existing
+document. A later failure reports that replacement occurred without reporting a
+completed save. This bounded path requires a caller-owned directory without group
+or other write permission and an ordinary caller-owned single-link destination.
+The final metadata check does not provide writer locking or inode identity.
+These interfaces currently use the existing ASCII bitmap font.
 
 App files live under `/bin`. The GUI launch path validates ELF metadata and creates
 selected-user scheduler records while the prelinked OS extension renders and handles
@@ -64,6 +75,20 @@ An existing local SysToolchain can be selected explicitly with
 compiler or ABI mismatches before linking.
 
 ## Tests
+
+Run the CLI's 40 scratch-file and injected-failure controls with an unused
+output directory:
+
+```sh
+xmake notes-save-check --output=/tmp/notes-plain
+xmake notes-save-check --output=/tmp/notes-sanitized --sanitize
+```
+
+The second command enables ASan/UBSan with leak checking disabled. These hosted
+checks are separate from `scripts/test_notes_workflow.py`, which exercises basic
+English editing and file management through native shell processes in QEMU.
+The shell workflow uses RAM/SimpleFS and does not qualify reboot persistence,
+ext4 power-loss durability or isolated graphical applications.
 
 `modules/system-gui/system_gui_tests.cpp` owns the five desktop integration model
 tests migrated from the kernel: package activation, user selection/login, dock

@@ -1,0 +1,2521 @@
+{
+  "acceptance_changed": false,
+  "architecture": [
+    "i386",
+    "x86_64",
+    "aarch64",
+    "arm32",
+    "rv64",
+    "rv32",
+    "loongarch64",
+    "mips",
+    "mips64",
+    "ppc"
+  ],
+  "archive_artifact": "linux-6.13.4/linux-6.13.4.tar.xz",
+  "archive_sha256": "b80e0bc8efbc31e9ce5a84d1084dcccfa40e01bea8cc25afd06648b93d61339e",
+  "candidate_requirements": {
+    "S0.ext4-subset": {
+      "architecture": [
+        "i386",
+        "x86_64",
+        "aarch64",
+        "arm32",
+        "rv64",
+        "rv32",
+        "loongarch64",
+        "mips",
+        "mips64",
+        "ppc"
+      ],
+      "owner_repository": "joint",
+      "source_section": "STORAGE_EXT4.md#2",
+      "state": "native-partial"
+    },
+    "S3.jbd2-plan": {
+      "architecture": [
+        "i386",
+        "x86_64",
+        "aarch64",
+        "arm32",
+        "rv64",
+        "rv32",
+        "loongarch64",
+        "mips",
+        "mips64",
+        "ppc"
+      ],
+      "owner_repository": "ObfuscationKernel",
+      "source_section": "STORAGE_EXT4.md#S3",
+      "state": "model-only"
+    },
+    "S3.jbd2-replay": {
+      "architecture": [
+        "i386",
+        "x86_64",
+        "aarch64",
+        "arm32",
+        "rv64",
+        "rv32",
+        "loongarch64",
+        "mips",
+        "mips64",
+        "ppc"
+      ],
+      "owner_repository": "ObfuscationKernel",
+      "source_section": "STORAGE_EXT4.md#S3",
+      "state": "native-partial"
+    },
+    "S5.64bit": {
+      "architecture": [
+        "i386",
+        "x86_64",
+        "aarch64",
+        "arm32",
+        "rv64",
+        "rv32",
+        "loongarch64",
+        "mips",
+        "mips64",
+        "ppc"
+      ],
+      "owner_repository": "ObfuscationKernel",
+      "source_section": "STORAGE_EXT4.md#4",
+      "state": "planned"
+    },
+    "S5.htree": {
+      "architecture": [
+        "i386",
+        "x86_64",
+        "aarch64",
+        "arm32",
+        "rv64",
+        "rv32",
+        "loongarch64",
+        "mips",
+        "mips64",
+        "ppc"
+      ],
+      "owner_repository": "ObfuscationKernel",
+      "source_section": "STORAGE_EXT4.md#4",
+      "state": "planned"
+    },
+    "S5.metadata-csum": {
+      "architecture": [
+        "i386",
+        "x86_64",
+        "aarch64",
+        "arm32",
+        "rv64",
+        "rv32",
+        "loongarch64",
+        "mips",
+        "mips64",
+        "ppc"
+      ],
+      "owner_repository": "ObfuscationKernel",
+      "source_section": "STORAGE_EXT4.md#4",
+      "state": "planned"
+    },
+    "S5.orphan-recovery": {
+      "architecture": [
+        "i386",
+        "x86_64",
+        "aarch64",
+        "arm32",
+        "rv64",
+        "rv32",
+        "loongarch64",
+        "mips",
+        "mips64",
+        "ppc"
+      ],
+      "owner_repository": "ObfuscationKernel",
+      "source_section": "STORAGE_EXT4.md#4",
+      "state": "planned"
+    },
+    "S5.xattr-acl": {
+      "architecture": [
+        "i386",
+        "x86_64",
+        "aarch64",
+        "arm32",
+        "rv64",
+        "rv32",
+        "loongarch64",
+        "mips",
+        "mips64",
+        "ppc"
+      ],
+      "owner_repository": "ObfuscationKernel",
+      "source_section": "STORAGE_EXT4.md#4",
+      "state": "planned"
+    },
+    "S7.bigalloc": {
+      "architecture": [
+        "i386",
+        "x86_64",
+        "aarch64",
+        "arm32",
+        "rv64",
+        "rv32",
+        "loongarch64",
+        "mips",
+        "mips64",
+        "ppc"
+      ],
+      "owner_repository": "ObfuscationKernel",
+      "source_section": "STORAGE_EXT4.md#4",
+      "state": "planned"
+    },
+    "S7.casefold": {
+      "architecture": [
+        "i386",
+        "x86_64",
+        "aarch64",
+        "arm32",
+        "rv64",
+        "rv32",
+        "loongarch64",
+        "mips",
+        "mips64",
+        "ppc"
+      ],
+      "owner_repository": "ObfuscationKernel",
+      "source_section": "STORAGE_EXT4.md#4",
+      "state": "planned"
+    },
+    "S7.encryption": {
+      "architecture": [
+        "i386",
+        "x86_64",
+        "aarch64",
+        "arm32",
+        "rv64",
+        "rv32",
+        "loongarch64",
+        "mips",
+        "mips64",
+        "ppc"
+      ],
+      "owner_repository": "ObfuscationKernel",
+      "source_section": "STORAGE_EXT4.md#4",
+      "state": "planned"
+    },
+    "S7.external-journal": {
+      "architecture": [
+        "i386",
+        "x86_64",
+        "aarch64",
+        "arm32",
+        "rv64",
+        "rv32",
+        "loongarch64",
+        "mips",
+        "mips64",
+        "ppc"
+      ],
+      "owner_repository": "ObfuscationKernel",
+      "source_section": "STORAGE_EXT4.md#4",
+      "state": "planned"
+    },
+    "S7.fast-commit": {
+      "architecture": [
+        "i386",
+        "x86_64",
+        "aarch64",
+        "arm32",
+        "rv64",
+        "rv32",
+        "loongarch64",
+        "mips",
+        "mips64",
+        "ppc"
+      ],
+      "owner_repository": "ObfuscationKernel",
+      "source_section": "STORAGE_EXT4.md#4",
+      "state": "planned"
+    },
+    "S7.inline-data": {
+      "architecture": [
+        "i386",
+        "x86_64",
+        "aarch64",
+        "arm32",
+        "rv64",
+        "rv32",
+        "loongarch64",
+        "mips",
+        "mips64",
+        "ppc"
+      ],
+      "owner_repository": "ObfuscationKernel",
+      "source_section": "STORAGE_EXT4.md#4",
+      "state": "planned"
+    },
+    "S7.mmp": {
+      "architecture": [
+        "i386",
+        "x86_64",
+        "aarch64",
+        "arm32",
+        "rv64",
+        "rv32",
+        "loongarch64",
+        "mips",
+        "mips64",
+        "ppc"
+      ],
+      "owner_repository": "ObfuscationKernel",
+      "source_section": "STORAGE_EXT4.md#4",
+      "state": "planned"
+    },
+    "S7.online-grow": {
+      "architecture": [
+        "i386",
+        "x86_64",
+        "aarch64",
+        "arm32",
+        "rv64",
+        "rv32",
+        "loongarch64",
+        "mips",
+        "mips64",
+        "ppc"
+      ],
+      "owner_repository": "ObfuscationKernel",
+      "source_section": "STORAGE_EXT4.md#4",
+      "state": "planned"
+    },
+    "S7.quota-project": {
+      "architecture": [
+        "i386",
+        "x86_64",
+        "aarch64",
+        "arm32",
+        "rv64",
+        "rv32",
+        "loongarch64",
+        "mips",
+        "mips64",
+        "ppc"
+      ],
+      "owner_repository": "ObfuscationKernel",
+      "source_section": "STORAGE_EXT4.md#4",
+      "state": "planned"
+    },
+    "S7.verity": {
+      "architecture": [
+        "i386",
+        "x86_64",
+        "aarch64",
+        "arm32",
+        "rv64",
+        "rv32",
+        "loongarch64",
+        "mips",
+        "mips64",
+        "ppc"
+      ],
+      "owner_repository": "ObfuscationKernel",
+      "source_section": "STORAGE_EXT4.md#4",
+      "state": "planned"
+    }
+  },
+  "checked_on": "2026-10-04",
+  "coverage_manifest_unchanged": true,
+  "feature_count": 47,
+  "feature_counts": {
+    "ext4": {
+      "compat": 10,
+      "incompat": 16,
+      "ro_compat": 14
+    },
+    "jbd2": {
+      "compat": 1,
+      "incompat": 6,
+      "ro_compat": 0
+    }
+  },
+  "format": "ext4-feature-bit-catalog-draft-v1",
+  "full_m0_m12": false,
+  "implementation_source_sha256": {
+    "ObfuscationKernel/include/ok/fs/jbd2.hpp": "61aa69fe0fc93f7bddfa1428e5f9e8915db1e650755440e4089f1ea799b45d47",
+    "ObfuscationKernel/src/fs/ext4_fs.cpp": "9c369cbc32ed184a8c0abe8d9cc37b9def0b4fd4c5b7de3a818cfba7765f28a4",
+    "ObfuscationKernel/src/fs/ext4_recovery.cpp": "402eee161d2cacabb158c7012ac1c14fd679fd68f59d621d80c7825f8bec94a0"
+  },
+  "inventory_id": "ext4-feature-combinations",
+  "ledger_baseline_before_concurrent_refresh": {
+    "ledger_revision": "2026-09-21.23",
+    "ledger_sha256": "24543213cf4817f1820ff85e6bf2a0b9f575a81880548a03e33a89f5f76e6df1",
+    "preserved_draft_path": "build/prototypes/m0-source-index-gap-audit-v1/attempt-01/initial_ext4_feature_bits_linux_6_13_4.json"
+  },
+  "ledger_revision": "2026-10-04.01",
+  "ledger_sha256": "1efc9d836ba6869424028667376d1c3c10bd9686b74600ede8c03cd8046f0bd8",
+  "mask_gate_scope": "Only the named source functions are inspected; geometry, checksums, inode mapping, partition ownership, WAL state, and other admission checks can still reject an allowed bit. Bit presence never proves implementation or feature-combination interoperability. Experimental private successor routes are separate.",
+  "new_tests_executed": false,
+  "related_tests": {
+    "T.S3.jbd2-plan": {
+      "acceptance": "Independent e2fsprogs CRC32C oracle, v2 superblock with v3 checksums, bounded descriptors/revokes/commits, ordered revoke-filtered actions, ring/sequence wrap and corruption/target/capacity failure cases.",
+      "architecture": [
+        "host"
+      ],
+      "entrypoint": "ObfuscationKernel/scripts/test_jbd2.py",
+      "execution": "host-model",
+      "layer": "model",
+      "status": "available"
+    },
+    "T.S3.jbd2-replay": {
+      "acceptance": "Journal descriptor/commit/revoke/checksum/wrap fixtures replay identically to pinned Linux and remain restartable at every interrupted write.",
+      "architecture": [
+        "i386",
+        "x86_64",
+        "aarch64",
+        "arm32",
+        "rv64",
+        "rv32",
+        "loongarch64",
+        "mips",
+        "mips64",
+        "ppc"
+      ],
+      "entrypoint": null,
+      "execution": "qemu-native",
+      "layer": "interop",
+      "status": "planned"
+    },
+    "T.S3.linux-native-replay": {
+      "acceptance": "From an exact SDK and admitted Linux-created dirty journal, execute strict default rejection with zero writes, explicit internal-journal replay and fresh-VM reopen through real Virtio; verify full disk oracle, CRC, flush and retained recovery state.",
+      "architecture": [
+        "i386",
+        "x86_64",
+        "aarch64",
+        "arm32",
+        "rv64",
+        "rv32",
+        "loongarch64",
+        "mips",
+        "mips64",
+        "ppc"
+      ],
+      "entrypoint": "ObfuscationOS/tools/jbd2/test_native.py",
+      "execution": "qemu-native",
+      "layer": "interop",
+      "status": "available"
+    },
+    "T.S5.64bit": {
+      "acceptance": "Pinned Linux/e2fsprogs 64bit images pass independent read/write/recovery and malformed-combination checks.",
+      "architecture": [
+        "i386",
+        "x86_64",
+        "aarch64",
+        "arm32",
+        "rv64",
+        "rv32",
+        "loongarch64",
+        "mips",
+        "mips64",
+        "ppc"
+      ],
+      "entrypoint": null,
+      "execution": "qemu-native",
+      "layer": "interop",
+      "status": "planned"
+    },
+    "T.S5.htree": {
+      "acceptance": "Pinned Linux/e2fsprogs htree images pass independent read/write/recovery and malformed-combination checks.",
+      "architecture": [
+        "i386",
+        "x86_64",
+        "aarch64",
+        "arm32",
+        "rv64",
+        "rv32",
+        "loongarch64",
+        "mips",
+        "mips64",
+        "ppc"
+      ],
+      "entrypoint": null,
+      "execution": "qemu-native",
+      "layer": "interop",
+      "status": "planned"
+    },
+    "T.S5.metadata-csum": {
+      "acceptance": "Pinned Linux/e2fsprogs metadata-csum images pass independent read/write/recovery and malformed-combination checks.",
+      "architecture": [
+        "i386",
+        "x86_64",
+        "aarch64",
+        "arm32",
+        "rv64",
+        "rv32",
+        "loongarch64",
+        "mips",
+        "mips64",
+        "ppc"
+      ],
+      "entrypoint": null,
+      "execution": "qemu-native",
+      "layer": "interop",
+      "status": "planned"
+    },
+    "T.S5.orphan-recovery": {
+      "acceptance": "Pinned Linux/e2fsprogs orphan-recovery images pass independent read/write/recovery and malformed-combination checks.",
+      "architecture": [
+        "i386",
+        "x86_64",
+        "aarch64",
+        "arm32",
+        "rv64",
+        "rv32",
+        "loongarch64",
+        "mips",
+        "mips64",
+        "ppc"
+      ],
+      "entrypoint": null,
+      "execution": "qemu-native",
+      "layer": "interop",
+      "status": "planned"
+    },
+    "T.S5.xattr-acl": {
+      "acceptance": "Pinned Linux/e2fsprogs xattr-acl images pass independent read/write/recovery and malformed-combination checks.",
+      "architecture": [
+        "i386",
+        "x86_64",
+        "aarch64",
+        "arm32",
+        "rv64",
+        "rv32",
+        "loongarch64",
+        "mips",
+        "mips64",
+        "ppc"
+      ],
+      "entrypoint": null,
+      "execution": "qemu-native",
+      "layer": "interop",
+      "status": "planned"
+    },
+    "T.S7.bigalloc": {
+      "acceptance": "bigalloc has dedicated Linux interoperability, permission/resource and interruption fixtures; unsupported combinations fail safely.",
+      "architecture": [
+        "i386",
+        "x86_64",
+        "aarch64",
+        "arm32",
+        "rv64",
+        "rv32",
+        "loongarch64",
+        "mips",
+        "mips64",
+        "ppc"
+      ],
+      "entrypoint": null,
+      "execution": "qemu-native",
+      "layer": "interop",
+      "status": "planned"
+    },
+    "T.S7.casefold": {
+      "acceptance": "casefold has dedicated Linux interoperability, permission/resource and interruption fixtures; unsupported combinations fail safely.",
+      "architecture": [
+        "i386",
+        "x86_64",
+        "aarch64",
+        "arm32",
+        "rv64",
+        "rv32",
+        "loongarch64",
+        "mips",
+        "mips64",
+        "ppc"
+      ],
+      "entrypoint": null,
+      "execution": "qemu-native",
+      "layer": "interop",
+      "status": "planned"
+    },
+    "T.S7.encryption": {
+      "acceptance": "encryption has dedicated Linux interoperability, permission/resource and interruption fixtures; unsupported combinations fail safely.",
+      "architecture": [
+        "i386",
+        "x86_64",
+        "aarch64",
+        "arm32",
+        "rv64",
+        "rv32",
+        "loongarch64",
+        "mips",
+        "mips64",
+        "ppc"
+      ],
+      "entrypoint": null,
+      "execution": "qemu-native",
+      "layer": "interop",
+      "status": "planned"
+    },
+    "T.S7.external-journal": {
+      "acceptance": "external-journal has dedicated Linux interoperability, permission/resource and interruption fixtures; unsupported combinations fail safely.",
+      "architecture": [
+        "i386",
+        "x86_64",
+        "aarch64",
+        "arm32",
+        "rv64",
+        "rv32",
+        "loongarch64",
+        "mips",
+        "mips64",
+        "ppc"
+      ],
+      "entrypoint": null,
+      "execution": "qemu-native",
+      "layer": "interop",
+      "status": "planned"
+    },
+    "T.S7.fast-commit": {
+      "acceptance": "fast-commit has dedicated Linux interoperability, permission/resource and interruption fixtures; unsupported combinations fail safely.",
+      "architecture": [
+        "i386",
+        "x86_64",
+        "aarch64",
+        "arm32",
+        "rv64",
+        "rv32",
+        "loongarch64",
+        "mips",
+        "mips64",
+        "ppc"
+      ],
+      "entrypoint": null,
+      "execution": "qemu-native",
+      "layer": "interop",
+      "status": "planned"
+    },
+    "T.S7.inline-data": {
+      "acceptance": "inline-data has dedicated Linux interoperability, permission/resource and interruption fixtures; unsupported combinations fail safely.",
+      "architecture": [
+        "i386",
+        "x86_64",
+        "aarch64",
+        "arm32",
+        "rv64",
+        "rv32",
+        "loongarch64",
+        "mips",
+        "mips64",
+        "ppc"
+      ],
+      "entrypoint": null,
+      "execution": "qemu-native",
+      "layer": "interop",
+      "status": "planned"
+    },
+    "T.S7.mmp": {
+      "acceptance": "mmp has dedicated Linux interoperability, permission/resource and interruption fixtures; unsupported combinations fail safely.",
+      "architecture": [
+        "i386",
+        "x86_64",
+        "aarch64",
+        "arm32",
+        "rv64",
+        "rv32",
+        "loongarch64",
+        "mips",
+        "mips64",
+        "ppc"
+      ],
+      "entrypoint": null,
+      "execution": "qemu-native",
+      "layer": "interop",
+      "status": "planned"
+    },
+    "T.S7.online-grow": {
+      "acceptance": "online-grow has dedicated Linux interoperability, permission/resource and interruption fixtures; unsupported combinations fail safely.",
+      "architecture": [
+        "i386",
+        "x86_64",
+        "aarch64",
+        "arm32",
+        "rv64",
+        "rv32",
+        "loongarch64",
+        "mips",
+        "mips64",
+        "ppc"
+      ],
+      "entrypoint": null,
+      "execution": "qemu-native",
+      "layer": "interop",
+      "status": "planned"
+    },
+    "T.S7.quota-project": {
+      "acceptance": "quota-project has dedicated Linux interoperability, permission/resource and interruption fixtures; unsupported combinations fail safely.",
+      "architecture": [
+        "i386",
+        "x86_64",
+        "aarch64",
+        "arm32",
+        "rv64",
+        "rv32",
+        "loongarch64",
+        "mips",
+        "mips64",
+        "ppc"
+      ],
+      "entrypoint": null,
+      "execution": "qemu-native",
+      "layer": "interop",
+      "status": "planned"
+    },
+    "T.S7.verity": {
+      "acceptance": "verity has dedicated Linux interoperability, permission/resource and interruption fixtures; unsupported combinations fail safely.",
+      "architecture": [
+        "i386",
+        "x86_64",
+        "aarch64",
+        "arm32",
+        "rv64",
+        "rv32",
+        "loongarch64",
+        "mips",
+        "mips64",
+        "ppc"
+      ],
+      "entrypoint": null,
+      "execution": "qemu-native",
+      "layer": "interop",
+      "status": "planned"
+    },
+    "T.baseline.ext4": {
+      "acceptance": "Two native boots preserve bounded ext4 mutations and offline e2fsck succeeds.",
+      "architecture": [
+        "i386",
+        "x86_64",
+        "aarch64",
+        "arm32",
+        "rv64",
+        "rv32",
+        "loongarch64",
+        "mips",
+        "mips64",
+        "ppc"
+      ],
+      "entrypoint": "ObfuscationOS/scripts/test_persistent_ext4.py",
+      "execution": "qemu-native",
+      "layer": "interop",
+      "status": "available"
+    }
+  },
+  "remaining_gaps": [
+    "The 47 named literal macros do not enumerate all ext4/JBD2 field, structure, inode-flag, mount-mode, feature-dependency or combination obligations.",
+    "Linux superblock and journal documentation is hash-bound but has not been fully decomposed into reviewed normative units.",
+    "Root now records e2fsprogs 1.47.0 and 1.47.2 archive byte pins in ledger revision 2026-10-04.01. Detached signatures, complete source review, reproducible tool builds and two-version interoperability remain open.",
+    "Candidate requirement and related-test links are pointers to existing seed rows, not admitted source-unit mappings or passing execution evidence.",
+    "Every claimed feature needs independent read/write/replay/tooling support and absent/present/malformed/combined fixtures across the ten retained profiles.",
+    "Large-file, 64-bit, checksum variant, journal, orphan and advanced feature semantics remain bounded or incomplete; allowed-at-mask-gate does not remove those limitations.",
+    "Source review, exact inventory_index.schema.json units, classification, source-to-plan attestations, owner/tests and inventory_coverage.json SHA/reviewer/date bindings remain outstanding.",
+    "M11 physical hardware and M12 manual desktop acceptance remain user-deferred; no mandatory M0 requirement is waived."
+  ],
+  "review_scope": "literal-feature-macros-and-current-mask-gates-only",
+  "source_catalog_method": {
+    "archive_hash_checked_before_after": true,
+    "literal_hex_macros_only": true,
+    "power_of_two_and_unique_within_each_mask": true,
+    "regex": "^#define\\s+((?:EXT4|JBD2)_FEATURE_(COMPAT|RO_COMPAT|INCOMPAT)_([A-Z0-9_]+))\\s+(0x[0-9A-Fa-f]+)\\b",
+    "source_members_unique_and_regular": true
+  },
+  "source_files_sha256": {
+    "Documentation/filesystems/ext4/journal.rst": "ae23e8ec62ae06fac5a14226a1bdaa4d1b7276aaeefd1c25a1ce1d98739bbbf2",
+    "Documentation/filesystems/ext4/super.rst": "812f0ade6b1c91adf80e7e3442463cdf2fb610b9c73370d3755b7b5077afd3c4",
+    "fs/ext4/ext4.h": "f41c8032e06ebc7de9b771cd745fca13650832121ffc2fbfcedd9d43b1d78d75",
+    "include/linux/jbd2.h": "a166557488181a92abec73ac387023be029101bb2e7b3620a01a8130786b308d"
+  },
+  "source_index_admitted": false,
+  "source_root": "build/sources",
+  "source_version": "Linux 6.13.4",
+  "status": "source-derived-partial-draft-not-admitted",
+  "supplied_musl_userland": [
+    "x86_64",
+    "aarch64",
+    "rv64",
+    "loongarch64"
+  ],
+  "tool_source_archives": {
+    "e2fsprogs-primary": {
+      "archive_artifact": "e2fsprogs-1.47.0/e2fsprogs-1.47.0.tar.xz",
+      "archive_sha256": "144af53f2bbd921cef6f8bea88bb9faddca865da3fbc657cc9b4d2001097d5db",
+      "limitations": [
+        "Official HTTPS release archive bytes are pinned; detached release signature verification remains open.",
+        "The host mke2fs and EXT2FS library report 1.47.0. Source inspection does not establish a reproducible build or complete ext4 read/write/recovery qualification."
+      ],
+      "status": "source-pinned",
+      "version": "1.47.0"
+    },
+    "e2fsprogs-secondary": {
+      "archive_artifact": "e2fsprogs-1.47.2/e2fsprogs-1.47.2.tar.xz",
+      "archive_sha256": "08242e64ca0e8194d9c1caad49762b19209a06318199b63ce74ae4ef2d74e63c",
+      "limitations": [
+        "Selected 1.47.2 as the second storage tooling source baseline. Official HTTPS release archive bytes are pinned; detached release signature verification remains open.",
+        "This source baseline has not been built or executed. Two-version ext4 interoperability and feature-combination qualification remain open."
+      ],
+      "status": "source-pinned",
+      "version": "1.47.2"
+    }
+  },
+  "units": [
+    {
+      "architecture": [
+        "i386",
+        "x86_64",
+        "aarch64",
+        "arm32",
+        "rv64",
+        "rv32",
+        "loongarch64",
+        "mips",
+        "mips64",
+        "ppc"
+      ],
+      "candidate_requirement_ids": [
+        "S0.ext4-subset"
+      ],
+      "domain": "ext4",
+      "fixture_owner_repository": "ObfuscationOS",
+      "hex_value": "0x00000001",
+      "id": "ext4.compat.dir_prealloc",
+      "macro": "EXT4_FEATURE_COMPAT_DIR_PREALLOC",
+      "mask_kind": "compat",
+      "observed_mask_gates": {
+        "legacy_nonjournalled_writer": "rejected-at-mask-gate",
+        "readonly_recovery_binding": "rejected-at-mask-gate"
+      },
+      "owner_repository": "ObfuscationKernel",
+      "qualification": "source-inspection-only; no complete read/write/recovery claim",
+      "related_test_ids": [
+        "T.baseline.ext4"
+      ],
+      "source_id": "linux-uapi-ext4",
+      "source_line": 1999,
+      "source_path": "fs/ext4/ext4.h",
+      "source_section": "fs/ext4/ext4.h:1999 EXT4_FEATURE_COMPAT_DIR_PREALLOC"
+    },
+    {
+      "architecture": [
+        "i386",
+        "x86_64",
+        "aarch64",
+        "arm32",
+        "rv64",
+        "rv32",
+        "loongarch64",
+        "mips",
+        "mips64",
+        "ppc"
+      ],
+      "candidate_requirement_ids": [
+        "S0.ext4-subset"
+      ],
+      "domain": "ext4",
+      "fixture_owner_repository": "ObfuscationOS",
+      "hex_value": "0x00000002",
+      "id": "ext4.compat.imagic_inodes",
+      "macro": "EXT4_FEATURE_COMPAT_IMAGIC_INODES",
+      "mask_kind": "compat",
+      "observed_mask_gates": {
+        "legacy_nonjournalled_writer": "rejected-at-mask-gate",
+        "readonly_recovery_binding": "rejected-at-mask-gate"
+      },
+      "owner_repository": "ObfuscationKernel",
+      "qualification": "source-inspection-only; no complete read/write/recovery claim",
+      "related_test_ids": [
+        "T.baseline.ext4"
+      ],
+      "source_id": "linux-uapi-ext4",
+      "source_line": 2000,
+      "source_path": "fs/ext4/ext4.h",
+      "source_section": "fs/ext4/ext4.h:2000 EXT4_FEATURE_COMPAT_IMAGIC_INODES"
+    },
+    {
+      "architecture": [
+        "i386",
+        "x86_64",
+        "aarch64",
+        "arm32",
+        "rv64",
+        "rv32",
+        "loongarch64",
+        "mips",
+        "mips64",
+        "ppc"
+      ],
+      "candidate_requirement_ids": [
+        "S0.ext4-subset",
+        "S3.jbd2-replay"
+      ],
+      "domain": "ext4",
+      "fixture_owner_repository": "ObfuscationOS",
+      "hex_value": "0x00000004",
+      "id": "ext4.compat.has_journal",
+      "macro": "EXT4_FEATURE_COMPAT_HAS_JOURNAL",
+      "mask_kind": "compat",
+      "observed_mask_gates": {
+        "legacy_nonjournalled_writer": "rejected-at-mask-gate",
+        "readonly_recovery_binding": "required-by-exact-mask-gate"
+      },
+      "owner_repository": "ObfuscationKernel",
+      "qualification": "source-inspection-only; no complete read/write/recovery claim",
+      "related_test_ids": [
+        "T.baseline.ext4",
+        "T.S3.jbd2-replay",
+        "T.S3.linux-native-replay"
+      ],
+      "source_id": "linux-uapi-ext4",
+      "source_line": 2001,
+      "source_path": "fs/ext4/ext4.h",
+      "source_section": "fs/ext4/ext4.h:2001 EXT4_FEATURE_COMPAT_HAS_JOURNAL"
+    },
+    {
+      "architecture": [
+        "i386",
+        "x86_64",
+        "aarch64",
+        "arm32",
+        "rv64",
+        "rv32",
+        "loongarch64",
+        "mips",
+        "mips64",
+        "ppc"
+      ],
+      "candidate_requirement_ids": [
+        "S0.ext4-subset",
+        "S5.xattr-acl"
+      ],
+      "domain": "ext4",
+      "fixture_owner_repository": "ObfuscationOS",
+      "hex_value": "0x00000008",
+      "id": "ext4.compat.ext_attr",
+      "macro": "EXT4_FEATURE_COMPAT_EXT_ATTR",
+      "mask_kind": "compat",
+      "observed_mask_gates": {
+        "legacy_nonjournalled_writer": "rejected-at-mask-gate",
+        "readonly_recovery_binding": "rejected-at-mask-gate"
+      },
+      "owner_repository": "ObfuscationKernel",
+      "qualification": "source-inspection-only; no complete read/write/recovery claim",
+      "related_test_ids": [
+        "T.baseline.ext4",
+        "T.S5.xattr-acl"
+      ],
+      "source_id": "linux-uapi-ext4",
+      "source_line": 2002,
+      "source_path": "fs/ext4/ext4.h",
+      "source_section": "fs/ext4/ext4.h:2002 EXT4_FEATURE_COMPAT_EXT_ATTR"
+    },
+    {
+      "architecture": [
+        "i386",
+        "x86_64",
+        "aarch64",
+        "arm32",
+        "rv64",
+        "rv32",
+        "loongarch64",
+        "mips",
+        "mips64",
+        "ppc"
+      ],
+      "candidate_requirement_ids": [
+        "S0.ext4-subset",
+        "S7.online-grow"
+      ],
+      "domain": "ext4",
+      "fixture_owner_repository": "ObfuscationOS",
+      "hex_value": "0x00000010",
+      "id": "ext4.compat.resize_inode",
+      "macro": "EXT4_FEATURE_COMPAT_RESIZE_INODE",
+      "mask_kind": "compat",
+      "observed_mask_gates": {
+        "legacy_nonjournalled_writer": "rejected-at-mask-gate",
+        "readonly_recovery_binding": "rejected-at-mask-gate"
+      },
+      "owner_repository": "ObfuscationKernel",
+      "qualification": "source-inspection-only; no complete read/write/recovery claim",
+      "related_test_ids": [
+        "T.baseline.ext4",
+        "T.S7.online-grow"
+      ],
+      "source_id": "linux-uapi-ext4",
+      "source_line": 2003,
+      "source_path": "fs/ext4/ext4.h",
+      "source_section": "fs/ext4/ext4.h:2003 EXT4_FEATURE_COMPAT_RESIZE_INODE"
+    },
+    {
+      "architecture": [
+        "i386",
+        "x86_64",
+        "aarch64",
+        "arm32",
+        "rv64",
+        "rv32",
+        "loongarch64",
+        "mips",
+        "mips64",
+        "ppc"
+      ],
+      "candidate_requirement_ids": [
+        "S0.ext4-subset",
+        "S5.htree"
+      ],
+      "domain": "ext4",
+      "fixture_owner_repository": "ObfuscationOS",
+      "hex_value": "0x00000020",
+      "id": "ext4.compat.dir_index",
+      "macro": "EXT4_FEATURE_COMPAT_DIR_INDEX",
+      "mask_kind": "compat",
+      "observed_mask_gates": {
+        "legacy_nonjournalled_writer": "rejected-at-mask-gate",
+        "readonly_recovery_binding": "rejected-at-mask-gate"
+      },
+      "owner_repository": "ObfuscationKernel",
+      "qualification": "source-inspection-only; no complete read/write/recovery claim",
+      "related_test_ids": [
+        "T.baseline.ext4",
+        "T.S5.htree"
+      ],
+      "source_id": "linux-uapi-ext4",
+      "source_line": 2004,
+      "source_path": "fs/ext4/ext4.h",
+      "source_section": "fs/ext4/ext4.h:2004 EXT4_FEATURE_COMPAT_DIR_INDEX"
+    },
+    {
+      "architecture": [
+        "i386",
+        "x86_64",
+        "aarch64",
+        "arm32",
+        "rv64",
+        "rv32",
+        "loongarch64",
+        "mips",
+        "mips64",
+        "ppc"
+      ],
+      "candidate_requirement_ids": [
+        "S0.ext4-subset"
+      ],
+      "domain": "ext4",
+      "fixture_owner_repository": "ObfuscationOS",
+      "hex_value": "0x00000200",
+      "id": "ext4.compat.sparse_super2",
+      "macro": "EXT4_FEATURE_COMPAT_SPARSE_SUPER2",
+      "mask_kind": "compat",
+      "observed_mask_gates": {
+        "legacy_nonjournalled_writer": "rejected-at-mask-gate",
+        "readonly_recovery_binding": "rejected-at-mask-gate"
+      },
+      "owner_repository": "ObfuscationKernel",
+      "qualification": "source-inspection-only; no complete read/write/recovery claim",
+      "related_test_ids": [
+        "T.baseline.ext4"
+      ],
+      "source_id": "linux-uapi-ext4",
+      "source_line": 2005,
+      "source_path": "fs/ext4/ext4.h",
+      "source_section": "fs/ext4/ext4.h:2005 EXT4_FEATURE_COMPAT_SPARSE_SUPER2"
+    },
+    {
+      "architecture": [
+        "i386",
+        "x86_64",
+        "aarch64",
+        "arm32",
+        "rv64",
+        "rv32",
+        "loongarch64",
+        "mips",
+        "mips64",
+        "ppc"
+      ],
+      "candidate_requirement_ids": [
+        "S0.ext4-subset",
+        "S7.fast-commit"
+      ],
+      "domain": "ext4",
+      "fixture_owner_repository": "ObfuscationOS",
+      "hex_value": "0x00000400",
+      "id": "ext4.compat.fast_commit",
+      "macro": "EXT4_FEATURE_COMPAT_FAST_COMMIT",
+      "mask_kind": "compat",
+      "observed_mask_gates": {
+        "legacy_nonjournalled_writer": "rejected-at-mask-gate",
+        "readonly_recovery_binding": "rejected-at-mask-gate"
+      },
+      "owner_repository": "ObfuscationKernel",
+      "qualification": "source-inspection-only; no complete read/write/recovery claim",
+      "related_test_ids": [
+        "T.baseline.ext4",
+        "T.S7.fast-commit"
+      ],
+      "source_id": "linux-uapi-ext4",
+      "source_line": 2013,
+      "source_path": "fs/ext4/ext4.h",
+      "source_section": "fs/ext4/ext4.h:2013 EXT4_FEATURE_COMPAT_FAST_COMMIT"
+    },
+    {
+      "architecture": [
+        "i386",
+        "x86_64",
+        "aarch64",
+        "arm32",
+        "rv64",
+        "rv32",
+        "loongarch64",
+        "mips",
+        "mips64",
+        "ppc"
+      ],
+      "candidate_requirement_ids": [
+        "S0.ext4-subset"
+      ],
+      "domain": "ext4",
+      "fixture_owner_repository": "ObfuscationOS",
+      "hex_value": "0x00000800",
+      "id": "ext4.compat.stable_inodes",
+      "macro": "EXT4_FEATURE_COMPAT_STABLE_INODES",
+      "mask_kind": "compat",
+      "observed_mask_gates": {
+        "legacy_nonjournalled_writer": "rejected-at-mask-gate",
+        "readonly_recovery_binding": "rejected-at-mask-gate"
+      },
+      "owner_repository": "ObfuscationKernel",
+      "qualification": "source-inspection-only; no complete read/write/recovery claim",
+      "related_test_ids": [
+        "T.baseline.ext4"
+      ],
+      "source_id": "linux-uapi-ext4",
+      "source_line": 2014,
+      "source_path": "fs/ext4/ext4.h",
+      "source_section": "fs/ext4/ext4.h:2014 EXT4_FEATURE_COMPAT_STABLE_INODES"
+    },
+    {
+      "architecture": [
+        "i386",
+        "x86_64",
+        "aarch64",
+        "arm32",
+        "rv64",
+        "rv32",
+        "loongarch64",
+        "mips",
+        "mips64",
+        "ppc"
+      ],
+      "candidate_requirement_ids": [
+        "S0.ext4-subset",
+        "S5.orphan-recovery"
+      ],
+      "domain": "ext4",
+      "fixture_owner_repository": "ObfuscationOS",
+      "hex_value": "0x00001000",
+      "id": "ext4.compat.orphan_file",
+      "macro": "EXT4_FEATURE_COMPAT_ORPHAN_FILE",
+      "mask_kind": "compat",
+      "observed_mask_gates": {
+        "legacy_nonjournalled_writer": "rejected-at-mask-gate",
+        "readonly_recovery_binding": "rejected-at-mask-gate"
+      },
+      "owner_repository": "ObfuscationKernel",
+      "qualification": "source-inspection-only; no complete read/write/recovery claim",
+      "related_test_ids": [
+        "T.baseline.ext4",
+        "T.S5.orphan-recovery"
+      ],
+      "source_id": "linux-uapi-ext4",
+      "source_line": 2015,
+      "source_path": "fs/ext4/ext4.h",
+      "source_section": "fs/ext4/ext4.h:2015 EXT4_FEATURE_COMPAT_ORPHAN_FILE"
+    },
+    {
+      "architecture": [
+        "i386",
+        "x86_64",
+        "aarch64",
+        "arm32",
+        "rv64",
+        "rv32",
+        "loongarch64",
+        "mips",
+        "mips64",
+        "ppc"
+      ],
+      "candidate_requirement_ids": [
+        "S0.ext4-subset"
+      ],
+      "domain": "ext4",
+      "fixture_owner_repository": "ObfuscationOS",
+      "hex_value": "0x00000001",
+      "id": "ext4.ro_compat.sparse_super",
+      "macro": "EXT4_FEATURE_RO_COMPAT_SPARSE_SUPER",
+      "mask_kind": "ro_compat",
+      "observed_mask_gates": {
+        "legacy_nonjournalled_writer": "allowed-at-mask-gate",
+        "readonly_recovery_binding": "rejected-at-mask-gate"
+      },
+      "owner_repository": "ObfuscationKernel",
+      "qualification": "source-inspection-only; no complete read/write/recovery claim",
+      "related_test_ids": [
+        "T.baseline.ext4"
+      ],
+      "source_id": "linux-uapi-ext4",
+      "source_line": 2017,
+      "source_path": "fs/ext4/ext4.h",
+      "source_section": "fs/ext4/ext4.h:2017 EXT4_FEATURE_RO_COMPAT_SPARSE_SUPER"
+    },
+    {
+      "architecture": [
+        "i386",
+        "x86_64",
+        "aarch64",
+        "arm32",
+        "rv64",
+        "rv32",
+        "loongarch64",
+        "mips",
+        "mips64",
+        "ppc"
+      ],
+      "candidate_requirement_ids": [
+        "S0.ext4-subset"
+      ],
+      "domain": "ext4",
+      "fixture_owner_repository": "ObfuscationOS",
+      "hex_value": "0x00000002",
+      "id": "ext4.ro_compat.large_file",
+      "macro": "EXT4_FEATURE_RO_COMPAT_LARGE_FILE",
+      "mask_kind": "ro_compat",
+      "observed_mask_gates": {
+        "legacy_nonjournalled_writer": "allowed-at-mask-gate",
+        "readonly_recovery_binding": "rejected-at-mask-gate"
+      },
+      "owner_repository": "ObfuscationKernel",
+      "qualification": "source-inspection-only; no complete read/write/recovery claim",
+      "related_test_ids": [
+        "T.baseline.ext4"
+      ],
+      "source_id": "linux-uapi-ext4",
+      "source_line": 2018,
+      "source_path": "fs/ext4/ext4.h",
+      "source_section": "fs/ext4/ext4.h:2018 EXT4_FEATURE_RO_COMPAT_LARGE_FILE"
+    },
+    {
+      "architecture": [
+        "i386",
+        "x86_64",
+        "aarch64",
+        "arm32",
+        "rv64",
+        "rv32",
+        "loongarch64",
+        "mips",
+        "mips64",
+        "ppc"
+      ],
+      "candidate_requirement_ids": [
+        "S0.ext4-subset"
+      ],
+      "domain": "ext4",
+      "fixture_owner_repository": "ObfuscationOS",
+      "hex_value": "0x00000004",
+      "id": "ext4.ro_compat.btree_dir",
+      "macro": "EXT4_FEATURE_RO_COMPAT_BTREE_DIR",
+      "mask_kind": "ro_compat",
+      "observed_mask_gates": {
+        "legacy_nonjournalled_writer": "rejected-at-mask-gate",
+        "readonly_recovery_binding": "rejected-at-mask-gate"
+      },
+      "owner_repository": "ObfuscationKernel",
+      "qualification": "source-inspection-only; no complete read/write/recovery claim",
+      "related_test_ids": [
+        "T.baseline.ext4"
+      ],
+      "source_id": "linux-uapi-ext4",
+      "source_line": 2019,
+      "source_path": "fs/ext4/ext4.h",
+      "source_section": "fs/ext4/ext4.h:2019 EXT4_FEATURE_RO_COMPAT_BTREE_DIR"
+    },
+    {
+      "architecture": [
+        "i386",
+        "x86_64",
+        "aarch64",
+        "arm32",
+        "rv64",
+        "rv32",
+        "loongarch64",
+        "mips",
+        "mips64",
+        "ppc"
+      ],
+      "candidate_requirement_ids": [
+        "S0.ext4-subset"
+      ],
+      "domain": "ext4",
+      "fixture_owner_repository": "ObfuscationOS",
+      "hex_value": "0x00000008",
+      "id": "ext4.ro_compat.huge_file",
+      "macro": "EXT4_FEATURE_RO_COMPAT_HUGE_FILE",
+      "mask_kind": "ro_compat",
+      "observed_mask_gates": {
+        "legacy_nonjournalled_writer": "rejected-at-mask-gate",
+        "readonly_recovery_binding": "rejected-at-mask-gate"
+      },
+      "owner_repository": "ObfuscationKernel",
+      "qualification": "source-inspection-only; no complete read/write/recovery claim",
+      "related_test_ids": [
+        "T.baseline.ext4"
+      ],
+      "source_id": "linux-uapi-ext4",
+      "source_line": 2020,
+      "source_path": "fs/ext4/ext4.h",
+      "source_section": "fs/ext4/ext4.h:2020 EXT4_FEATURE_RO_COMPAT_HUGE_FILE"
+    },
+    {
+      "architecture": [
+        "i386",
+        "x86_64",
+        "aarch64",
+        "arm32",
+        "rv64",
+        "rv32",
+        "loongarch64",
+        "mips",
+        "mips64",
+        "ppc"
+      ],
+      "candidate_requirement_ids": [
+        "S0.ext4-subset",
+        "S5.metadata-csum"
+      ],
+      "domain": "ext4",
+      "fixture_owner_repository": "ObfuscationOS",
+      "hex_value": "0x00000010",
+      "id": "ext4.ro_compat.gdt_csum",
+      "macro": "EXT4_FEATURE_RO_COMPAT_GDT_CSUM",
+      "mask_kind": "ro_compat",
+      "observed_mask_gates": {
+        "legacy_nonjournalled_writer": "rejected-at-mask-gate",
+        "readonly_recovery_binding": "rejected-at-mask-gate"
+      },
+      "owner_repository": "ObfuscationKernel",
+      "qualification": "source-inspection-only; no complete read/write/recovery claim",
+      "related_test_ids": [
+        "T.baseline.ext4",
+        "T.S5.metadata-csum"
+      ],
+      "source_id": "linux-uapi-ext4",
+      "source_line": 2021,
+      "source_path": "fs/ext4/ext4.h",
+      "source_section": "fs/ext4/ext4.h:2021 EXT4_FEATURE_RO_COMPAT_GDT_CSUM"
+    },
+    {
+      "architecture": [
+        "i386",
+        "x86_64",
+        "aarch64",
+        "arm32",
+        "rv64",
+        "rv32",
+        "loongarch64",
+        "mips",
+        "mips64",
+        "ppc"
+      ],
+      "candidate_requirement_ids": [
+        "S0.ext4-subset"
+      ],
+      "domain": "ext4",
+      "fixture_owner_repository": "ObfuscationOS",
+      "hex_value": "0x00000020",
+      "id": "ext4.ro_compat.dir_nlink",
+      "macro": "EXT4_FEATURE_RO_COMPAT_DIR_NLINK",
+      "mask_kind": "ro_compat",
+      "observed_mask_gates": {
+        "legacy_nonjournalled_writer": "rejected-at-mask-gate",
+        "readonly_recovery_binding": "rejected-at-mask-gate"
+      },
+      "owner_repository": "ObfuscationKernel",
+      "qualification": "source-inspection-only; no complete read/write/recovery claim",
+      "related_test_ids": [
+        "T.baseline.ext4"
+      ],
+      "source_id": "linux-uapi-ext4",
+      "source_line": 2022,
+      "source_path": "fs/ext4/ext4.h",
+      "source_section": "fs/ext4/ext4.h:2022 EXT4_FEATURE_RO_COMPAT_DIR_NLINK"
+    },
+    {
+      "architecture": [
+        "i386",
+        "x86_64",
+        "aarch64",
+        "arm32",
+        "rv64",
+        "rv32",
+        "loongarch64",
+        "mips",
+        "mips64",
+        "ppc"
+      ],
+      "candidate_requirement_ids": [
+        "S0.ext4-subset"
+      ],
+      "domain": "ext4",
+      "fixture_owner_repository": "ObfuscationOS",
+      "hex_value": "0x00000040",
+      "id": "ext4.ro_compat.extra_isize",
+      "macro": "EXT4_FEATURE_RO_COMPAT_EXTRA_ISIZE",
+      "mask_kind": "ro_compat",
+      "observed_mask_gates": {
+        "legacy_nonjournalled_writer": "rejected-at-mask-gate",
+        "readonly_recovery_binding": "rejected-at-mask-gate"
+      },
+      "owner_repository": "ObfuscationKernel",
+      "qualification": "source-inspection-only; no complete read/write/recovery claim",
+      "related_test_ids": [
+        "T.baseline.ext4"
+      ],
+      "source_id": "linux-uapi-ext4",
+      "source_line": 2023,
+      "source_path": "fs/ext4/ext4.h",
+      "source_section": "fs/ext4/ext4.h:2023 EXT4_FEATURE_RO_COMPAT_EXTRA_ISIZE"
+    },
+    {
+      "architecture": [
+        "i386",
+        "x86_64",
+        "aarch64",
+        "arm32",
+        "rv64",
+        "rv32",
+        "loongarch64",
+        "mips",
+        "mips64",
+        "ppc"
+      ],
+      "candidate_requirement_ids": [
+        "S0.ext4-subset",
+        "S7.quota-project"
+      ],
+      "domain": "ext4",
+      "fixture_owner_repository": "ObfuscationOS",
+      "hex_value": "0x00000100",
+      "id": "ext4.ro_compat.quota",
+      "macro": "EXT4_FEATURE_RO_COMPAT_QUOTA",
+      "mask_kind": "ro_compat",
+      "observed_mask_gates": {
+        "legacy_nonjournalled_writer": "rejected-at-mask-gate",
+        "readonly_recovery_binding": "rejected-at-mask-gate"
+      },
+      "owner_repository": "ObfuscationKernel",
+      "qualification": "source-inspection-only; no complete read/write/recovery claim",
+      "related_test_ids": [
+        "T.baseline.ext4",
+        "T.S7.quota-project"
+      ],
+      "source_id": "linux-uapi-ext4",
+      "source_line": 2024,
+      "source_path": "fs/ext4/ext4.h",
+      "source_section": "fs/ext4/ext4.h:2024 EXT4_FEATURE_RO_COMPAT_QUOTA"
+    },
+    {
+      "architecture": [
+        "i386",
+        "x86_64",
+        "aarch64",
+        "arm32",
+        "rv64",
+        "rv32",
+        "loongarch64",
+        "mips",
+        "mips64",
+        "ppc"
+      ],
+      "candidate_requirement_ids": [
+        "S0.ext4-subset",
+        "S7.bigalloc"
+      ],
+      "domain": "ext4",
+      "fixture_owner_repository": "ObfuscationOS",
+      "hex_value": "0x00000200",
+      "id": "ext4.ro_compat.bigalloc",
+      "macro": "EXT4_FEATURE_RO_COMPAT_BIGALLOC",
+      "mask_kind": "ro_compat",
+      "observed_mask_gates": {
+        "legacy_nonjournalled_writer": "rejected-at-mask-gate",
+        "readonly_recovery_binding": "rejected-at-mask-gate"
+      },
+      "owner_repository": "ObfuscationKernel",
+      "qualification": "source-inspection-only; no complete read/write/recovery claim",
+      "related_test_ids": [
+        "T.baseline.ext4",
+        "T.S7.bigalloc"
+      ],
+      "source_id": "linux-uapi-ext4",
+      "source_line": 2025,
+      "source_path": "fs/ext4/ext4.h",
+      "source_section": "fs/ext4/ext4.h:2025 EXT4_FEATURE_RO_COMPAT_BIGALLOC"
+    },
+    {
+      "architecture": [
+        "i386",
+        "x86_64",
+        "aarch64",
+        "arm32",
+        "rv64",
+        "rv32",
+        "loongarch64",
+        "mips",
+        "mips64",
+        "ppc"
+      ],
+      "candidate_requirement_ids": [
+        "S0.ext4-subset",
+        "S5.metadata-csum"
+      ],
+      "domain": "ext4",
+      "fixture_owner_repository": "ObfuscationOS",
+      "hex_value": "0x00000400",
+      "id": "ext4.ro_compat.metadata_csum",
+      "macro": "EXT4_FEATURE_RO_COMPAT_METADATA_CSUM",
+      "mask_kind": "ro_compat",
+      "observed_mask_gates": {
+        "legacy_nonjournalled_writer": "rejected-at-mask-gate",
+        "readonly_recovery_binding": "required-by-exact-mask-gate"
+      },
+      "owner_repository": "ObfuscationKernel",
+      "qualification": "source-inspection-only; no complete read/write/recovery claim",
+      "related_test_ids": [
+        "T.baseline.ext4",
+        "T.S5.metadata-csum"
+      ],
+      "source_id": "linux-uapi-ext4",
+      "source_line": 2032,
+      "source_path": "fs/ext4/ext4.h",
+      "source_section": "fs/ext4/ext4.h:2032 EXT4_FEATURE_RO_COMPAT_METADATA_CSUM"
+    },
+    {
+      "architecture": [
+        "i386",
+        "x86_64",
+        "aarch64",
+        "arm32",
+        "rv64",
+        "rv32",
+        "loongarch64",
+        "mips",
+        "mips64",
+        "ppc"
+      ],
+      "candidate_requirement_ids": [
+        "S0.ext4-subset"
+      ],
+      "domain": "ext4",
+      "fixture_owner_repository": "ObfuscationOS",
+      "hex_value": "0x00001000",
+      "id": "ext4.ro_compat.readonly",
+      "macro": "EXT4_FEATURE_RO_COMPAT_READONLY",
+      "mask_kind": "ro_compat",
+      "observed_mask_gates": {
+        "legacy_nonjournalled_writer": "rejected-at-mask-gate",
+        "readonly_recovery_binding": "rejected-at-mask-gate"
+      },
+      "owner_repository": "ObfuscationKernel",
+      "qualification": "source-inspection-only; no complete read/write/recovery claim",
+      "related_test_ids": [
+        "T.baseline.ext4"
+      ],
+      "source_id": "linux-uapi-ext4",
+      "source_line": 2033,
+      "source_path": "fs/ext4/ext4.h",
+      "source_section": "fs/ext4/ext4.h:2033 EXT4_FEATURE_RO_COMPAT_READONLY"
+    },
+    {
+      "architecture": [
+        "i386",
+        "x86_64",
+        "aarch64",
+        "arm32",
+        "rv64",
+        "rv32",
+        "loongarch64",
+        "mips",
+        "mips64",
+        "ppc"
+      ],
+      "candidate_requirement_ids": [
+        "S0.ext4-subset",
+        "S7.quota-project"
+      ],
+      "domain": "ext4",
+      "fixture_owner_repository": "ObfuscationOS",
+      "hex_value": "0x00002000",
+      "id": "ext4.ro_compat.project",
+      "macro": "EXT4_FEATURE_RO_COMPAT_PROJECT",
+      "mask_kind": "ro_compat",
+      "observed_mask_gates": {
+        "legacy_nonjournalled_writer": "rejected-at-mask-gate",
+        "readonly_recovery_binding": "rejected-at-mask-gate"
+      },
+      "owner_repository": "ObfuscationKernel",
+      "qualification": "source-inspection-only; no complete read/write/recovery claim",
+      "related_test_ids": [
+        "T.baseline.ext4",
+        "T.S7.quota-project"
+      ],
+      "source_id": "linux-uapi-ext4",
+      "source_line": 2034,
+      "source_path": "fs/ext4/ext4.h",
+      "source_section": "fs/ext4/ext4.h:2034 EXT4_FEATURE_RO_COMPAT_PROJECT"
+    },
+    {
+      "architecture": [
+        "i386",
+        "x86_64",
+        "aarch64",
+        "arm32",
+        "rv64",
+        "rv32",
+        "loongarch64",
+        "mips",
+        "mips64",
+        "ppc"
+      ],
+      "candidate_requirement_ids": [
+        "S0.ext4-subset",
+        "S7.verity"
+      ],
+      "domain": "ext4",
+      "fixture_owner_repository": "ObfuscationOS",
+      "hex_value": "0x00008000",
+      "id": "ext4.ro_compat.verity",
+      "macro": "EXT4_FEATURE_RO_COMPAT_VERITY",
+      "mask_kind": "ro_compat",
+      "observed_mask_gates": {
+        "legacy_nonjournalled_writer": "rejected-at-mask-gate",
+        "readonly_recovery_binding": "rejected-at-mask-gate"
+      },
+      "owner_repository": "ObfuscationKernel",
+      "qualification": "source-inspection-only; no complete read/write/recovery claim",
+      "related_test_ids": [
+        "T.baseline.ext4",
+        "T.S7.verity"
+      ],
+      "source_id": "linux-uapi-ext4",
+      "source_line": 2035,
+      "source_path": "fs/ext4/ext4.h",
+      "source_section": "fs/ext4/ext4.h:2035 EXT4_FEATURE_RO_COMPAT_VERITY"
+    },
+    {
+      "architecture": [
+        "i386",
+        "x86_64",
+        "aarch64",
+        "arm32",
+        "rv64",
+        "rv32",
+        "loongarch64",
+        "mips",
+        "mips64",
+        "ppc"
+      ],
+      "candidate_requirement_ids": [
+        "S0.ext4-subset",
+        "S5.orphan-recovery"
+      ],
+      "domain": "ext4",
+      "fixture_owner_repository": "ObfuscationOS",
+      "hex_value": "0x00010000",
+      "id": "ext4.ro_compat.orphan_present",
+      "macro": "EXT4_FEATURE_RO_COMPAT_ORPHAN_PRESENT",
+      "mask_kind": "ro_compat",
+      "observed_mask_gates": {
+        "legacy_nonjournalled_writer": "rejected-at-mask-gate",
+        "readonly_recovery_binding": "rejected-at-mask-gate"
+      },
+      "owner_repository": "ObfuscationKernel",
+      "qualification": "source-inspection-only; no complete read/write/recovery claim",
+      "related_test_ids": [
+        "T.baseline.ext4",
+        "T.S5.orphan-recovery"
+      ],
+      "source_id": "linux-uapi-ext4",
+      "source_line": 2036,
+      "source_path": "fs/ext4/ext4.h",
+      "source_section": "fs/ext4/ext4.h:2036 EXT4_FEATURE_RO_COMPAT_ORPHAN_PRESENT"
+    },
+    {
+      "architecture": [
+        "i386",
+        "x86_64",
+        "aarch64",
+        "arm32",
+        "rv64",
+        "rv32",
+        "loongarch64",
+        "mips",
+        "mips64",
+        "ppc"
+      ],
+      "candidate_requirement_ids": [
+        "S0.ext4-subset"
+      ],
+      "domain": "ext4",
+      "fixture_owner_repository": "ObfuscationOS",
+      "hex_value": "0x00000001",
+      "id": "ext4.incompat.compression",
+      "macro": "EXT4_FEATURE_INCOMPAT_COMPRESSION",
+      "mask_kind": "incompat",
+      "observed_mask_gates": {
+        "legacy_nonjournalled_writer": "rejected-at-mask-gate",
+        "readonly_recovery_binding": "rejected-at-mask-gate"
+      },
+      "owner_repository": "ObfuscationKernel",
+      "qualification": "source-inspection-only; no complete read/write/recovery claim",
+      "related_test_ids": [
+        "T.baseline.ext4"
+      ],
+      "source_id": "linux-uapi-ext4",
+      "source_line": 2039,
+      "source_path": "fs/ext4/ext4.h",
+      "source_section": "fs/ext4/ext4.h:2039 EXT4_FEATURE_INCOMPAT_COMPRESSION"
+    },
+    {
+      "architecture": [
+        "i386",
+        "x86_64",
+        "aarch64",
+        "arm32",
+        "rv64",
+        "rv32",
+        "loongarch64",
+        "mips",
+        "mips64",
+        "ppc"
+      ],
+      "candidate_requirement_ids": [
+        "S0.ext4-subset"
+      ],
+      "domain": "ext4",
+      "fixture_owner_repository": "ObfuscationOS",
+      "hex_value": "0x00000002",
+      "id": "ext4.incompat.filetype",
+      "macro": "EXT4_FEATURE_INCOMPAT_FILETYPE",
+      "mask_kind": "incompat",
+      "observed_mask_gates": {
+        "legacy_nonjournalled_writer": "required-by-exact-mask-gate",
+        "readonly_recovery_binding": "required-by-exact-mask-gate"
+      },
+      "owner_repository": "ObfuscationKernel",
+      "qualification": "source-inspection-only; no complete read/write/recovery claim",
+      "related_test_ids": [
+        "T.baseline.ext4"
+      ],
+      "source_id": "linux-uapi-ext4",
+      "source_line": 2040,
+      "source_path": "fs/ext4/ext4.h",
+      "source_section": "fs/ext4/ext4.h:2040 EXT4_FEATURE_INCOMPAT_FILETYPE"
+    },
+    {
+      "architecture": [
+        "i386",
+        "x86_64",
+        "aarch64",
+        "arm32",
+        "rv64",
+        "rv32",
+        "loongarch64",
+        "mips",
+        "mips64",
+        "ppc"
+      ],
+      "candidate_requirement_ids": [
+        "S0.ext4-subset",
+        "S3.jbd2-replay"
+      ],
+      "domain": "ext4",
+      "fixture_owner_repository": "ObfuscationOS",
+      "hex_value": "0x00000004",
+      "id": "ext4.incompat.recover",
+      "macro": "EXT4_FEATURE_INCOMPAT_RECOVER",
+      "mask_kind": "incompat",
+      "observed_mask_gates": {
+        "legacy_nonjournalled_writer": "rejected-at-mask-gate",
+        "readonly_recovery_binding": "allowed-at-mask-gate"
+      },
+      "owner_repository": "ObfuscationKernel",
+      "qualification": "source-inspection-only; no complete read/write/recovery claim",
+      "related_test_ids": [
+        "T.baseline.ext4",
+        "T.S3.jbd2-replay",
+        "T.S3.linux-native-replay"
+      ],
+      "source_id": "linux-uapi-ext4",
+      "source_line": 2041,
+      "source_path": "fs/ext4/ext4.h",
+      "source_section": "fs/ext4/ext4.h:2041 EXT4_FEATURE_INCOMPAT_RECOVER"
+    },
+    {
+      "architecture": [
+        "i386",
+        "x86_64",
+        "aarch64",
+        "arm32",
+        "rv64",
+        "rv32",
+        "loongarch64",
+        "mips",
+        "mips64",
+        "ppc"
+      ],
+      "candidate_requirement_ids": [
+        "S0.ext4-subset",
+        "S7.external-journal"
+      ],
+      "domain": "ext4",
+      "fixture_owner_repository": "ObfuscationOS",
+      "hex_value": "0x00000008",
+      "id": "ext4.incompat.journal_dev",
+      "macro": "EXT4_FEATURE_INCOMPAT_JOURNAL_DEV",
+      "mask_kind": "incompat",
+      "observed_mask_gates": {
+        "legacy_nonjournalled_writer": "rejected-at-mask-gate",
+        "readonly_recovery_binding": "rejected-at-mask-gate"
+      },
+      "owner_repository": "ObfuscationKernel",
+      "qualification": "source-inspection-only; no complete read/write/recovery claim",
+      "related_test_ids": [
+        "T.baseline.ext4",
+        "T.S7.external-journal"
+      ],
+      "source_id": "linux-uapi-ext4",
+      "source_line": 2042,
+      "source_path": "fs/ext4/ext4.h",
+      "source_section": "fs/ext4/ext4.h:2042 EXT4_FEATURE_INCOMPAT_JOURNAL_DEV"
+    },
+    {
+      "architecture": [
+        "i386",
+        "x86_64",
+        "aarch64",
+        "arm32",
+        "rv64",
+        "rv32",
+        "loongarch64",
+        "mips",
+        "mips64",
+        "ppc"
+      ],
+      "candidate_requirement_ids": [
+        "S0.ext4-subset"
+      ],
+      "domain": "ext4",
+      "fixture_owner_repository": "ObfuscationOS",
+      "hex_value": "0x00000010",
+      "id": "ext4.incompat.meta_bg",
+      "macro": "EXT4_FEATURE_INCOMPAT_META_BG",
+      "mask_kind": "incompat",
+      "observed_mask_gates": {
+        "legacy_nonjournalled_writer": "rejected-at-mask-gate",
+        "readonly_recovery_binding": "rejected-at-mask-gate"
+      },
+      "owner_repository": "ObfuscationKernel",
+      "qualification": "source-inspection-only; no complete read/write/recovery claim",
+      "related_test_ids": [
+        "T.baseline.ext4"
+      ],
+      "source_id": "linux-uapi-ext4",
+      "source_line": 2043,
+      "source_path": "fs/ext4/ext4.h",
+      "source_section": "fs/ext4/ext4.h:2043 EXT4_FEATURE_INCOMPAT_META_BG"
+    },
+    {
+      "architecture": [
+        "i386",
+        "x86_64",
+        "aarch64",
+        "arm32",
+        "rv64",
+        "rv32",
+        "loongarch64",
+        "mips",
+        "mips64",
+        "ppc"
+      ],
+      "candidate_requirement_ids": [
+        "S0.ext4-subset"
+      ],
+      "domain": "ext4",
+      "fixture_owner_repository": "ObfuscationOS",
+      "hex_value": "0x00000040",
+      "id": "ext4.incompat.extents",
+      "macro": "EXT4_FEATURE_INCOMPAT_EXTENTS",
+      "mask_kind": "incompat",
+      "observed_mask_gates": {
+        "legacy_nonjournalled_writer": "required-by-exact-mask-gate",
+        "readonly_recovery_binding": "required-by-exact-mask-gate"
+      },
+      "owner_repository": "ObfuscationKernel",
+      "qualification": "source-inspection-only; no complete read/write/recovery claim",
+      "related_test_ids": [
+        "T.baseline.ext4"
+      ],
+      "source_id": "linux-uapi-ext4",
+      "source_line": 2044,
+      "source_path": "fs/ext4/ext4.h",
+      "source_section": "fs/ext4/ext4.h:2044 EXT4_FEATURE_INCOMPAT_EXTENTS"
+    },
+    {
+      "architecture": [
+        "i386",
+        "x86_64",
+        "aarch64",
+        "arm32",
+        "rv64",
+        "rv32",
+        "loongarch64",
+        "mips",
+        "mips64",
+        "ppc"
+      ],
+      "candidate_requirement_ids": [
+        "S0.ext4-subset",
+        "S5.64bit"
+      ],
+      "domain": "ext4",
+      "fixture_owner_repository": "ObfuscationOS",
+      "hex_value": "0x00000080",
+      "id": "ext4.incompat.64bit",
+      "macro": "EXT4_FEATURE_INCOMPAT_64BIT",
+      "mask_kind": "incompat",
+      "observed_mask_gates": {
+        "legacy_nonjournalled_writer": "rejected-at-mask-gate",
+        "readonly_recovery_binding": "rejected-at-mask-gate"
+      },
+      "owner_repository": "ObfuscationKernel",
+      "qualification": "source-inspection-only; no complete read/write/recovery claim",
+      "related_test_ids": [
+        "T.baseline.ext4",
+        "T.S5.64bit"
+      ],
+      "source_id": "linux-uapi-ext4",
+      "source_line": 2045,
+      "source_path": "fs/ext4/ext4.h",
+      "source_section": "fs/ext4/ext4.h:2045 EXT4_FEATURE_INCOMPAT_64BIT"
+    },
+    {
+      "architecture": [
+        "i386",
+        "x86_64",
+        "aarch64",
+        "arm32",
+        "rv64",
+        "rv32",
+        "loongarch64",
+        "mips",
+        "mips64",
+        "ppc"
+      ],
+      "candidate_requirement_ids": [
+        "S0.ext4-subset",
+        "S7.mmp"
+      ],
+      "domain": "ext4",
+      "fixture_owner_repository": "ObfuscationOS",
+      "hex_value": "0x00000100",
+      "id": "ext4.incompat.mmp",
+      "macro": "EXT4_FEATURE_INCOMPAT_MMP",
+      "mask_kind": "incompat",
+      "observed_mask_gates": {
+        "legacy_nonjournalled_writer": "rejected-at-mask-gate",
+        "readonly_recovery_binding": "rejected-at-mask-gate"
+      },
+      "owner_repository": "ObfuscationKernel",
+      "qualification": "source-inspection-only; no complete read/write/recovery claim",
+      "related_test_ids": [
+        "T.baseline.ext4",
+        "T.S7.mmp"
+      ],
+      "source_id": "linux-uapi-ext4",
+      "source_line": 2046,
+      "source_path": "fs/ext4/ext4.h",
+      "source_section": "fs/ext4/ext4.h:2046 EXT4_FEATURE_INCOMPAT_MMP"
+    },
+    {
+      "architecture": [
+        "i386",
+        "x86_64",
+        "aarch64",
+        "arm32",
+        "rv64",
+        "rv32",
+        "loongarch64",
+        "mips",
+        "mips64",
+        "ppc"
+      ],
+      "candidate_requirement_ids": [
+        "S0.ext4-subset"
+      ],
+      "domain": "ext4",
+      "fixture_owner_repository": "ObfuscationOS",
+      "hex_value": "0x00000200",
+      "id": "ext4.incompat.flex_bg",
+      "macro": "EXT4_FEATURE_INCOMPAT_FLEX_BG",
+      "mask_kind": "incompat",
+      "observed_mask_gates": {
+        "legacy_nonjournalled_writer": "rejected-at-mask-gate",
+        "readonly_recovery_binding": "rejected-at-mask-gate"
+      },
+      "owner_repository": "ObfuscationKernel",
+      "qualification": "source-inspection-only; no complete read/write/recovery claim",
+      "related_test_ids": [
+        "T.baseline.ext4"
+      ],
+      "source_id": "linux-uapi-ext4",
+      "source_line": 2047,
+      "source_path": "fs/ext4/ext4.h",
+      "source_section": "fs/ext4/ext4.h:2047 EXT4_FEATURE_INCOMPAT_FLEX_BG"
+    },
+    {
+      "architecture": [
+        "i386",
+        "x86_64",
+        "aarch64",
+        "arm32",
+        "rv64",
+        "rv32",
+        "loongarch64",
+        "mips",
+        "mips64",
+        "ppc"
+      ],
+      "candidate_requirement_ids": [
+        "S0.ext4-subset",
+        "S5.xattr-acl"
+      ],
+      "domain": "ext4",
+      "fixture_owner_repository": "ObfuscationOS",
+      "hex_value": "0x00000400",
+      "id": "ext4.incompat.ea_inode",
+      "macro": "EXT4_FEATURE_INCOMPAT_EA_INODE",
+      "mask_kind": "incompat",
+      "observed_mask_gates": {
+        "legacy_nonjournalled_writer": "rejected-at-mask-gate",
+        "readonly_recovery_binding": "rejected-at-mask-gate"
+      },
+      "owner_repository": "ObfuscationKernel",
+      "qualification": "source-inspection-only; no complete read/write/recovery claim",
+      "related_test_ids": [
+        "T.baseline.ext4",
+        "T.S5.xattr-acl"
+      ],
+      "source_id": "linux-uapi-ext4",
+      "source_line": 2048,
+      "source_path": "fs/ext4/ext4.h",
+      "source_section": "fs/ext4/ext4.h:2048 EXT4_FEATURE_INCOMPAT_EA_INODE"
+    },
+    {
+      "architecture": [
+        "i386",
+        "x86_64",
+        "aarch64",
+        "arm32",
+        "rv64",
+        "rv32",
+        "loongarch64",
+        "mips",
+        "mips64",
+        "ppc"
+      ],
+      "candidate_requirement_ids": [
+        "S0.ext4-subset"
+      ],
+      "domain": "ext4",
+      "fixture_owner_repository": "ObfuscationOS",
+      "hex_value": "0x00001000",
+      "id": "ext4.incompat.dirdata",
+      "macro": "EXT4_FEATURE_INCOMPAT_DIRDATA",
+      "mask_kind": "incompat",
+      "observed_mask_gates": {
+        "legacy_nonjournalled_writer": "rejected-at-mask-gate",
+        "readonly_recovery_binding": "rejected-at-mask-gate"
+      },
+      "owner_repository": "ObfuscationKernel",
+      "qualification": "source-inspection-only; no complete read/write/recovery claim",
+      "related_test_ids": [
+        "T.baseline.ext4"
+      ],
+      "source_id": "linux-uapi-ext4",
+      "source_line": 2049,
+      "source_path": "fs/ext4/ext4.h",
+      "source_section": "fs/ext4/ext4.h:2049 EXT4_FEATURE_INCOMPAT_DIRDATA"
+    },
+    {
+      "architecture": [
+        "i386",
+        "x86_64",
+        "aarch64",
+        "arm32",
+        "rv64",
+        "rv32",
+        "loongarch64",
+        "mips",
+        "mips64",
+        "ppc"
+      ],
+      "candidate_requirement_ids": [
+        "S0.ext4-subset",
+        "S5.metadata-csum"
+      ],
+      "domain": "ext4",
+      "fixture_owner_repository": "ObfuscationOS",
+      "hex_value": "0x00002000",
+      "id": "ext4.incompat.csum_seed",
+      "macro": "EXT4_FEATURE_INCOMPAT_CSUM_SEED",
+      "mask_kind": "incompat",
+      "observed_mask_gates": {
+        "legacy_nonjournalled_writer": "rejected-at-mask-gate",
+        "readonly_recovery_binding": "rejected-at-mask-gate"
+      },
+      "owner_repository": "ObfuscationKernel",
+      "qualification": "source-inspection-only; no complete read/write/recovery claim",
+      "related_test_ids": [
+        "T.baseline.ext4",
+        "T.S5.metadata-csum"
+      ],
+      "source_id": "linux-uapi-ext4",
+      "source_line": 2050,
+      "source_path": "fs/ext4/ext4.h",
+      "source_section": "fs/ext4/ext4.h:2050 EXT4_FEATURE_INCOMPAT_CSUM_SEED"
+    },
+    {
+      "architecture": [
+        "i386",
+        "x86_64",
+        "aarch64",
+        "arm32",
+        "rv64",
+        "rv32",
+        "loongarch64",
+        "mips",
+        "mips64",
+        "ppc"
+      ],
+      "candidate_requirement_ids": [
+        "S0.ext4-subset"
+      ],
+      "domain": "ext4",
+      "fixture_owner_repository": "ObfuscationOS",
+      "hex_value": "0x00004000",
+      "id": "ext4.incompat.largedir",
+      "macro": "EXT4_FEATURE_INCOMPAT_LARGEDIR",
+      "mask_kind": "incompat",
+      "observed_mask_gates": {
+        "legacy_nonjournalled_writer": "rejected-at-mask-gate",
+        "readonly_recovery_binding": "rejected-at-mask-gate"
+      },
+      "owner_repository": "ObfuscationKernel",
+      "qualification": "source-inspection-only; no complete read/write/recovery claim",
+      "related_test_ids": [
+        "T.baseline.ext4"
+      ],
+      "source_id": "linux-uapi-ext4",
+      "source_line": 2051,
+      "source_path": "fs/ext4/ext4.h",
+      "source_section": "fs/ext4/ext4.h:2051 EXT4_FEATURE_INCOMPAT_LARGEDIR"
+    },
+    {
+      "architecture": [
+        "i386",
+        "x86_64",
+        "aarch64",
+        "arm32",
+        "rv64",
+        "rv32",
+        "loongarch64",
+        "mips",
+        "mips64",
+        "ppc"
+      ],
+      "candidate_requirement_ids": [
+        "S0.ext4-subset",
+        "S7.inline-data"
+      ],
+      "domain": "ext4",
+      "fixture_owner_repository": "ObfuscationOS",
+      "hex_value": "0x00008000",
+      "id": "ext4.incompat.inline_data",
+      "macro": "EXT4_FEATURE_INCOMPAT_INLINE_DATA",
+      "mask_kind": "incompat",
+      "observed_mask_gates": {
+        "legacy_nonjournalled_writer": "rejected-at-mask-gate",
+        "readonly_recovery_binding": "rejected-at-mask-gate"
+      },
+      "owner_repository": "ObfuscationKernel",
+      "qualification": "source-inspection-only; no complete read/write/recovery claim",
+      "related_test_ids": [
+        "T.baseline.ext4",
+        "T.S7.inline-data"
+      ],
+      "source_id": "linux-uapi-ext4",
+      "source_line": 2052,
+      "source_path": "fs/ext4/ext4.h",
+      "source_section": "fs/ext4/ext4.h:2052 EXT4_FEATURE_INCOMPAT_INLINE_DATA"
+    },
+    {
+      "architecture": [
+        "i386",
+        "x86_64",
+        "aarch64",
+        "arm32",
+        "rv64",
+        "rv32",
+        "loongarch64",
+        "mips",
+        "mips64",
+        "ppc"
+      ],
+      "candidate_requirement_ids": [
+        "S0.ext4-subset",
+        "S7.encryption"
+      ],
+      "domain": "ext4",
+      "fixture_owner_repository": "ObfuscationOS",
+      "hex_value": "0x00010000",
+      "id": "ext4.incompat.encrypt",
+      "macro": "EXT4_FEATURE_INCOMPAT_ENCRYPT",
+      "mask_kind": "incompat",
+      "observed_mask_gates": {
+        "legacy_nonjournalled_writer": "rejected-at-mask-gate",
+        "readonly_recovery_binding": "rejected-at-mask-gate"
+      },
+      "owner_repository": "ObfuscationKernel",
+      "qualification": "source-inspection-only; no complete read/write/recovery claim",
+      "related_test_ids": [
+        "T.baseline.ext4",
+        "T.S7.encryption"
+      ],
+      "source_id": "linux-uapi-ext4",
+      "source_line": 2053,
+      "source_path": "fs/ext4/ext4.h",
+      "source_section": "fs/ext4/ext4.h:2053 EXT4_FEATURE_INCOMPAT_ENCRYPT"
+    },
+    {
+      "architecture": [
+        "i386",
+        "x86_64",
+        "aarch64",
+        "arm32",
+        "rv64",
+        "rv32",
+        "loongarch64",
+        "mips",
+        "mips64",
+        "ppc"
+      ],
+      "candidate_requirement_ids": [
+        "S0.ext4-subset",
+        "S7.casefold"
+      ],
+      "domain": "ext4",
+      "fixture_owner_repository": "ObfuscationOS",
+      "hex_value": "0x00020000",
+      "id": "ext4.incompat.casefold",
+      "macro": "EXT4_FEATURE_INCOMPAT_CASEFOLD",
+      "mask_kind": "incompat",
+      "observed_mask_gates": {
+        "legacy_nonjournalled_writer": "rejected-at-mask-gate",
+        "readonly_recovery_binding": "rejected-at-mask-gate"
+      },
+      "owner_repository": "ObfuscationKernel",
+      "qualification": "source-inspection-only; no complete read/write/recovery claim",
+      "related_test_ids": [
+        "T.baseline.ext4",
+        "T.S7.casefold"
+      ],
+      "source_id": "linux-uapi-ext4",
+      "source_line": 2054,
+      "source_path": "fs/ext4/ext4.h",
+      "source_section": "fs/ext4/ext4.h:2054 EXT4_FEATURE_INCOMPAT_CASEFOLD"
+    },
+    {
+      "architecture": [
+        "i386",
+        "x86_64",
+        "aarch64",
+        "arm32",
+        "rv64",
+        "rv32",
+        "loongarch64",
+        "mips",
+        "mips64",
+        "ppc"
+      ],
+      "candidate_requirement_ids": [
+        "S3.jbd2-plan",
+        "S3.jbd2-replay"
+      ],
+      "domain": "jbd2",
+      "fixture_owner_repository": "ObfuscationOS",
+      "hex_value": "0x00000001",
+      "id": "jbd2.compat.checksum",
+      "macro": "JBD2_FEATURE_COMPAT_CHECKSUM",
+      "mask_kind": "compat",
+      "observed_mask_gates": {
+        "jbd2_codec": "rejected-at-mask-gate"
+      },
+      "owner_repository": "ObfuscationKernel",
+      "qualification": "source-inspection-only; no complete read/write/recovery claim",
+      "related_test_ids": [
+        "T.S3.jbd2-plan",
+        "T.S3.jbd2-replay",
+        "T.S3.linux-native-replay"
+      ],
+      "source_id": "linux-uapi-ext4",
+      "source_line": 279,
+      "source_path": "include/linux/jbd2.h",
+      "source_section": "include/linux/jbd2.h:279 JBD2_FEATURE_COMPAT_CHECKSUM"
+    },
+    {
+      "architecture": [
+        "i386",
+        "x86_64",
+        "aarch64",
+        "arm32",
+        "rv64",
+        "rv32",
+        "loongarch64",
+        "mips",
+        "mips64",
+        "ppc"
+      ],
+      "candidate_requirement_ids": [
+        "S3.jbd2-plan",
+        "S3.jbd2-replay"
+      ],
+      "domain": "jbd2",
+      "fixture_owner_repository": "ObfuscationOS",
+      "hex_value": "0x00000001",
+      "id": "jbd2.incompat.revoke",
+      "macro": "JBD2_FEATURE_INCOMPAT_REVOKE",
+      "mask_kind": "incompat",
+      "observed_mask_gates": {
+        "jbd2_codec": "allowed-at-mask-gate"
+      },
+      "owner_repository": "ObfuscationKernel",
+      "qualification": "source-inspection-only; no complete read/write/recovery claim",
+      "related_test_ids": [
+        "T.S3.jbd2-plan",
+        "T.S3.jbd2-replay",
+        "T.S3.linux-native-replay"
+      ],
+      "source_id": "linux-uapi-ext4",
+      "source_line": 281,
+      "source_path": "include/linux/jbd2.h",
+      "source_section": "include/linux/jbd2.h:281 JBD2_FEATURE_INCOMPAT_REVOKE"
+    },
+    {
+      "architecture": [
+        "i386",
+        "x86_64",
+        "aarch64",
+        "arm32",
+        "rv64",
+        "rv32",
+        "loongarch64",
+        "mips",
+        "mips64",
+        "ppc"
+      ],
+      "candidate_requirement_ids": [
+        "S3.jbd2-plan",
+        "S3.jbd2-replay"
+      ],
+      "domain": "jbd2",
+      "fixture_owner_repository": "ObfuscationOS",
+      "hex_value": "0x00000002",
+      "id": "jbd2.incompat.64bit",
+      "macro": "JBD2_FEATURE_INCOMPAT_64BIT",
+      "mask_kind": "incompat",
+      "observed_mask_gates": {
+        "jbd2_codec": "allowed-at-mask-gate"
+      },
+      "owner_repository": "ObfuscationKernel",
+      "qualification": "source-inspection-only; no complete read/write/recovery claim",
+      "related_test_ids": [
+        "T.S3.jbd2-plan",
+        "T.S3.jbd2-replay",
+        "T.S3.linux-native-replay"
+      ],
+      "source_id": "linux-uapi-ext4",
+      "source_line": 282,
+      "source_path": "include/linux/jbd2.h",
+      "source_section": "include/linux/jbd2.h:282 JBD2_FEATURE_INCOMPAT_64BIT"
+    },
+    {
+      "architecture": [
+        "i386",
+        "x86_64",
+        "aarch64",
+        "arm32",
+        "rv64",
+        "rv32",
+        "loongarch64",
+        "mips",
+        "mips64",
+        "ppc"
+      ],
+      "candidate_requirement_ids": [
+        "S3.jbd2-plan",
+        "S3.jbd2-replay"
+      ],
+      "domain": "jbd2",
+      "fixture_owner_repository": "ObfuscationOS",
+      "hex_value": "0x00000004",
+      "id": "jbd2.incompat.async_commit",
+      "macro": "JBD2_FEATURE_INCOMPAT_ASYNC_COMMIT",
+      "mask_kind": "incompat",
+      "observed_mask_gates": {
+        "jbd2_codec": "rejected-at-mask-gate"
+      },
+      "owner_repository": "ObfuscationKernel",
+      "qualification": "source-inspection-only; no complete read/write/recovery claim",
+      "related_test_ids": [
+        "T.S3.jbd2-plan",
+        "T.S3.jbd2-replay",
+        "T.S3.linux-native-replay"
+      ],
+      "source_id": "linux-uapi-ext4",
+      "source_line": 283,
+      "source_path": "include/linux/jbd2.h",
+      "source_section": "include/linux/jbd2.h:283 JBD2_FEATURE_INCOMPAT_ASYNC_COMMIT"
+    },
+    {
+      "architecture": [
+        "i386",
+        "x86_64",
+        "aarch64",
+        "arm32",
+        "rv64",
+        "rv32",
+        "loongarch64",
+        "mips",
+        "mips64",
+        "ppc"
+      ],
+      "candidate_requirement_ids": [
+        "S3.jbd2-plan",
+        "S3.jbd2-replay"
+      ],
+      "domain": "jbd2",
+      "fixture_owner_repository": "ObfuscationOS",
+      "hex_value": "0x00000008",
+      "id": "jbd2.incompat.csum_v2",
+      "macro": "JBD2_FEATURE_INCOMPAT_CSUM_V2",
+      "mask_kind": "incompat",
+      "observed_mask_gates": {
+        "jbd2_codec": "rejected-at-mask-gate"
+      },
+      "owner_repository": "ObfuscationKernel",
+      "qualification": "source-inspection-only; no complete read/write/recovery claim",
+      "related_test_ids": [
+        "T.S3.jbd2-plan",
+        "T.S3.jbd2-replay",
+        "T.S3.linux-native-replay"
+      ],
+      "source_id": "linux-uapi-ext4",
+      "source_line": 284,
+      "source_path": "include/linux/jbd2.h",
+      "source_section": "include/linux/jbd2.h:284 JBD2_FEATURE_INCOMPAT_CSUM_V2"
+    },
+    {
+      "architecture": [
+        "i386",
+        "x86_64",
+        "aarch64",
+        "arm32",
+        "rv64",
+        "rv32",
+        "loongarch64",
+        "mips",
+        "mips64",
+        "ppc"
+      ],
+      "candidate_requirement_ids": [
+        "S3.jbd2-plan",
+        "S3.jbd2-replay"
+      ],
+      "domain": "jbd2",
+      "fixture_owner_repository": "ObfuscationOS",
+      "hex_value": "0x00000010",
+      "id": "jbd2.incompat.csum_v3",
+      "macro": "JBD2_FEATURE_INCOMPAT_CSUM_V3",
+      "mask_kind": "incompat",
+      "observed_mask_gates": {
+        "jbd2_codec": "required-by-mask-gate"
+      },
+      "owner_repository": "ObfuscationKernel",
+      "qualification": "source-inspection-only; no complete read/write/recovery claim",
+      "related_test_ids": [
+        "T.S3.jbd2-plan",
+        "T.S3.jbd2-replay",
+        "T.S3.linux-native-replay"
+      ],
+      "source_id": "linux-uapi-ext4",
+      "source_line": 285,
+      "source_path": "include/linux/jbd2.h",
+      "source_section": "include/linux/jbd2.h:285 JBD2_FEATURE_INCOMPAT_CSUM_V3"
+    },
+    {
+      "architecture": [
+        "i386",
+        "x86_64",
+        "aarch64",
+        "arm32",
+        "rv64",
+        "rv32",
+        "loongarch64",
+        "mips",
+        "mips64",
+        "ppc"
+      ],
+      "candidate_requirement_ids": [
+        "S3.jbd2-plan",
+        "S3.jbd2-replay"
+      ],
+      "domain": "jbd2",
+      "fixture_owner_repository": "ObfuscationOS",
+      "hex_value": "0x00000020",
+      "id": "jbd2.incompat.fast_commit",
+      "macro": "JBD2_FEATURE_INCOMPAT_FAST_COMMIT",
+      "mask_kind": "incompat",
+      "observed_mask_gates": {
+        "jbd2_codec": "rejected-at-mask-gate"
+      },
+      "owner_repository": "ObfuscationKernel",
+      "qualification": "source-inspection-only; no complete read/write/recovery claim",
+      "related_test_ids": [
+        "T.S3.jbd2-plan",
+        "T.S3.jbd2-replay",
+        "T.S3.linux-native-replay"
+      ],
+      "source_id": "linux-uapi-ext4",
+      "source_line": 286,
+      "source_path": "include/linux/jbd2.h",
+      "source_section": "include/linux/jbd2.h:286 JBD2_FEATURE_INCOMPAT_FAST_COMMIT"
+    }
+  ]
+}

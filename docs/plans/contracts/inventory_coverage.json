@@ -1,0 +1,26 @@
+{
+  "schema_version": 1,
+  "ledger_revision": "2026-10-17.01",
+  "inventories": [
+    {
+      "id": "posix-clauses-options",
+      "source_index": null,
+      "mappings": []
+    },
+    {
+      "id": "linux-abi-layouts",
+      "source_index": null,
+      "mappings": []
+    },
+    {
+      "id": "ext4-feature-combinations",
+      "source_index": null,
+      "mappings": []
+    },
+    {
+      "id": "internet-rfc-clauses",
+      "source_index": null,
+      "mappings": []
+    }
+  ]
+}

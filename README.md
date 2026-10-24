@@ -5,6 +5,11 @@ external drivers and compatibility code, external kernel extensions, and the
 System GUI. ObfuscationKernel owns core kernel mechanisms, native interfaces,
 boot/runtime code, and the low-level kernel compositor/debug GUI.
 
+The [complete workstation implementation plan](docs/plans/README.md) describes
+the proposed path to a user-space desktop, POSIX.1-2024, musl, modern/full-scope
+ext4, IPv4/IPv6 networking and supervised services on all ten profiles. It is a
+design and acceptance roadmap; the sections below describe current support.
+
 ## Independent kernel SDK
 
 There is no kernel source checkout or submodule in this repository. Build and
@@ -29,6 +34,12 @@ Missing, modified, or mismatched artifacts fail validation; no source-header
 fallback or architecture globbing is used. The manifest content hash also enters
 the compiler signature, so replacing an SDK invalidates consumer objects even
 when copied headers retain old timestamps.
+
+The current consumer requires native module ABI74, UAPI0.16.0, manifest schema1,
+and matching hashed feature contracts. Earlier ABI-pinned qualification records
+remain historical evidence. The distribution storage extension additionally
+requires the exported mounted FAT32/exFAT headers; rebuild the matching SDK
+before building this consumer.
 
 The `distro_image` target compiles OS-owned System GUI extension sources and
 links them to the SDK archives. It is a statically linked boot extension; it
@@ -100,9 +111,13 @@ the shell directly.
 The libc shim includes scalar/vectored and positioned file I/O, truncate and
 sync wrappers alongside process, pipe, path and metadata operations. Rename and
 hard-link calls include dirfd-relative variants; `linkat` currently accepts flags
-zero, and symbolic-link traversal is not implemented. Native
-transfers are bounded to 4096 bytes, with at most 16 iovecs. General memory
-mapping, signals, threads and sockets still return `ENOSYS`; the common UAPI
+zero. Object-based path resolution preserves cwd/dirfd identity and checks
+component search permissions; RAM filesystems support symbolic links, with
+`symlink[at]`, `readlink[at]`, `lstat` and bounded traversal. The ext4 subset still
+rejects symbolic-link creation. Native transfers are bounded to 4096 bytes, with
+at most 16 iovecs. Private anonymous `mmap`, `mprotect` and partial `munmap` use
+real native mappings with fixed resource limits; shared/file mappings, `brk`,
+signals, threads and sockets remain unavailable. The common UAPI
 does not provide platform-specific Linux binary compatibility.
 
 The OS owns `modules/system-gui/`, including desktop/greeter policy and its
@@ -118,6 +133,11 @@ disk is mounted before native startup, so `/init` and applications execute from
 real device-backed files. The external Virtio driver supports all ten profiles, including Malta
 MIPS/MIPS64 PCI and ppce500 PPC PCI. The archive remains the rescue root when
 no supported disk is present.
+
+Supported FAT32/exFAT whole-volume media mounts at `/media` beneath the archive
+root, with file read/write, create/delete and directory operations. See
+[FAT data media](docs/FAT_MEDIA.md) for fixed permissions, supported geometry,
+limits and the native QEMU/fsck test runner.
 
 The initial ext4 writer supports linear directories and extent-backed regular
 files, including create, read/write, truncate, unlink, rename, hard links,

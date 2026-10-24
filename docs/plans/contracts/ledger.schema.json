@@ -1,0 +1,652 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://obfuscationos.invalid/schemas/workstation-ledger-v1.json",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "ledger_revision",
+    "scope",
+    "inventories",
+    "references",
+    "architectures",
+    "tests",
+    "requirements",
+    "evidence"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "ledger_revision": {
+      "type": "string",
+      "minLength": 1
+    },
+    "scope": {
+      "enum": ["seed-inventory", "reviewed-inventory"]
+    },
+    "inventories": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "state",
+          "source_ids",
+          "gaps"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "state": {
+            "enum": [
+              "partial",
+              "complete"
+            ]
+          },
+          "source_ids": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1
+            },
+            "minItems": 1,
+            "uniqueItems": true
+          },
+          "gaps": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1
+            },
+            "minItems": 0,
+            "uniqueItems": true
+          }
+        }
+      },
+      "minItems": 1,
+      "uniqueItems": true
+    },
+    "references": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "version",
+          "status",
+          "url",
+          "owner_repository",
+          "archive_sha256",
+          "archive_artifact",
+          "audited_files",
+          "limitations"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "version": {
+            "anyOf": [
+              {
+                "type": "string",
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "status": {
+            "enum": [
+              "specification-selected",
+              "local-audit",
+              "source-pinned",
+              "unpinned"
+            ]
+          },
+          "url": {
+            "type": "string",
+            "minLength": 1
+          },
+          "owner_repository": {
+            "enum": [
+              "ObfuscationKernel",
+              "ObfuscationOS",
+              "joint"
+            ]
+          },
+          "archive_sha256": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^[0-9a-f]{64}$"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "archive_artifact": {
+            "anyOf": [
+              {
+                "type": "string",
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "audited_files": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "path",
+                "sha256"
+              ],
+              "properties": {
+                "path": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "sha256": {
+                  "type": "string",
+                  "pattern": "^[0-9a-f]{64}$"
+                }
+              }
+            },
+            "minItems": 0,
+            "uniqueItems": true
+          },
+          "limitations": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1
+            },
+            "minItems": 0,
+            "uniqueItems": true
+          }
+        }
+      },
+      "minItems": 1,
+      "uniqueItems": true
+    },
+    "architectures": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "native_triple",
+          "elf_class",
+          "byte_order",
+          "linux_target",
+          "linux_abi",
+          "linux_qualification",
+          "native_capabilities",
+          "model_capabilities",
+          "source_paths",
+          "qualification_gaps",
+          "hardware_limitations"
+        ],
+        "properties": {
+          "id": {
+            "enum": [
+              "i386",
+              "x86_64",
+              "aarch64",
+              "arm32",
+              "rv64",
+              "rv32",
+              "loongarch64",
+              "mips",
+              "mips64",
+              "ppc"
+            ]
+          },
+          "native_triple": {
+            "type": "string",
+            "minLength": 1
+          },
+          "elf_class": {
+            "enum": [
+              32,
+              64
+            ]
+          },
+          "byte_order": {
+            "enum": [
+              "little",
+              "big"
+            ]
+          },
+          "linux_target": {
+            "type": "string",
+            "minLength": 1
+          },
+          "linux_abi": {
+            "type": "string",
+            "minLength": 1
+          },
+          "linux_qualification": {
+            "enum": [
+              "unqualified",
+              "qualified"
+            ]
+          },
+          "native_capabilities": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1
+            },
+            "minItems": 1,
+            "uniqueItems": true
+          },
+          "model_capabilities": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1
+            },
+            "minItems": 1,
+            "uniqueItems": true
+          },
+          "source_paths": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1
+            },
+            "minItems": 1,
+            "uniqueItems": true
+          },
+          "qualification_gaps": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1
+            },
+            "minItems": 0,
+            "uniqueItems": true
+          },
+          "hardware_limitations": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1
+            },
+            "minItems": 0,
+            "uniqueItems": true
+          }
+        }
+      },
+      "minItems": 10,
+      "uniqueItems": true
+    },
+    "tests": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "layer",
+          "execution",
+          "architecture",
+          "status",
+          "entrypoint",
+          "acceptance",
+          "limitations"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "layer": {
+            "enum": [
+              "model",
+              "native",
+              "interop",
+              "fault",
+              "physical"
+            ]
+          },
+          "execution": {
+            "enum": [
+              "host-model",
+              "host-tool",
+              "qemu-native",
+              "physical"
+            ]
+          },
+          "architecture": {
+            "type": "array",
+            "items": {
+              "enum": [
+                "i386",
+                "x86_64",
+                "aarch64",
+                "arm32",
+                "rv64",
+                "rv32",
+                "loongarch64",
+                "mips",
+                "mips64",
+                "ppc",
+                "host"
+              ]
+            },
+            "minItems": 1,
+            "uniqueItems": true
+          },
+          "status": {
+            "enum": [
+              "planned",
+              "available"
+            ]
+          },
+          "entrypoint": {
+            "anyOf": [
+              {
+                "type": "string",
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "acceptance": {
+            "type": "string",
+            "minLength": 1
+          },
+          "limitations": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1
+            },
+            "minItems": 0,
+            "uniqueItems": true
+          }
+        }
+      },
+      "minItems": 1,
+      "uniqueItems": true
+    },
+    "requirements": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "subsystem",
+          "source_version",
+          "source_section",
+          "requirement_level",
+          "owner_repository",
+          "dependencies",
+          "architecture",
+          "feature_profile",
+          "implementation_paths",
+          "state",
+          "model_test_ids",
+          "native_test_ids",
+          "interop_test_ids",
+          "fault_test_ids",
+          "physical_test_ids",
+          "limitations",
+          "evidence_artifact_hash",
+          "evidence_ids"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "subsystem": {
+            "type": "string",
+            "minLength": 1
+          },
+          "source_version": {
+            "type": "string",
+            "minLength": 1
+          },
+          "source_section": {
+            "type": "string",
+            "minLength": 1
+          },
+          "requirement_level": {
+            "enum": [
+              "mandatory",
+              "selected-profile",
+              "extension",
+              "inventory"
+            ]
+          },
+          "owner_repository": {
+            "enum": [
+              "ObfuscationKernel",
+              "ObfuscationOS",
+              "joint"
+            ]
+          },
+          "dependencies": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1
+            },
+            "minItems": 0,
+            "uniqueItems": true
+          },
+          "architecture": {
+            "type": "array",
+            "items": {
+              "enum": [
+                "i386",
+                "x86_64",
+                "aarch64",
+                "arm32",
+                "rv64",
+                "rv32",
+                "loongarch64",
+                "mips",
+                "mips64",
+                "ppc"
+              ]
+            },
+            "minItems": 1,
+            "uniqueItems": true
+          },
+          "feature_profile": {
+            "type": "string",
+            "minLength": 1
+          },
+          "implementation_paths": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1
+            },
+            "minItems": 0,
+            "uniqueItems": true
+          },
+          "state": {
+            "enum": [
+              "planned",
+              "model-only",
+              "native-partial",
+              "implemented",
+              "verified",
+              "not-applicable-with-rationale"
+            ]
+          },
+          "model_test_ids": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1
+            },
+            "minItems": 0,
+            "uniqueItems": true
+          },
+          "native_test_ids": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1
+            },
+            "minItems": 0,
+            "uniqueItems": true
+          },
+          "interop_test_ids": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1
+            },
+            "minItems": 0,
+            "uniqueItems": true
+          },
+          "fault_test_ids": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1
+            },
+            "minItems": 0,
+            "uniqueItems": true
+          },
+          "physical_test_ids": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1
+            },
+            "minItems": 0,
+            "uniqueItems": true
+          },
+          "limitations": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1
+            },
+            "minItems": 0,
+            "uniqueItems": true
+          },
+          "evidence_artifact_hash": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^[0-9a-f]{64}$"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "evidence_ids": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1
+            },
+            "minItems": 0,
+            "uniqueItems": true
+          }
+        }
+      },
+      "minItems": 1,
+      "uniqueItems": true
+    },
+    "evidence": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "test_id",
+          "architecture",
+          "mode",
+          "execution",
+          "outcome",
+          "artifact",
+          "sha256"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "test_id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "architecture": {
+            "enum": [
+              "i386",
+              "x86_64",
+              "aarch64",
+              "arm32",
+              "rv64",
+              "rv32",
+              "loongarch64",
+              "mips",
+              "mips64",
+              "ppc",
+              "host"
+            ]
+          },
+          "mode": {
+            "enum": [
+              "debug",
+              "release",
+              "host"
+            ]
+          },
+          "execution": {
+            "enum": [
+              "host-model",
+              "host-tool",
+              "qemu-native",
+              "physical"
+            ]
+          },
+          "outcome": {
+            "enum": [
+              "pass",
+              "fail",
+              "waived"
+            ]
+          },
+          "artifact": {
+            "type": "string",
+            "minLength": 1
+          },
+          "sha256": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          }
+        }
+      },
+      "minItems": 0,
+      "uniqueItems": true
+    }
+  }
+}

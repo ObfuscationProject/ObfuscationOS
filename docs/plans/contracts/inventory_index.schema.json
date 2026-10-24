@@ -1,0 +1,35 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://obfuscationos.invalid/schemas/inventory-index-v1.json",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "inventory_id", "review_scope", "source_ids", "units"],
+  "properties": {
+    "schema_version": {"const": 1},
+    "inventory_id": {"enum": ["posix-clauses-options", "linux-abi-layouts", "ext4-feature-combinations", "internet-rfc-clauses"]},
+    "review_scope": {"const": "complete-selected-source-universe"},
+    "source_ids": {"type": "array", "minItems": 1, "uniqueItems": true,
+                   "items": {"type": "string", "minLength": 1}},
+    "units": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "source_id", "source_section", "obligation", "classification", "architecture"],
+        "properties": {
+          "id": {"type": "string", "minLength": 1},
+          "source_id": {"type": "string", "minLength": 1},
+          "source_section": {"type": "string", "minLength": 1},
+          "obligation": {"type": "string", "minLength": 1},
+          "classification": {"enum": ["mandatory", "selected-profile", "unsupported-option", "non-applicable"]},
+          "architecture": {
+            "type": "array", "minItems": 1, "uniqueItems": true,
+            "items": {"enum": ["i386", "x86_64", "aarch64", "arm32", "rv64", "rv32", "loongarch64", "mips", "mips64", "ppc"]}
+          }
+        }
+      }
+    }
+  }
+}
