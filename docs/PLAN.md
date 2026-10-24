@@ -61,7 +61,7 @@ Exit gate: on ten profiles a musl `sh` runs scripts with expansion, pipelines,
 redirection and command lists; the utility set passes its own test suite in the
 guest. Depends on kernel WT1.1 (quotas); job control arrives with WT2.2.
 
-Scaffold on branch `feat/musl-primary`:
+Scaffold (merged to main from `feat/musl-primary`):
 - `ports/README.md`, `ports/{musl,dash,toybox}/port.json`: pinned-source descriptors
   (archive hash, licence, dependencies, qualified profiles, state). musl 1.2.5 is
   pinned from `tools/musl_source.py`; dash and toybox stay `planned` until the
@@ -110,7 +110,7 @@ kernel and are exposed through the display/input UAPI from kernel WT2.6; `seatd`
 hands leases to the compositor. Exit: a user-space program allocates a buffer and
 presents it; input events reach user space.
 
-Scaffold on branch `feat/display-input-drivers`: `drivers/display/README.md` and
+Scaffold (merged to main from `feat/display-input-drivers`): `drivers/display/README.md` and
 `drivers/input/README.md` record which kernel backends migrate (ramfb, virtio-gpu,
 virtio-input, PS/2, USB HID), the contract against the draft `ok/uapi/display.h`
 and `input.h`, and the exit gate. Code follows the kernel display mechanism.
