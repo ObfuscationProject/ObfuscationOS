@@ -1,0 +1,12 @@
+{
+  "name": "dash",
+  "version": "0.5.12",
+  "archive": "dash-0.5.12.tar.gz",
+  "sha256": "",
+  "license": "review",
+  "depends": ["musl"],
+  "profiles": [],
+  "state": "planned",
+  "build": {"system": "configure", "configure_args": ["--enable-static"]},
+  "notes": "Candidate POSIX sh (BSD-3-Clause). Alternatives: mksh, toybox sh. Job control needs feat/tty-jobctl."
+}
