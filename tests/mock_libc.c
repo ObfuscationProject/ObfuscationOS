@@ -3,6 +3,7 @@
 #include <ok/dirent.h>
 #include <ok/uapi/syscall.h>
 #include <stddef.h>
+#include <signal.h>
 #include <stdio.h>
 #include <string.h>
 #include <sys/stat.h>
@@ -12,6 +13,23 @@ static long last_number;
 static long last_arguments[5];
 static uintptr_t metadata_size = 123;
 static uint64_t metadata_blocks;
+static uint64_t metadata_inode = (uint64_t)0x123456789abcdef0ULL;
+static long metadata_error;
+static long kill_result;
+
+_Static_assert(sizeof(((struct stat *)0)->st_ino) == sizeof(uint64_t), "full native inode identity");
+
+static void metadata_v2(struct ok_stat_v2 *record, int nofollow)
+{
+    memset(record, 0, sizeof(*record));
+    record->basic.type = nofollow ? OK_NODE_SYMLINK : OK_NODE_REGULAR;
+    record->basic.mode = (nofollow ? OK_MODE_SYMLINK : OK_MODE_REGULAR) | 0400;
+    record->basic.size = metadata_size;
+    record->basic.blocks = metadata_blocks;
+    record->basic.link_count = 1;
+    record->basic.block_size = 512;
+    record->inode = metadata_inode;
+}
 
 long ok_syscall0(long number)
 {
@@ -51,16 +69,28 @@ long ok_syscall1(long number, long arg0)
 long ok_syscall2(long number, long arg0, long arg1)
 {
     last_number = number;
-    if (number == OK_SYS_RENAME || number == OK_SYS_LINK) {
+    if (number == OK_SYS_KILL) {
+        last_arguments[0] = arg0;
+        last_arguments[1] = arg1;
+        return kill_result;
+    }
+    if (number == OK_SYS_FSTAT_V2) {
+        last_arguments[0] = arg0;
+        last_arguments[1] = arg1;
+        if (metadata_error) return metadata_error;
+        metadata_v2((struct ok_stat_v2 *)arg1, 0);
+        return 0;
+    }
+    if (number == OK_SYS_RENAME || number == OK_SYS_LINK || number == OK_SYS_SYMLINK) {
         last_arguments[0] = arg0;
         last_arguments[1] = arg1;
         return arg0 && arg1 ? 0 : -OK_EFAULT;
     }
-    if (number == OK_SYS_STAT || number == OK_SYS_FSTAT) {
+    if (number == OK_SYS_STAT || number == OK_SYS_FSTAT || number == OK_SYS_LSTAT) {
         struct ok_stat *st = (struct ok_stat *)arg1;
         memset(st, 0, sizeof(*st));
         st->type = OK_NODE_REGULAR;
-        st->mode = OK_MODE_REGULAR | 0400;
+        st->mode = (number == OK_SYS_LSTAT ? OK_MODE_SYMLINK : OK_MODE_REGULAR) | 0400;
         st->size = metadata_size;
         st->blocks = metadata_blocks;
         st->link_count = 1;
@@ -101,17 +131,34 @@ long ok_syscall3(long number, long arg0, long arg1, long arg2)
     if (number == OK_SYS_LSEEK) {
         return 99;
     }
+    if (number == OK_SYS_SYMLINKAT || number == OK_SYS_READLINK) {
+        last_arguments[0] = arg0;
+        last_arguments[1] = arg1;
+        last_arguments[2] = arg2;
+        if (number == OK_SYS_SYMLINKAT) return arg0 && arg2 ? 0 : -OK_EFAULT;
+        return arg0 && arg1 ? arg2 : -OK_EFAULT;
+    }
     return -OK_ENOSYS;
 }
 
 long ok_syscall4(long number, long arg0, long arg1, long arg2, long arg3)
 {
     last_number = number;
-    if (number == OK_SYS_RENAMEAT) {
+    if (number == OK_SYS_NEWFSTATAT_V2) {
         last_arguments[0] = arg0;
         last_arguments[1] = arg1;
         last_arguments[2] = arg2;
         last_arguments[3] = arg3;
+        if (metadata_error) return metadata_error;
+        metadata_v2((struct ok_stat_v2 *)arg2, !!(arg3 & OK_AT_SYMLINK_NOFOLLOW));
+        return 0;
+    }
+    if (number == OK_SYS_RENAMEAT || number == OK_SYS_READLINKAT) {
+        last_arguments[0] = arg0;
+        last_arguments[1] = arg1;
+        last_arguments[2] = arg2;
+        last_arguments[3] = arg3;
+        if (number == OK_SYS_READLINKAT) return arg1 && arg2 ? arg3 : -OK_EFAULT;
         return arg1 && arg3 ? 0 : -OK_EFAULT;
     }
     return -OK_ENOSYS;
@@ -146,6 +193,11 @@ long ok_syscall6(long number, long arg0, long arg1, long arg2, long arg3, long a
 
 int main(void)
 {
+    if (kill(47, SIGTERM) != 0 || last_number != OK_SYS_KILL ||
+        last_arguments[0] != 47 || last_arguments[1] != OK_SIGTERM) return 40;
+    kill_result = -OK_ESRCH;
+    if (kill(-1, SIGKILL) != -1 || errno != ESRCH || last_number != OK_SYS_KILL ||
+        last_arguments[0] != -1 || last_arguments[1] != OK_SIGKILL) return 41;
     char buf[4];
     if (read(3, buf, sizeof(buf)) != -1 || errno != EINTR || last_number != OK_SYS_READ) {
         return 1;
@@ -166,22 +218,28 @@ int main(void)
         return 6;
     }
     struct stat st;
-    if (stat("/file", &st) != 0 || st.st_size != 123 || st.st_mode != (OK_MODE_REGULAR | 0400)) {
+    const char filepath[] = "/file";
+    if (stat(filepath, &st) != 0 || st.st_size != 123 || st.st_mode != (OK_MODE_REGULAR | 0400) ||
+        st.st_ino != metadata_inode || last_number != OK_SYS_NEWFSTATAT_V2 ||
+        last_arguments[0] != OK_AT_FDCWD || last_arguments[1] != (long)filepath || last_arguments[3] != 0) {
         return 7;
     }
     if (!S_ISREG(st.st_mode) || st.st_nlink != 1 || st.st_blksize != 512) {
         return 8;
     }
     memset(&st, 0, sizeof(st));
-    if (fstat(42, &st) != 0 || st.st_size != 123 || last_number != OK_SYS_FSTAT) {
+    if (fstat(42, &st) != 0 || st.st_size != 123 || st.st_ino != metadata_inode ||
+        last_number != OK_SYS_FSTAT_V2 || last_arguments[0] != 42) {
         return 9;
     }
+    unsigned char saved_stat[sizeof(st)];
+    memcpy(saved_stat, &st, sizeof(st));
     metadata_size = (uintptr_t)__LONG_MAX__ + 1u;
-    if (stat("/too-large", &st) != -1 || errno != EOVERFLOW || st.st_size != 123)
+    if (stat("/too-large", &st) != -1 || errno != EOVERFLOW || memcmp(saved_stat, &st, sizeof(st)))
         return 30;
     metadata_size = 123;
     metadata_blocks = (uint64_t)~0u + 1;
-    if (fstat(42, &st) != -1 || errno != EOVERFLOW || st.st_size != 123)
+    if (fstat(42, &st) != -1 || errno != EOVERFLOW || memcmp(saved_stat, &st, sizeof(st)))
         return 31;
     metadata_blocks = 0;
     if (mkdir("/tmp", 0700) != 0 || last_number != OK_SYS_MKDIR) {
@@ -254,5 +312,38 @@ int main(void)
         rmdir(NULL) != -1 || errno != EFAULT) {
         return 38;
     }
+    if (symlink(oldpath, newpath) != 0 || last_number != OK_SYS_SYMLINK ||
+        last_arguments[0] != (long)oldpath || last_arguments[1] != (long)newpath) return 39;
+    if (symlinkat(oldpath, 9, newpath) != 0 || last_number != OK_SYS_SYMLINKAT ||
+        last_arguments[0] != (long)oldpath || last_arguments[1] != 9 ||
+        last_arguments[2] != (long)newpath) return 40;
+    if (readlink(oldpath, buf, sizeof(buf)) != sizeof(buf) || last_number != OK_SYS_READLINK ||
+        last_arguments[0] != (long)oldpath || last_arguments[1] != (long)buf ||
+        last_arguments[2] != sizeof(buf)) return 41;
+    if (readlinkat(9, oldpath, buf, sizeof(buf)) != sizeof(buf) || last_number != OK_SYS_READLINKAT ||
+        last_arguments[0] != 9 || last_arguments[1] != (long)oldpath ||
+        last_arguments[2] != (long)buf || last_arguments[3] != sizeof(buf)) return 42;
+    if (symlink(NULL, newpath) != -1 || errno != EFAULT ||
+        symlinkat(oldpath, 9, NULL) != -1 || errno != EFAULT ||
+        readlink(oldpath, NULL, 1) != -1 || errno != EFAULT ||
+        readlinkat(9, oldpath, NULL, 1) != -1 || errno != EFAULT) return 43;
+    if (lstat(oldpath, &st) != 0 || !S_ISLNK(st.st_mode) || st.st_ino != metadata_inode ||
+        last_number != OK_SYS_NEWFSTATAT_V2 || last_arguments[0] != OK_AT_FDCWD ||
+        last_arguments[1] != (long)oldpath || last_arguments[3] != OK_AT_SYMLINK_NOFOLLOW) return 44;
+    metadata_inode = UINT64_MAX;
+    if (fstatat(9, oldpath, &st, 0) != 0 || !S_ISREG(st.st_mode) || st.st_ino != UINT64_MAX ||
+        last_number != OK_SYS_NEWFSTATAT_V2 || last_arguments[0] != 9 ||
+        last_arguments[1] != (long)oldpath || last_arguments[3] != 0) return 45;
+    metadata_inode = 0;
+    if (fstat(42, &st) != 0 || st.st_ino != 0) return 46;
+    memset(&st, 0xa5, sizeof(st));
+    memcpy(saved_stat, &st, sizeof(st));
+    metadata_error = -OK_ENOENT;
+    if (stat(filepath, &st) != -1 || errno != ENOENT || memcmp(saved_stat, &st, sizeof(st))) return 47;
+    if (lstat(filepath, &st) != -1 || errno != ENOENT || memcmp(saved_stat, &st, sizeof(st))) return 48;
+    if (fstatat(9, oldpath, &st, 0) != -1 || errno != ENOENT || memcmp(saved_stat, &st, sizeof(st))) return 49;
+    metadata_error = -OK_EBADF;
+    if (fstat(42, &st) != -1 || errno != EBADF || memcmp(saved_stat, &st, sizeof(st))) return 50;
+    metadata_error = 0;
     return 0;
 }

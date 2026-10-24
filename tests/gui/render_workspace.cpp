@@ -104,7 +104,7 @@ int main(int argc, char **argv)
     type("Ideas for today\n\nKeep the core small.\nMake the desktop useful.\nBuild one good thing at a time.");
     require(kernel.handle_gui_key(19));
     capture(argv[1], "07-notes");
-    auto saved = kernel.vfs().read_file("/tmp/notes-root.txt");
+    auto saved = kernel.vfs().read_file("/tmp/notes-root/note.txt");
     if (!saved || !file_contains(saved.value(), "Ideas for today"))
         return 3;
     const auto notes = kernel.gui().compositor().surface_info(kernel.gui().compositor().active_surface());

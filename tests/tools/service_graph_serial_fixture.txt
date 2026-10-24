@@ -1,0 +1,48 @@
+SERVICE_EVENT kind=init name=init generation=0 pid=1 value=3
+SERVICE_EVENT kind=launch name=setup generation=1 pid=58 value=1
+SERVICE_CHILD kind=start name=setup generation=1 attempt=1 pid=58 value=0
+SERVICE_EVENT kind=exec name=setup generation=1 pid=58 value=0
+SERVICE_CHILD kind=setup name=setup generation=1 attempt=1 pid=58 value=0
+SERVICE_EVENT kind=reap-service name=setup generation=1 pid=58 value=0
+SERVICE_EVENT kind=ready name=setup generation=1 pid=58 value=2
+SERVICE_EVENT kind=launch name=upstream generation=1 pid=59 value=1
+SERVICE_CHILD kind=start name=upstream generation=1 attempt=1 pid=59 value=0
+SERVICE_EVENT kind=exec name=upstream generation=1 pid=59 value=0
+SERVICE_CHILD kind=notify name=upstream generation=1 attempt=1 pid=59 value=0
+SERVICE_EVENT kind=notify name=upstream generation=1 pid=59 value=0
+SERVICE_EVENT kind=ready name=upstream generation=1 pid=59 value=1
+SERVICE_EVENT kind=launch name=downstream generation=1 pid=60 value=1
+SERVICE_CHILD kind=start name=downstream generation=1 attempt=1 pid=60 value=0
+SERVICE_EVENT kind=exec name=downstream generation=1 pid=60 value=0
+SERVICE_CHILD kind=notify name=downstream generation=1 attempt=1 pid=60 value=0
+SERVICE_EVENT kind=notify name=downstream generation=1 pid=60 value=0
+SERVICE_EVENT kind=ready name=downstream generation=1 pid=60 value=1
+SERVICE_CHILD kind=crash name=upstream generation=1 attempt=1 pid=59 value=42
+SERVICE_EVENT kind=reap-service name=upstream generation=1 pid=59 value=10752
+SERVICE_EVENT kind=term name=downstream generation=1 pid=60 value=1
+SERVICE_CHILD kind=orphan name=downstream generation=1 attempt=1 pid=62 value=1
+SERVICE_CHILD kind=stop name=downstream generation=1 attempt=1 pid=60 value=0
+SERVICE_EVENT kind=reap-other name=init generation=0 pid=62 value=4352
+SERVICE_EVENT kind=reap-service name=downstream generation=1 pid=60 value=0
+SERVICE_EVENT kind=launch name=upstream generation=2 pid=63 value=2
+SERVICE_CHILD kind=start name=upstream generation=2 attempt=2 pid=63 value=0
+SERVICE_CHILD kind=notify name=upstream generation=2 attempt=2 pid=63 value=0
+SERVICE_EVENT kind=exec name=upstream generation=2 pid=63 value=0
+SERVICE_EVENT kind=notify name=upstream generation=2 pid=63 value=0
+SERVICE_EVENT kind=ready name=upstream generation=2 pid=63 value=1
+SERVICE_EVENT kind=launch name=downstream generation=2 pid=64 value=2
+SERVICE_CHILD kind=start name=downstream generation=2 attempt=2 pid=64 value=0
+SERVICE_EVENT kind=exec name=downstream generation=2 pid=64 value=0
+SERVICE_CHILD kind=notify name=downstream generation=2 attempt=2 pid=64 value=0
+SERVICE_EVENT kind=notify name=downstream generation=2 pid=64 value=0
+SERVICE_EVENT kind=ready name=downstream generation=2 pid=64 value=1
+SERVICE_CHILD kind=request-stop name=downstream generation=2 attempt=2 pid=64 value=1
+SERVICE_EVENT kind=shutdown name=init generation=0 pid=1 value=0
+SERVICE_EVENT kind=term name=downstream generation=2 pid=64 value=2
+SERVICE_CHILD kind=stop name=downstream generation=2 attempt=2 pid=64 value=0
+SERVICE_EVENT kind=reap-service name=downstream generation=2 pid=64 value=0
+SERVICE_EVENT kind=term name=upstream generation=2 pid=63 value=2
+SERVICE_CHILD kind=stop name=upstream generation=2 attempt=2 pid=63 value=0
+SERVICE_EVENT kind=reap-service name=upstream generation=2 pid=63 value=0
+SERVICE_EVENT kind=stopped name=init generation=0 pid=1 value=1
+SERVICE_GRAPH_NATIVE_PASS pid=1 setup=1 upstream=2 downstream=2 other=1 shutdown=ordered

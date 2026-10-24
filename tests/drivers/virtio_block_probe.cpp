@@ -1,4 +1,5 @@
 #include "drivers/virtio/block.hpp"
+#include "ok/arch/clock.hpp"
 using namespace ok;
 namespace
 {
@@ -106,7 +107,28 @@ extern "C" [[noreturn]] void kernel_main()
     check(!disk->read_blocks(1024, {data.data(), 512}), "reject capacity overflow");
     check(!disk->read_blocks(0, {data.data(), 511}), "reject partial sector");
     check(disk->read_blocks(1024, {}).ok(), "empty boundary read");
+    const auto started = arch::monotonic_nanoseconds();
+    check(started.ok(), "clock sample");
     auto status = disk->read_blocks(40, data);
+#ifdef OK_BLOCK_TIMEOUT
+    check(!status && status.code() == StatusCode::fault, "deadline failure");
+    auto finished = arch::monotonic_nanoseconds();
+    check(finished.ok() && finished.value() - started.value() >= 5'000'000'000, "elapsed deadline");
+    check(!disk->geometry().writable, "failed device retired");
+    check(disk->read_blocks(40, data).code() == StatusCode::not_initialized, "failed queue cannot be reused");
+    check(disk->flush().code() == StatusCode::not_initialized, "failed queue cannot flush");
+    check(disk->io_stats().errors == 1, "single timeout failure");
+    emit("VIRTIO_BLOCK_PASS scope=hardware timeout=pass elapsed=pass retired_queue=pass\n");
+    end();
+#endif
+#ifdef OK_BLOCK_DELAYED
+    auto finished = arch::monotonic_nanoseconds();
+    check(status.ok() && finished.ok() && finished.value() - started.value() >= 500'000'000, "healthy delayed completion");
+    for (auto byte : data) check(byte == std::byte{0xa5}, "delayed read bytes");
+    check(!disk->io_stats().errors, "delayed completion has no errors");
+    emit("VIRTIO_BLOCK_PASS scope=hardware delayed=pass elapsed=pass bytes=pass\n");
+    end();
+#endif
 #ifdef OK_BLOCK_READ_ERROR
     check(!status && status.code() == StatusCode::fault, "injected device read error");
     check(disk->read_blocks(40, data).ok(), "queue recovers after device I/O error");
@@ -154,4 +176,13 @@ extern "C" [[noreturn]] void kernel_main()
 #endif
     end();
 #endif
+}
+
+namespace __cxxabiv1 {
+class __class_type_info { public: virtual ~__class_type_info(); };
+class __si_class_type_info : public __class_type_info { public: ~__si_class_type_info() override; };
+class __vmi_class_type_info : public __class_type_info { public: ~__vmi_class_type_info() override; };
+__class_type_info::~__class_type_info() = default;
+__si_class_type_info::~__si_class_type_info() = default;
+__vmi_class_type_info::~__vmi_class_type_info() = default;
 }
