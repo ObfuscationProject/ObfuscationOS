@@ -1,4 +1,6 @@
 #include "block.hpp"
+#include "poll.hpp"
+#include "ok/arch/clock.hpp"
 
 #include <array>
 #include <new>
@@ -12,7 +14,7 @@ constexpr usize queue_size = 8;
 constexpr usize transfer_size = 4096;
 constexpr u32 feature_readonly = 1u << 5;
 constexpr u32 feature_flush = 1u << 9;
-constexpr usize poll_limit = 20000000;
+constexpr u64 io_timeout_ns = 5'000'000'000;
 
 void barrier()
 {
@@ -487,14 +489,19 @@ template <typename Transport> class VirtioBlock final : public driver::BlockDevi
     }
     Status initialize()
     {
+        if (shutdown_started_)
+            return Status::would_block("Virtio block shutdown closed admission");
         if (auto result = transport_.discover(); !result)
             return result;
+        if (auto status = arch::initialize_clock(); !status)
+            return status;
+        auto started = arch::monotonic_nanoseconds();
+        if (!started)
+            return started.status();
         transport_.status(0);
-        for (usize i = 0; transport_.status() && i < poll_limit; ++i)
-        {
-        }
-        if (transport_.status())
-            return Status::fault("Virtio block reset timed out");
+        if (auto status = detail::poll_until([&] { return transport_.status() == 0; },
+                [] { return arch::monotonic_nanoseconds(); }, started.value(), io_timeout_ns); !status)
+            return status;
         transport_.status(3);
         const auto offered = transport_.features(0);
         flush_ = offered & feature_flush;
@@ -576,9 +583,48 @@ template <typename Transport> class VirtioBlock final : public driver::BlockDevi
             return Status::unsupported("Virtio block FLUSH is unavailable");
         return request(4, 0, 0);
     }
+    Status preflight_shutdown()
+    {
+        if (shutdown_started_)
+            return Status::would_block("Virtio block shutdown already consumed its transport");
+        if (transport_.legacy())
+            return Status::unsupported("clean shutdown has no qualified legacy Virtio block transport");
+        if (!ready_ || !writable_ || !flush_ || !capacity_)
+            return Status::unsupported("Virtio block shutdown requires the ready writable FLUSH transport");
+        if (busy_ || available_ != used_)
+            return Status::busy("Virtio block shutdown has an outstanding request");
+        barrier();
+        if (little(*reinterpret_cast<volatile u16 *>(&queue_.available.index)) != available_ ||
+            little(*reinterpret_cast<volatile u16 *>(&queue_.used.index)) != used_)
+            return Status::busy("Virtio block shutdown queue ownership differs");
+        const auto status = transport_.status();
+        if ((status & 15) != 15 || (status & (64 | 128)) || transport_.capacity() != capacity_ || stats_.errors)
+            return Status::unsupported("Virtio block shutdown transport state is not qualified");
+        return {};
+    }
+    Status stop_shutdown()
+    {
+        if (shutdown_started_)
+            return shutdown_finished_ ? shutdown_status_ : Status::busy("Virtio block shutdown is active");
+        if (auto status = preflight_shutdown(); !status) return status;
+        shutdown_started_ = true;
+        ready_ = false;
+        auto started = arch::monotonic_nanoseconds();
+        if (!started) shutdown_status_ = started.status();
+        else
+        {
+            transport_.status(0);
+            shutdown_status_ = detail::poll_until([&] { return transport_.status() == 0; },
+                [] { return arch::monotonic_nanoseconds(); }, started.value(), io_timeout_ns);
+        }
+        // A failed or uncertain reset is terminal. Static queue memory cannot
+        // be reused even when the device has not acknowledged the reset.
+        shutdown_finished_ = true;
+        return shutdown_status_;
+    }
 
   private:
-    Status fail(const char *message)
+    Status fail(std::string_view message)
     {
         ready_ = false;
         transport_.status(transport_.status() | 128);
@@ -587,6 +633,8 @@ template <typename Transport> class VirtioBlock final : public driver::BlockDevi
     }
     Status validate(u64 first, usize size) const
     {
+        if (shutdown_started_)
+            return Status::would_block("Virtio block shutdown closed admission");
         if (!ready_)
             return Status::not_initialized("Virtio block is not ready");
         if (size % 512 || first > capacity_ || size / 512 > capacity_ - first)
@@ -595,10 +643,15 @@ template <typename Transport> class VirtioBlock final : public driver::BlockDevi
     }
     Status request(u32 type, u64 sector, usize size)
     {
+        if (shutdown_started_)
+            return Status::would_block("Virtio block shutdown closed admission");
         if (!ready_)
             return Status::not_initialized("Virtio block is not ready");
         if (busy_)
             return Status::busy("Virtio block request is already active");
+        auto started = arch::monotonic_nanoseconds();
+        if (!started)
+            return started.status();
         busy_ = true;
         queue_.request = {little(type), 0, little(sector)};
         queue_.completion = 0xff;
@@ -614,13 +667,16 @@ template <typename Transport> class VirtioBlock final : public driver::BlockDevi
         *reinterpret_cast<volatile u16 *>(&queue_.available.index) = little(++available_);
         barrier();
         transport_.notify();
-        usize attempts = 0;
-        while (little(*reinterpret_cast<volatile u16 *>(&queue_.used.index)) == used_ && attempts++ < poll_limit)
+        const auto completed = detail::poll_until([&] {
             barrier();
+            return little(*reinterpret_cast<volatile u16 *>(&queue_.used.index)) != used_;
+        }, [] { return arch::monotonic_nanoseconds(); }, started.value(), io_timeout_ns);
         barrier();
         busy_ = false;
-        if (attempts >= poll_limit)
-            return fail("Virtio block completion timed out");
+        // A failed wait retires this device. Queue memory remains static and
+        // cannot be reused while a late DMA completion may still arrive.
+        if (!completed)
+            return fail(completed.message());
         const auto observed = little(*reinterpret_cast<volatile u16 *>(&queue_.used.index));
         const auto element = queue_.used.ring[used_ % queue_size];
         ++used_;
@@ -644,7 +700,8 @@ template <typename Transport> class VirtioBlock final : public driver::BlockDevi
     Queue &queue_;
     u16 available_{}, used_{};
     u64 capacity_{};
-    bool writable_{}, flush_{}, ready_{}, busy_{};
+    bool writable_{}, flush_{}, ready_{}, busy_{}, shutdown_started_{}, shutdown_finished_{};
+    Status shutdown_status_{};
     driver::BlockIoStats stats_{};
 };
 
@@ -656,16 +713,35 @@ using NativeDisk = VirtioBlock<PciTransport>;
 alignas(NativeDisk) std::byte disk_storage[sizeof(NativeDisk)];
 NativeDisk *disk{};
 Queue native_queue{};
+bool disk_probe_attempted{};
+Status disk_probe_result{};
 } // namespace
 
 Result<driver::BlockDevice *> probe_virtio_block()
 {
     if (disk)
         return static_cast<driver::BlockDevice *>(disk);
+    if (disk_probe_attempted) return disk_probe_result;
+    disk_probe_attempted = true;
+    disk_probe_result = Status::busy("original Virtio block probe is active");
     auto *candidate = new (disk_storage) NativeDisk(native_queue);
-    if (auto result = candidate->initialize(); !result)
-        return result;
+    disk_probe_result = candidate->initialize();
+    if (!disk_probe_result) return disk_probe_result;
     disk = candidate;
     return static_cast<driver::BlockDevice *>(disk);
+}
+
+Status preflight_virtio_block_shutdown(const driver::BlockDevice &device)
+{
+    if (!disk || static_cast<const driver::BlockDevice *>(disk) != &device)
+        return Status::unsupported("shutdown block device is not the original published Virtio transport");
+    return disk->preflight_shutdown();
+}
+
+Status stop_virtio_block_shutdown(const driver::BlockDevice &device)
+{
+    if (!disk || &device != disk)
+        return Status::unsupported("Virtio block shutdown requires the original published transport");
+    return disk->stop_shutdown();
 }
 } // namespace os::drivers

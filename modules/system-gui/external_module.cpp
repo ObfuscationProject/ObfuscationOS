@@ -1,4 +1,5 @@
 #include "external_module.hpp"
+#include "notes_save.hpp"
 #include "ok/gui/paint.hpp"
 
 namespace ok
@@ -431,11 +432,26 @@ Status ExternalGuiDesktopModule::start(ServiceRegistry &services)
     return render_greeter();
 }
 
+Status ExternalGuiDesktopModule::shutdown_preflight() const
+{
+    if (!configured_ || name_.view() != "system-gui" || service_id_.view() != "gui.system-desktop" ||
+        load_path_.view() != "/boot/modules/system-gui.okmod")
+        return Status::unsupported("shutdown desktop module identity is not qualified");
+    if (desktop_state_ == ExternalGuiDesktopState::stopped)
+        return !dashboard_surface_ && !compositor_ && !desktop_ ? Status{} :
+            Status::unsupported("stopped shutdown desktop retains an unexpected window owner");
+    if ((desktop_state_ != ExternalGuiDesktopState::greeter && desktop_state_ != ExternalGuiDesktopState::desktop) ||
+        !dashboard_surface_ || !compositor_ || !desktop_ || compositor_->state() != gui::GuiState::running ||
+        !compositor_->surface_info(dashboard_surface_))
+        return Status::unsupported("shutdown desktop window owner is not qualified");
+    return {};
+}
+
 Status ExternalGuiDesktopModule::stop()
 {
     if (compositor_ != nullptr && compositor_->state() == gui::GuiState::running)
     {
-        static_cast<void>(compositor_->set_shell_mode(gui::GuiShellMode::kernel_shell));
+        if (auto status = compositor_->set_shell_mode(gui::GuiShellMode::kernel_shell); !status) return status;
     }
     if (desktop_ != nullptr && dashboard_surface_ != 0)
     {
@@ -944,7 +960,7 @@ Status ExternalGuiAppModule::configure_from_elf(std::string_view app_id, std::st
     if (app_id == "tasks")
         static_cast<void>(status_line_.assign("J/K scroll process list"));
     if (app_id == "files")
-        static_cast<void>(status_line_.assign("Enter opens  J/K selects"));
+        static_cast<void>(status_line_.assign("N file  F folder  R rename  D remove  Enter opens"));
     process_id_ = process_id;
     configured_ = true;
     app_state_ = ExternalGuiAppState::stopped;
@@ -1084,6 +1100,23 @@ Status ExternalGuiAppModule::start(gui::GuiCompositor &compositor, gui::GuiDeskt
     return Status::success();
 }
 
+Status ExternalGuiAppModule::shutdown_preflight() const
+{
+    if (!configured_)
+        return !surface_ && !compositor_ && !desktop_ && !process_id_ ? Status{} :
+            Status::unsupported("unconfigured shutdown app retains an owner");
+    if (document_dirty_ || notes_publication_uncertain_ || notes_retained_after_render_failure_ ||
+        notes_load_failed_ || notes_request_pending_ || file_action_ != obfuscationos::desktop::FilesAction::none)
+        return Status::busy("shutdown app has unsaved, pending or uncertain work");
+    if (app_state_ == ExternalGuiAppState::stopped)
+        return !surface_ && !compositor_ && !desktop_ ? Status{} :
+            Status::unsupported("stopped shutdown app retains an unexpected window owner");
+    if (app_state_ != ExternalGuiAppState::running || !surface_ || !compositor_ || !desktop_ ||
+        compositor_->state() != gui::GuiState::running || !compositor_->surface_info(surface_))
+        return Status::unsupported("shutdown app window owner is not qualified");
+    return {};
+}
+
 Status ExternalGuiAppModule::stop()
 {
     if (desktop_ != nullptr && surface_ != 0)
@@ -1116,7 +1149,23 @@ void ExternalGuiAppModule::reset()
     static_cast<void>(directory_.assign("/"));
     static_cast<void>(status_line_.assign("Ready"));
     document_dirty_ = false;
+    notes_load_failed_ = false;
+    notes_has_target_ = false;
+    notes_publication_uncertain_ = false;
+    notes_retained_after_render_failure_ = false;
+    notes_target_ = {};
+    notes_request_pending_ = false;
+    notes_request_ = {};
+    file_listing_captured_ = false;
+    file_display_listing_ = {};
+    file_display_directory_.clear();
+    file_display_parent_ = {};
     file_preview_ = false;
+    file_action_ = obfuscationos::desktop::FilesAction::none;
+    file_action_source_.clear();
+    file_action_directory_.clear();
+    file_action_selection_ = {};
+    file_action_parent_ = {};
     selected_entry_ = 0;
     configured_ = false;
     name_.clear();
@@ -1182,54 +1231,158 @@ Status ExternalGuiAppModule::open_window()
         return surface.status();
     }
     surface_ = surface.value();
-    if (service_id_.view() == "notes" && posix_ && !document_dirty_)
+    if (service_id_.view() == "notes" && posix_ && !document_dirty_ && !notes_has_target_ && !notes_retained_after_render_failure_)
     {
-        const auto path = posix_->euid() == 0 ? "/tmp/notes-root.txt" : "/tmp/notes-user.txt";
-        if (auto fd = posix_->open(path, posix::o_RDONLY))
-        {
-            std::array<std::byte, 1023> bytes{};
-            auto count = posix_->read(fd.value(), bytes);
-            static_cast<void>(posix_->close(fd.value()));
-            if (count)
-            {
-                static_cast<void>(document_.assign({reinterpret_cast<const char *>(bytes.data()), count.value()}));
-                static_cast<void>(status_line_.assign("Loaded from /tmp"));
-            }
-        }
+        auto loaded = load_notes();
+        notes_load_failed_ = !loaded.ok() && loaded.code() != StatusCode::not_found;
+        if (notes_load_failed_)
+            static_cast<void>(status_line_.assign(loaded.message().substr(0, 80)));
     }
     return render_window();
+}
+
+Status ExternalGuiAppModule::load_notes()
+{
+    const bool root_user = posix_->euid() == 0;
+    const auto folder = root_user ? "/tmp/notes-root" : "/tmp/notes-user";
+    const auto legacy = root_user ? "/tmp/notes-root.txt" : "/tmp/notes-user.txt";
+    auto parent = posix_->open(folder, posix::o_RDONLY | posix::o_DIRECTORY | posix::o_CLOEXEC | posix::o_NOFOLLOW);
+    posix::Fd fd = -1;
+    bool legacy_file = false;
+    if (parent)
+    {
+        auto metadata = posix_->fstat(parent.value());
+        Status checked{};
+        if (!metadata) checked = metadata.status();
+        else if (metadata.value().type != fs::NodeType::directory || metadata.value().uid != posix_->euid() ||
+                 metadata.value().gid != posix_->egid() || (metadata.value().mode & 07777u) != 0700u)
+            checked = Status::denied("Notes folder is not private and owned by this user");
+        if (!checked) { static_cast<void>(posix_->close(parent.value())); return checked; }
+        auto file = posix_->openat(parent.value(), "note.txt", posix::o_RDONLY | posix::o_CLOEXEC | posix::o_NOFOLLOW);
+        auto closed = posix_->close(parent.value());
+        if (!closed) { if (file) static_cast<void>(posix_->close(file.value())); return closed; }
+        if (file) fd = file.value();
+        else if (file.status().code() != StatusCode::not_found) return file.status();
+    }
+    else if (parent.status().code() != StatusCode::not_found) return parent.status();
+    if (fd < 0)
+    {
+        auto file = posix_->open(legacy, posix::o_RDONLY | posix::o_CLOEXEC | posix::o_NOFOLLOW);
+        if (!file) return file.status();
+        fd = file.value(); legacy_file = true;
+    }
+    auto metadata = posix_->fstat(fd);
+    Status checked{};
+    if (!metadata) checked = metadata.status();
+    else if (!obfuscationos::desktop::notes_owned_file(metadata.value(), posix_->euid(), posix_->egid()))
+        checked = Status::denied("Note is not an ordinary owner file");
+    else if (metadata.value().size >= 1024)
+        checked = Status::message_size("Note exceeds this editor's text capacity");
+    std::array<std::byte, 1023> bytes{};
+    usize count{};
+    if (checked)
+        while (count < metadata.value().size)
+        {
+            auto read = posix_->read(fd, std::span<std::byte>{bytes}.subspan(count, metadata.value().size - count));
+            if (!read)
+            {
+                if (read.status().code() == StatusCode::interrupted) continue;
+                checked = read.status(); break;
+            }
+            if (!read.value() || read.value() > metadata.value().size - count)
+            { checked = Status::io_error("Note changed or returned incomplete text"); break; }
+            count += read.value();
+        }
+    auto closed = posix_->close(fd);
+    if (!checked) return checked;
+    if (!closed) return closed;
+    auto assigned = document_.assign({reinterpret_cast<const char *>(bytes.data()), count});
+    if (!assigned) return assigned;
+    document_dirty_ = legacy_file;
+    return status_line_.assign(legacy_file ? "Legacy note loaded; Ctrl+S saves in private folder" : "Loaded private note");
 }
 
 Status ExternalGuiAppModule::save_notes()
 {
     if (posix_ == nullptr)
         return Status::not_initialized("Filesystem unavailable");
-    const auto path = posix_->euid() == 0 ? "/tmp/notes-root.txt" : "/tmp/notes-user.txt";
-    auto existing = posix_->stat(path);
-    if (existing)
+    if (notes_load_failed_)
+        return Status::denied("Reopen Notes after resolving the load error before saving");
+    if (notes_publication_uncertain_)
+        return Status::denied("Save state uncertain; close Notes and reopen the file in Files");
+    if (notes_has_target_)
     {
-        if (existing.value().type != fs::NodeType::regular || existing.value().uid != posix_->euid() ||
-            existing.value().link_count != 1)
-            return Status::denied("Note path is not a private file owned by this user");
-        if (auto status = posix_->chmod(path, 0600); !status.ok())
-            return status;
+        auto saved = obfuscationos::desktop::save_selected_notes(*posix_, notes_target_,
+            {reinterpret_cast<const std::byte *>(document_.view().data()), document_.size()});
+        if (!saved.complete())
+        {
+            document_dirty_ = true;
+            notes_publication_uncertain_ = saved.publication_attempted;
+            if (saved.publication_attempted) return Status::io_error("Save state uncertain; reopen after inspecting the file");
+            return saved.status.ok() ? saved.cleanup : saved.status;
+        }
+        notes_target_.file = saved.published;
+        document_dirty_ = false;
+        return status_line_.assign("Saved selected file  Ctrl+S saves this path");
     }
-    else if (existing.status().code() != StatusCode::not_found)
-        return existing.status();
-    auto fd = posix_->open(path, posix::o_WRONLY | posix::o_CREAT | posix::o_TRUNC, 0600);
-    if (!fd)
-        return fd.status();
-    auto written =
-        posix_->write(fd.value(), {reinterpret_cast<const std::byte *>(document_.view().data()), document_.size()});
-    auto closed = posix_->close(fd.value());
-    if (!written)
-        return written.status();
-    if (written.value() != document_.size())
-        return Status::fault("Note was only partially saved");
-    if (!closed.ok())
-        return closed;
+    const auto saved = obfuscationos::desktop::save_default_notes(*posix_,
+        {reinterpret_cast<const std::byte *>(document_.view().data()), document_.size()});
+    if (!saved.complete())
+    {
+        document_dirty_ = true;
+        if (saved.publication_attempted && !saved.replaced)
+            return Status::io_error("Save replacement state uncertain; changes remain unsaved");
+        if (saved.replaced)
+            return Status::io_error("Note replaced; sync failed. Changes remain unsaved");
+        if (!saved.cleanup.ok())
+            return Status::io_error("Save failed; temporary cleanup failed. Original kept");
+        return saved.status;
+    }
     document_dirty_ = false;
-    return status_line_.assign("Saved in /tmp");
+    return status_line_.assign("Saved private note");
+}
+
+Status ExternalGuiAppModule::open_notes_target(const obfuscationos::desktop::NotesTarget &target)
+{
+    if (service_id_.view() != "notes" || !posix_) return Status::not_initialized("Notes filesystem unavailable");
+    if (document_dirty_ || notes_publication_uncertain_)
+        return Status::busy("Notes has unsaved changes; save or close it before opening a file");
+    if (app_state_ != ExternalGuiAppState::running || !compositor_ || surface_ == 0)
+        return Status::not_initialized("Notes must have a running window before opening a file");
+    auto opened = obfuscationos::desktop::open_selected_notes(*posix_, target);
+    if (!opened) return opened.status();
+    const auto previous_document = document_;
+    const auto previous_target = notes_target_;
+    const auto previous_status = status_line_;
+    const bool previous_dirty = document_dirty_, previous_load = notes_load_failed_, previous_targeted = notes_has_target_;
+    document_ = opened.value().text;
+    notes_target_ = opened.value().target;
+    notes_has_target_ = true; notes_load_failed_ = false; document_dirty_ = false;
+    static_cast<void>(status_line_.assign("Opened selected file  Ctrl+S saves this path"));
+    auto info = compositor_->surface_info(surface_);
+    Status rendered = info ? Status::success() : info.status();
+    if (rendered && info.value().window_state == gui::WindowState::minimized) rendered = compositor_->restore_surface(surface_);
+    if (rendered) rendered = compositor_->set_visible(surface_, true);
+    if (rendered) rendered = compositor_->raise_surface(surface_);
+    if (rendered) rendered = render_window();
+    if (!rendered)
+    {
+        document_ = previous_document; notes_target_ = previous_target; status_line_ = previous_status;
+        document_dirty_ = previous_dirty; notes_load_failed_ = previous_load; notes_has_target_ = previous_targeted;
+        notes_retained_after_render_failure_ = true;
+        // Do not call open_window on rollback: its default load could replace
+        // the restored document. A later refresh may recover the surface.
+        if (surface_ != 0) static_cast<void>(render_window());
+        return rendered;
+    }
+    return Status::success();
+}
+
+Status ExternalGuiAppModule::finish_notes_request(Status result, bool render)
+{
+    notes_request_pending_ = false;
+    static_cast<void>(status_line_.assign(result.ok() ? "Opened in Notes  Enter opens selected text" : result.message().substr(0, 95)));
+    return render ? refresh() : Status::success();
 }
 
 Status ExternalGuiAppModule::execute_command()
@@ -1317,12 +1470,9 @@ Status ExternalGuiAppModule::open_file_entry(usize index)
         return Status::not_initialized("Filesystem unavailable");
     if (auto status = posix_->access(directory_.view(), posix::r_OK | posix::x_OK); !status.ok())
         return status;
-    auto listing = vfs_->list(directory_.view());
-    if (!listing)
-        return listing.status();
-    if (index >= listing.value().count)
-        return Status::success();
-    const auto &entry = listing.value().entries[index];
+    if (!file_listing_captured_ || file_display_directory_.view() != directory_.view() || index >= file_display_listing_.count)
+        return Status::busy("Folder view changed; select the file again");
+    const auto entry = file_display_listing_.entries[index];
     auto path = app_path(directory_.view(), entry.name.view());
     if (!path)
         return path.status();
@@ -1334,26 +1484,64 @@ Status ExternalGuiAppModule::open_file_entry(usize index)
             return status;
         selected_entry_ = 0;
         file_preview_ = false;
-        return status_line_.assign("Enter opens  J/K moves");
+        return status_line_.assign("N file  F folder  R rename  D remove  J/K selects");
     }
-    auto fd = posix_->open(path.value().view(), posix::o_RDONLY);
-    if (!fd)
-        return fd.status();
-    std::array<std::byte, 900> buffer{};
-    auto count = posix_->read(fd.value(), buffer);
-    auto closed = posix_->close(fd.value());
-    if (!count)
-        return count.status();
-    if (!closed.ok())
-        return closed;
-    document_.clear();
-    for (usize i = 0; i < count.value(); ++i)
+    auto selected = obfuscationos::desktop::capture_file_action(*posix_, directory_.view(), entry.name.view());
+    if (!selected) return selected.status();
+    if (!obfuscationos::desktop::files_same_directory(file_display_parent_, selected.value().directory) ||
+        !obfuscationos::desktop::notes_handoff_same_file(obfuscationos::desktop::notes_listing_status(entry.metadata), selected.value().item))
+        return Status::busy("Selected row changed; select it again");
+    auto target = obfuscationos::desktop::make_notes_target(directory_.view(), entry.name.view(), selected.value());
+    if (!target) return target.status();
+    notes_request_ = target.value(); notes_request_pending_ = true;
+    return status_line_.assign("Opening selected file in Notes");
+}
+
+Status ExternalGuiAppModule::begin_file_action(obfuscationos::desktop::FilesAction action)
+{
+    using namespace obfuscationos::desktop;
+    if (!posix_ || !vfs_) return Status::not_initialized("Filesystem unavailable");
+    if (file_preview_) return Status::busy("Go back to the folder first");
+    file_action_source_.clear();
+    input_.clear();
+    if (auto status = file_action_directory_.assign(directory_.view()); !status) return status;
+    if (action == FilesAction::rename || action == FilesAction::remove)
     {
-        const auto ch = std::to_integer<unsigned char>(buffer[i]);
-        static_cast<void>(document_.append(ch == '\n' || (ch >= 32 && ch < 127) ? static_cast<char>(ch) : '.'));
+        if (auto status = posix_->access(directory_.view(), posix::r_OK | posix::x_OK); !status) return status;
+        auto listing = vfs_->list(directory_.view());
+        if (!listing) return listing.status();
+        if (selected_entry_ >= listing.value().count) return Status::not_found("Select a file or folder first");
+        if (auto status = file_action_source_.assign(listing.value().entries[selected_entry_].name.view()); !status) return status;
     }
-    file_preview_ = true;
-    return status_line_.assign(entry.name.view());
+    auto selected = capture_file_action(*posix_, directory_.view(), file_action_source_.view());
+    if (!selected) return selected.status();
+    file_action_selection_ = selected.value().item;
+    file_action_parent_ = selected.value().directory;
+    file_action_ = action;
+    return status_line_.assign(action == FilesAction::remove ? "Enter removes selected item  Esc cancels" :
+        action == FilesAction::rename ? "New name: type, then Enter  Esc cancels" :
+        action == FilesAction::new_folder ? "Folder name: type, then Enter  Esc cancels" :
+        "File name: type, then Enter  Esc cancels");
+}
+
+Status ExternalGuiAppModule::commit_file_action()
+{
+    using namespace obfuscationos::desktop;
+    if (!posix_ || file_action_ == FilesAction::none) return Status::not_initialized("No file action pending");
+    const bool selected = file_action_ == FilesAction::rename || file_action_ == FilesAction::remove;
+    auto outcome = perform_file_action(*posix_, file_action_directory_.view(), file_action_,
+        selected ? file_action_source_.view() : input_.view(), file_action_ == FilesAction::rename ? input_.view() : std::string_view{},
+        selected ? &file_action_selection_ : nullptr, &file_action_parent_);
+    // Retire a submitted prompt even on error. A retry must capture a new
+    // selection because namespace publication can precede a backend failure.
+    file_action_ = FilesAction::none;
+    file_action_source_.clear(); input_.clear();
+    file_preview_ = false; selected_entry_ = 0;
+    if (outcome.complete()) return status_line_.assign("Done  N file  F folder  R rename  D remove");
+    if (outcome.publication_attempted)
+        return status_line_.assign(outcome.changed ? "Change applied; sync or close failed. Inspect folder." :
+            "File action failed; result uncertain. Inspect folder.");
+    return outcome.status.ok() ? outcome.cleanup : outcome.status;
 }
 
 Status ExternalGuiAppModule::handle_key(int key)
@@ -1408,9 +1596,29 @@ Status ExternalGuiAppModule::handle_key(int key)
     }
     else if (service_id_.view() == "files")
     {
-        if (key == 8 || key == 127 || key == 27)
+        using obfuscationos::desktop::FilesAction;
+        if (file_action_ != FilesAction::none)
+        {
+            if (key == 27)
+            {
+                file_action_ = FilesAction::none; input_.clear(); file_action_source_.clear();
+                static_cast<void>(status_line_.assign("Cancelled  N file  F folder  R rename  D remove"));
+            }
+            else if (key == '\r' || key == '\n') action = commit_file_action();
+            else if (file_action_ != FilesAction::remove)
+            {
+                if (key == 8 || key == 127) input_.pop_back();
+                else if (key >= 32 && key < 127)
+                    action = input_.size() < obfuscationos::desktop::files_name_limit ? input_.append(static_cast<char>(key)) : Status::overflow("Name is limited to 31 characters");
+            }
+        }
+        else if (key == 'n' || key == 'N') action = begin_file_action(FilesAction::new_file);
+        else if (key == 'f' || key == 'F') action = begin_file_action(FilesAction::new_folder);
+        else if (key == 'r' || key == 'R') action = begin_file_action(FilesAction::rename);
+        else if (key == 'd' || key == 'D') action = begin_file_action(FilesAction::remove);
+        else if (key == 8 || key == 127 || key == 27)
             return handle_pointer(20, 29);
-        if (key == '\r' || key == '\n')
+        else if (key == '\r' || key == '\n')
             action = open_file_entry(selected_entry_);
         else if (key == 'j' && vfs_)
         {
@@ -1441,6 +1649,7 @@ Status ExternalGuiAppModule::handle_pointer(i32 x, i32 y)
     }
     else if (service_id_.view() == "files")
     {
+        if (file_action_ != obfuscationos::desktop::FilesAction::none) return refresh();
         if (x < 76 && y >= 18 && y < 47)
         {
             if (file_preview_)
@@ -1467,8 +1676,7 @@ Status ExternalGuiAppModule::handle_pointer(i32 x, i32 y)
             const auto row = static_cast<usize>((y - 76) / 18);
             if (row < rows && vfs_)
             {
-                auto listing = vfs_->list(directory_.view());
-                if (listing && first + row < listing.value().count)
+                if (file_listing_captured_ && first + row < file_display_listing_.count)
                 {
                     selected_entry_ = first + row;
                     action = open_file_entry(selected_entry_);
@@ -1615,13 +1823,16 @@ Status ExternalGuiAppModule::render_window()
         p.rect(1, 18, 80, height - 35, subtle);
         p.text(13, 31, "MY NOTES", muted, subtle);
         p.rounded({7, 49, 67, 29}, accent_soft, 3);
-        p.text(13, 56, "Scratchpad", accent_, accent_soft);
-        p.text(13, 68, "Personal", muted, accent_soft);
-        p.text(96, 31, "Scratchpad", text);
+        p.text(13, 56, notes_has_target_ ? "File" : "Scratchpad", accent_, accent_soft);
+        p.text(13, 68, notes_has_target_ ? "From Files" : "Personal", muted, accent_soft);
+        p.text(96, 31, notes_has_target_ ? notes_target_.name.view() : std::string_view{"Scratchpad"}, text,
+            gui::theme::surface, width - 180);
         p.text(width - 79, 31, "Ctrl+S", muted);
         p.rect(94, 46, content_width, 1, border);
+        const auto editor_y = notes_has_target_ ? paragraph(96, 51, notes_target_.path.view(), content_width / gui::gui_glyph_width,
+            muted, gui::theme::surface).y + 15 : 58;
         const auto cursor =
-            paragraph(96, 58, document_.view(), content_width / gui::gui_glyph_width, text, gui::theme::surface, true);
+            paragraph(96, editor_y, document_.view(), content_width / gui::gui_glyph_width, text, gui::theme::surface, true);
         if (info.value().focused && cursor.y + 9 < footer)
             p.rect(cursor.x, cursor.y, 1, 8, accent_);
     }
@@ -1641,7 +1852,36 @@ Status ExternalGuiAppModule::render_window()
                             : Result<fs::DirectoryListing>{Status::not_initialized("no filesystem")};
         if (listing && posix_ && !posix_->access(directory_.view(), posix::r_OK | posix::x_OK).ok())
             listing = Status::denied("Folder access denied");
-        if (file_preview_)
+        file_listing_captured_ = false;
+        if (listing && posix_)
+        {
+            auto parent = obfuscationos::desktop::capture_notes_display(*posix_, directory_.view(), listing.value());
+            if (parent)
+            {
+                file_display_listing_ = listing.value();
+                file_display_parent_ = parent.value();
+                if (file_display_directory_.assign(directory_.view())) file_listing_captured_ = true;
+            }
+        }
+        if (file_action_ != obfuscationos::desktop::FilesAction::none)
+        {
+            using obfuscationos::desktop::FilesAction;
+            p.rect(80, 48, width - 81, height - 65, gui::theme::surface);
+            const auto label = file_action_ == FilesAction::remove ? "REMOVE SELECTED ITEM" :
+                file_action_ == FilesAction::rename ? "RENAME SELECTED ITEM" :
+                file_action_ == FilesAction::new_folder ? "NEW FOLDER" : "NEW FILE";
+            p.text(92, 58, label, text);
+            p.text(92, 79, file_action_source_.view(), muted, gui::theme::surface, width - 106);
+            if (file_action_ == FilesAction::remove)
+                p.text(92, 99, "Enter confirms. Esc cancels.", muted, gui::theme::surface, width - 106);
+            else
+            {
+                p.rounded({90, 94, width - 102, 22}, subtle, 3);
+                p.text(96, 101, input_.view(), text, subtle, width - 118);
+                p.text(92, 126, "Enter submits. Esc cancels.", muted, gui::theme::surface, width - 106);
+            }
+        }
+        else if (file_preview_)
         {
             p.rect(80, 48, width - 81, height - 65, gui::theme::surface);
             p.text(92, 58, "FILE PREVIEW", muted);

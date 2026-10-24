@@ -1,6 +1,8 @@
 #include "ok/core/entry.hpp"
 #include "system_gui_runtime.hpp"
 
+extern "C" void ok_platform_console_write_char(char value) __attribute__((weak));
+
 namespace obfuscationos::modules
 {
 namespace
@@ -632,27 +634,56 @@ Status test_system_gui_notes_save_and_files_navigation(Kernel &kernel)
         return Status::fault("GUI input overwrote another scheduled process's credentials");
     if (auto status = kernel.scheduler().kill_process(observer.value()); !status.ok())
         return status;
-    auto file = kernel.vfs().read_file("/tmp/notes-user.txt");
-    auto metadata = kernel.vfs().stat("/tmp/notes-user.txt");
+    auto file = kernel.vfs().read_file("/tmp/notes-user/note.txt");
+    auto metadata = kernel.vfs().stat("/tmp/notes-user/note.txt");
     if (!file || !file_contains(file.value(), "GUI note persistence") || !metadata ||
         metadata.value().uid != user::default_user_uid || (metadata.value().mode & 0777u) != 0600u)
         return Status::fault("Notes failed to save a private selected-user file through POSIX");
-    if (auto status = kernel.vfs().chmod("/tmp/notes-user.txt", 0644); !status.ok())
+    if (auto status = kernel.vfs().chmod("/tmp/notes-user/note.txt", 0644); !status.ok())
         return status;
     if (auto status = kernel.handle_gui_key(19); !status.ok())
         return status;
-    metadata = kernel.vfs().stat("/tmp/notes-user.txt");
+    metadata = kernel.vfs().stat("/tmp/notes-user/note.txt");
     if (!metadata || (metadata.value().mode & 0777u) != 0600u)
         return Status::fault("Notes did not restore private permissions when saving an existing file");
-    if (auto status = kernel.vfs().chown("/tmp/notes-user.txt", 0, 0); !status.ok())
+    if (auto status = kernel.vfs().chown("/tmp/notes-user/note.txt", 0, 0); !status.ok())
         return status;
     if (auto status = kernel.handle_gui_key('!'); !status.ok())
         return status;
     if (auto status = kernel.handle_gui_key(19); !status.ok())
         return status;
-    auto unchanged = kernel.vfs().read_file("/tmp/notes-user.txt");
+    auto unchanged = kernel.vfs().read_file("/tmp/notes-user/note.txt");
     if (!unchanged || unchanged.value().size != file.value().size)
         return Status::fault("Notes overwrote a file owned by another user");
+    // This executes the privileged GUI controller, not isolated user code.
+    const auto previous_credentials = kernel.posix().user_credentials();
+    auto reload_control = [&]() -> Status {
+        if (auto status = kernel.posix().set_credentials(user::default_user_credentials()); !status.ok()) return status;
+        auto pid = first_process_named(kernel.scheduler(), "app:notes");
+        if (!pid) return pid.status();
+        ExternalGuiAppModule note;
+        auto configured = note.configure_from_elf("notes", "/notes", "Notes load control", "", "", "", "", "", "",
+            gui::Rect{.x = 60, .y = 60, .width = 276, .height = 112}, "", pid.value());
+        if (!configured) return configured;
+        note.bind_environment(kernel.vfs(), kernel.posix());
+        const FixedString<1024> initial{note.document()};
+        auto started = note.start(kernel.gui().compositor(), kernel.gui().desktop());
+        if (!started) return started;
+        Status result{};
+        if (!note.notes_save_blocked() || note.document() != initial.view())
+            result = Status::fault("Notes load error replaced its current document or allowed saving");
+        if (result && !note.handle_key('X')) result = Status::fault("Notes load control edit failed");
+        if (result && !note.handle_key(19)) result = Status::fault("Notes load control save handling failed");
+        auto persisted = kernel.vfs().read_file("/tmp/notes-user/note.txt");
+        if (result && (!note.unsaved_changes() || !note.notes_save_blocked() || !persisted ||
+            persisted.value().size != file.value().size))
+            result = Status::fault("Notes did not retain unsaved changes and original data after a load error");
+        auto stopped = note.stop();
+        return result ? stopped : result;
+    }();
+    auto credentials_restored = kernel.posix().set_credentials(previous_credentials);
+    if (!reload_control) return reload_control;
+    if (!credentials_restored) return credentials_restored;
     if (auto status = click(32 + 5 * 76, dock_y); !status.ok())
         return status;
     active = kernel.gui().compositor().surface_info(kernel.gui().compositor().active_surface());
@@ -666,7 +697,257 @@ Status test_system_gui_notes_save_and_files_navigation(Kernel &kernel)
         return status;
     if (auto status = kernel.posix().set_credentials(user::root_credentials()); !status.ok())
         return status;
-    return kernel.posix().unlink("/tmp/notes-user.txt");
+    return kernel.posix().unlink("/tmp/notes-user/note.txt");
+}
+
+Status test_system_gui_files_actions(Kernel &kernel)
+{
+    const auto previous = kernel.posix().user_credentials();
+    ExternalGuiAppModule files;
+    auto result = [&]() -> Status {
+        if (auto s = kernel.posix().set_credentials(user::default_user_credentials()); !s) return s;
+        if (auto s = kernel.posix().mkdir("/tmp/gui-files", 0700); !s) return s;
+        auto pid = first_process_named(kernel.scheduler(), "app:files");
+        if (!pid) return pid.status();
+        auto configured = files.configure_from_elf("files", "/ls", "Files actions control", "", "", "", "", "", "",
+            gui::Rect{.x = 60, .y = 40, .width = 360, .height = 240}, "", pid.value());
+        if (!configured) return configured;
+        files.bind_environment(kernel.vfs(), kernel.posix());
+        if (auto s = files.start(kernel.gui().compositor(), kernel.gui().desktop()); !s) return s;
+        if (auto s = files.handle_pointer(20, 110); !s) return s;
+        auto listing = kernel.vfs().list("/tmp");
+        if (!listing) return listing.status();
+        usize selected{};
+        while (selected < listing.value().count && listing.value().entries[selected].name.view() != "gui-files") ++selected;
+        if (selected == listing.value().count) return Status::fault("Files test folder is missing");
+        for (usize i = 0; i < selected; ++i) if (auto s = files.handle_key('j'); !s) return s;
+        if (auto s = files.handle_key('\n'); !s) return s;
+        if (files.directory() != "/tmp/gui-files") return Status::fault("Files did not enter its selected folder");
+        auto submit = [&](int key, std::string_view name) -> Status {
+            if (auto s = files.handle_key(key); !s) return s;
+            for (char c : name) if (auto s = files.handle_key(c); !s) return s;
+            return files.handle_key('\n');
+        };
+        if (auto s = submit('n', "draft.txt"); !s) return s;
+        auto created = kernel.vfs().stat("/tmp/gui-files/draft.txt");
+        if (!created || created.value().size != 0 || created.value().uid != user::default_user_uid ||
+            (created.value().mode & 07777u) != 0600u) return Status::fault("Files did not create a private empty file");
+        if (auto s = submit('r', "renamed.txt"); !s) return s;
+        if (kernel.vfs().stat("/tmp/gui-files/draft.txt") || !kernel.vfs().stat("/tmp/gui-files/renamed.txt"))
+            return Status::fault("Files did not rename the selected file");
+        if (auto s = files.handle_key('d'); !s) return s;
+        if (auto s = files.handle_pointer(20, 29); !s) return s;
+        if (files.directory() != "/tmp/gui-files") return Status::fault("Files navigated during a removal prompt");
+        if (auto s = files.handle_key(27); !s) return s;
+        if (!kernel.vfs().stat("/tmp/gui-files/renamed.txt")) return Status::fault("Files removed an unconfirmed item");
+        if (auto s = submit('d', ""); !s) return s;
+        if (kernel.vfs().stat("/tmp/gui-files/renamed.txt")) return Status::fault("Files did not remove a confirmed item");
+        if (auto s = submit('f', "folder"); !s) return s;
+        auto folder = kernel.vfs().stat("/tmp/gui-files/folder");
+        if (!folder || folder.value().type != fs::NodeType::directory || folder.value().uid != user::default_user_uid ||
+            (folder.value().mode & 07777u) != 0700u) return Status::fault("Files did not create a private folder");
+        if (auto s = submit('r', "moved"); !s) return s;
+        if (kernel.vfs().stat("/tmp/gui-files/folder") || !kernel.vfs().stat("/tmp/gui-files/moved"))
+            return Status::fault("Files did not rename a folder");
+        if (auto s = submit('d', ""); !s) return s;
+        if (kernel.vfs().stat("/tmp/gui-files/moved")) return Status::fault("Files did not remove an empty folder");
+        if (auto s = submit('n', "keep.txt"); !s) return s;
+        if (auto s = kernel.vfs().write_file("/tmp/gui-files/keep.txt", bytes_for("original")); !s) return s;
+        if (auto s = submit('n', "keep.txt"); !s) return s;
+        auto retained = kernel.vfs().read_file("/tmp/gui-files/keep.txt");
+        if (!retained || !file_contains(retained.value(), "original")) return Status::fault("Files truncated an existing file");
+        if (auto s = files.handle_key('r'); !s) return s;
+        if (auto s = kernel.posix().rename("/tmp/gui-files/keep.txt", "/tmp/gui-files/old.txt"); !s) return s;
+        if (auto s = kernel.posix().open("/tmp/gui-files/keep.txt", posix::o_WRONLY | posix::o_CREAT | posix::o_EXCL, 0600))
+        {
+            if (auto closed = kernel.posix().close(s.value()); !closed) return closed;
+        }
+        else return s.status();
+        if (auto s = kernel.vfs().write_file("/tmp/gui-files/keep.txt", bytes_for("replacement")); !s) return s;
+        for (char c : std::string_view{"target.txt"}) if (auto s = files.handle_key(c); !s) return s;
+        if (auto s = files.handle_key('\n'); !s) return s;
+        retained = kernel.vfs().read_file("/tmp/gui-files/keep.txt");
+        if (kernel.vfs().stat("/tmp/gui-files/target.txt") || !retained || !file_contains(retained.value(), "replacement"))
+            return Status::fault("Files renamed a changed prompt selection");
+        if (auto s = kernel.posix().unlink("/tmp/gui-files/keep.txt"); !s) return s;
+        if (auto s = kernel.posix().unlink("/tmp/gui-files/old.txt"); !s) return s;
+        if (auto s = files.handle_key('n'); !s) return s;
+        for (char c : std::string_view{"lost.txt"}) if (auto s = files.handle_key(c); !s) return s;
+        if (auto s = kernel.posix().rename("/tmp/gui-files", "/tmp/gui-files-old"); !s) return s;
+        if (auto s = kernel.posix().mkdir("/tmp/gui-files", 0700); !s) return s;
+        if (auto s = files.handle_key('\n'); !s) return s;
+        if (kernel.vfs().stat("/tmp/gui-files/lost.txt") || kernel.vfs().stat("/tmp/gui-files-old/lost.txt"))
+            return Status::fault("Files created a file after its prompt folder was replaced");
+        if (auto s = kernel.posix().rmdir("/tmp/gui-files-old"); !s) return s;
+        return kernel.posix().rmdir("/tmp/gui-files");
+    }();
+    auto stopped = files.stop();
+    auto restored = kernel.posix().set_credentials(previous);
+    if (!result) return result;
+    return stopped ? restored : stopped;
+}
+
+Status test_system_gui_files_notes_handoff(Kernel &kernel)
+{
+    // Actual GUI controller and POSIX execution; these are privileged diagnostics.
+    const auto previous = kernel.posix().user_credentials();
+    auto click = [&](i32 x, i32 y) -> Status {
+        if (auto s = kernel.handle_gui_mouse_position(x, y, true); !s) return s;
+        return kernel.handle_gui_mouse_position(x, y, false);
+    };
+    constexpr auto dock_y = static_cast<i32>(driver::framebuffer_height - 18);
+    auto launch = [&](usize tile) { return click(32 + static_cast<i32>(tile * 76), dock_y); };
+    auto active_is = [&](std::string_view name) {
+        auto info = kernel.gui().compositor().surface_info(kernel.gui().compositor().active_surface());
+        return info && info.value().title == name && info.value().visible;
+    };
+    auto select_entry = [&](std::string_view directory, std::string_view name) -> Status {
+        auto rows = kernel.vfs().list(directory); if (!rows) return rows.status();
+        usize chosen{};
+        while (chosen < rows.value().count && rows.value().entries[chosen].name.view() != name) ++chosen;
+        if (chosen == rows.value().count) return Status::not_found("Handoff displayed basename is missing");
+        for (usize i = 0; i < rows.value().count; ++i) if (auto s = kernel.handle_gui_key('k'); !s) return s;
+        for (usize i = 0; i < chosen; ++i) if (auto s = kernel.handle_gui_key('j'); !s) return s;
+        return Status::success();
+    };
+    auto close_notes = [&]() -> Status {
+        auto info = find_surface_by_title(kernel, "Notes");
+        return info ? system_gui_extension()->surface_action(kernel, info.value().id, ExtensionSurfaceAction::close) : info.status();
+    };
+    auto create = [&](std::string_view path, std::string_view content) -> Status {
+        auto fd = kernel.posix().open(path, posix::o_WRONLY | posix::o_CREAT | posix::o_EXCL | posix::o_CLOEXEC | posix::o_NOFOLLOW, 0600);
+        if (!fd) return fd.status();
+        auto written = kernel.posix().write(fd.value(), bytes_for(content));
+        auto closed = kernel.posix().close(fd.value());
+        if (!written) return written.status();
+        if (written.value() != content.size()) return Status::io_error("Handoff fixture write incomplete");
+        return closed;
+    };
+    auto result = [&]() -> Status {
+        if (auto s = kernel.posix().set_credentials(user::default_user_credentials()); !s) return s;
+        if (auto s = kernel.posix().mkdir("/tmp/gui-edit", 0700); !s) return s;
+        if (auto s = create("/tmp/gui-edit/draft.txt", "English draft\n"); !s) return s;
+        if (auto s = create("/tmp/gui-edit/other.txt", "Other English\n"); !s) return s;
+        if (auto s = close_notes(); !s) return s;
+        if (auto s = launch(5); !s) return s;
+        auto info = kernel.gui().compositor().surface_info(kernel.gui().compositor().active_surface());
+        if (!info || info.value().title != "Files") return Status::fault("Handoff did not focus Files");
+        if (auto s = click(info.value().bounds.x + 20, info.value().bounds.y + 110); !s) return s;
+        auto listing = kernel.vfs().list("/tmp"); if (!listing) return listing.status();
+        usize folder{};
+        while (folder < listing.value().count && listing.value().entries[folder].name.view() != "gui-edit") ++folder;
+        if (folder == listing.value().count) return Status::fault("Handoff folder missing");
+        for (usize i = 0; i < folder; ++i) if (auto s = kernel.handle_gui_key('j'); !s) return s;
+        if (auto s = kernel.handle_gui_key('\n'); !s) return s;
+        if (auto s = select_entry("/tmp/gui-edit", "draft.txt"); !s) return s;
+        if (auto s = kernel.handle_gui_key('\n'); !s) return s;
+        if (!active_is("Notes")) return Status::fault("Files selected text did not open in default Notes");
+        if (auto s = kernel.handle_gui_key('!'); !s) return s;
+        if (auto s = launch(5); !s) return s;
+        if (auto s = select_entry("/tmp/gui-edit", "other.txt"); !s) return s;
+        if (auto s = kernel.handle_gui_key('\n'); !s) return s;
+        if (!active_is("Files")) return Status::fault("Dirty Notes accepted a replacement handoff");
+        if (auto s = launch(3); !s) return s;
+        if (auto s = kernel.handle_gui_key(19); !s) return s;
+        auto saved = kernel.vfs().read_file("/tmp/gui-edit/draft.txt");
+        auto other = kernel.vfs().read_file("/tmp/gui-edit/other.txt");
+        if (!saved || saved.value().size != 15 || !file_contains(saved.value(), "English draft\n!") ||
+            !other || other.value().size != 14 || !file_contains(other.value(), "Other English\n"))
+            return Status::fault("Handoff save changed the wrong path or lost dirty text");
+        if (auto s = close_notes(); !s) return s;
+        if (auto s = launch(5); !s) return s;
+        if (auto s = select_entry("/tmp/gui-edit", "draft.txt"); !s) return s;
+        if (auto s = kernel.handle_gui_key('\n'); !s) return s;
+        if (!active_is("Notes")) return Status::fault("Files did not reopen the saved selected file");
+        if (auto s = kernel.handle_gui_key('?'); !s) return s;
+        if (auto s = kernel.handle_gui_key(19); !s) return s;
+        saved = kernel.vfs().read_file("/tmp/gui-edit/draft.txt");
+        if (!saved || saved.value().size != 16 || !file_contains(saved.value(), "English draft\n!?"))
+            return Status::fault("Selected Notes file did not survive reopen and second save");
+        if (auto s = kernel.handle_gui_key('+'); !s) return s;
+        if (auto s = kernel.handle_gui_key(19); !s) return s;
+        saved = kernel.vfs().read_file("/tmp/gui-edit/draft.txt");
+        if (!saved || saved.value().size != 17 || !file_contains(saved.value(), "English draft\n!?+"))
+            return Status::fault("Complete save did not refresh the selected inode");
+        if (auto s = close_notes(); !s) return s;
+
+        // Direct controller checks retain the full text and target across
+        // refused reads, dirty handoffs, stale rows and render failure.
+        ExternalGuiAppModule notes, files;
+        auto pid = first_process_named(kernel.scheduler(), "app:files"); if (!pid) return pid.status();
+        if (auto s = notes.configure_from_elf("notes", "/notes", "Handoff Notes control", "", "", "", "", "", "",
+            gui::Rect{.x=60,.y=40,.width=352,.height=174}, "", pid.value()); !s) return s;
+        if (auto s = files.configure_from_elf("files", "/ls", "Handoff Files control", "", "", "", "", "", "",
+            gui::Rect{.x=48,.y=38,.width=384,.height=176}, "", pid.value()); !s) return s;
+        notes.bind_environment(kernel.vfs(), kernel.posix()); files.bind_environment(kernel.vfs(), kernel.posix());
+        if (auto s = create("/tmp/notes-user/note.txt", "Foreign note"); !s) return s;
+        if (auto s = kernel.vfs().chown("/tmp/notes-user/note.txt", 0, 0); !s) return s;
+        const FixedString<1024> initial_document{notes.document()};
+        if (auto s = notes.start(kernel.gui().compositor(), kernel.gui().desktop()); !s) return s;
+        if (!notes.notes_save_blocked() || notes.document() != initial_document.view() || notes.unsaved_changes())
+            return Status::fault("Notes load-error recovery fixture did not retain a clean document");
+        if (auto s = files.start(kernel.gui().compositor(), kernel.gui().desktop()); !s) return s;
+        auto selection = obfuscationos::desktop::capture_file_action(kernel.posix(), "/tmp/gui-edit", "draft.txt");
+        if (!selection) return selection.status();
+        auto target = obfuscationos::desktop::make_notes_target("/tmp/gui-edit", "draft.txt", selection.value());
+        if (!target) return target.status();
+        if (auto s = notes.open_notes_target(target.value()); !s) return s;
+        if (notes.document() != "English draft\n!?+" || notes.notes_document_path() != "/tmp/gui-edit/draft.txt" || notes.unsaved_changes() || notes.notes_save_blocked())
+            return Status::fault("Notes accepted content or target incorrectly");
+        if (auto s = kernel.posix().unlink("/tmp/notes-user/note.txt"); !s) return s;
+        if (auto s = create("/tmp/gui-edit/binary.txt", std::string_view{"A\0B", 3}); !s) return s;
+        auto binary_selection = obfuscationos::desktop::capture_file_action(kernel.posix(), "/tmp/gui-edit", "binary.txt");
+        if (!binary_selection) return binary_selection.status();
+        auto binary_target = obfuscationos::desktop::make_notes_target("/tmp/gui-edit", "binary.txt", binary_selection.value());
+        if (!binary_target) return binary_target.status();
+        if (notes.open_notes_target(binary_target.value()) || notes.document() != "English draft\n!?+" || notes.unsaved_changes() ||
+            notes.notes_document_path() != "/tmp/gui-edit/draft.txt") return Status::fault("Binary handoff changed Notes text or target");
+        if (auto s = kernel.posix().unlink("/tmp/gui-edit/binary.txt"); !s) return s;
+        const FixedString<1024> retained{notes.document()};
+        auto foreign = target.value(); foreign.file.uid++;
+        if (notes.open_notes_target(foreign) || notes.document() != retained.view() || notes.notes_document_path() != target.value().path.view())
+            return Status::fault("Refused Notes handoff changed old document state");
+        if (auto s = notes.handle_key('X'); !s) return s;
+        if (notes.open_notes_target(target.value()) || !notes.unsaved_changes() || notes.document().size() != retained.size() + 1)
+            return Status::fault("Dirty Notes text was discarded by handoff");
+        if (auto s = notes.handle_key(19); !s) return s;
+        const FixedString<1024> after_save{notes.document()};
+        const FixedString<96> after_path{notes.notes_document_path()};
+        auto other_selection = obfuscationos::desktop::capture_file_action(kernel.posix(), "/tmp/gui-edit", "other.txt");
+        if (!other_selection) return other_selection.status();
+        auto other_target = obfuscationos::desktop::make_notes_target("/tmp/gui-edit", "other.txt", other_selection.value());
+        if (!other_target) return other_target.status();
+        if (auto s = kernel.gui().compositor().destroy_surface(notes.surface()); !s) return s;
+        if (notes.open_notes_target(other_target.value()) || notes.document() != after_save.view() ||
+            notes.notes_document_path() != after_path.view() || notes.unsaved_changes())
+            return Status::fault("Failed Notes render discarded the old document or target");
+        if (auto s = notes.stop(); !s) return s;
+        if (auto s = files.handle_pointer(20, 110); !s) return s;
+        listing = kernel.vfs().list("/tmp"); if (!listing) return listing.status();
+        folder = 0; while (folder < listing.value().count && listing.value().entries[folder].name.view() != "gui-edit") ++folder;
+        for (usize i = 0; i < folder; ++i) if (auto s = files.handle_key('j'); !s) return s;
+        if (auto s = files.handle_key('\n'); !s) return s;
+        listing = kernel.vfs().list("/tmp/gui-edit"); if (!listing) return listing.status();
+        usize draft{}; while (draft < listing.value().count && listing.value().entries[draft].name.view() != "draft.txt") ++draft;
+        if (draft == listing.value().count) return Status::fault("Stale row control basename missing");
+        for (usize i = 0; i < draft; ++i) if (auto s = files.handle_key('j'); !s) return s;
+        if (auto s = kernel.posix().rename("/tmp/gui-edit/draft.txt", "/tmp/gui-edit/old.txt"); !s) return s;
+        if (auto s = create("/tmp/gui-edit/draft.txt", "Replacement"); !s) return s;
+        if (auto s = files.handle_key('\n'); !s) return s;
+        if (files.has_notes_request()) return Status::fault("Files handed off a stale displayed row");
+        if (auto s = files.stop(); !s) return s;
+        for (std::string_view name : {"draft.txt", "other.txt", "old.txt"})
+        {
+            FixedString<96> path{"/tmp/gui-edit/"}; static_cast<void>(path.append(name));
+            if (auto s = kernel.posix().unlink(path.view()); !s) return s;
+        }
+        if (auto s = kernel.posix().rmdir("/tmp/gui-edit"); !s) return s;
+        constexpr std::string_view marker{"OK_SYSTEM_GUI_HANDOFF privileged=1 path=files-notes-save-reopen\n"};
+        if (ok_platform_console_write_char != nullptr) for (char ch : marker) ok_platform_console_write_char(ch);
+        return kernel.console().write(marker);
+    }();
+    auto restored = kernel.posix().set_credentials(previous);
+    return result ? restored : result;
 }
 
 Status test_close_debug_gui_restores_system_desktop(Kernel &kernel)
@@ -714,6 +995,10 @@ Status run_system_gui_integration_tests(Kernel &kernel)
     if (auto status = test_system_gui_apps_are_user_elf_processes(kernel); !status.ok())
         return status;
     if (auto status = test_system_gui_notes_save_and_files_navigation(kernel); !status.ok())
+        return status;
+    if (auto status = test_system_gui_files_actions(kernel); !status.ok())
+        return status;
+    if (auto status = test_system_gui_files_notes_handoff(kernel); !status.ok())
         return status;
     if (auto status = test_close_debug_gui_restores_system_desktop(kernel); !status.ok())
         return status;

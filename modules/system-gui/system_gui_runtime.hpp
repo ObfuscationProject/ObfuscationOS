@@ -18,6 +18,13 @@ class SystemGuiRuntime final : public KernelExtension
     Status surface_action(Kernel &kernel, gui::SurfaceId surface, ExtensionSurfaceAction action) override;
     Status process_exited(Kernel &kernel, sched::ProcessId pid) override;
     Status refresh(Kernel &kernel, bool focus) override;
+    Status shutdown_preflight(Kernel &kernel) override;
+    Status shutdown_stop_producers(Kernel &kernel) override;
+    Result<net::NativeUdpLink> network_link(Kernel &kernel) override;
+    Result<usize> network_receive(Kernel &kernel, std::span<std::byte> frame) override;
+    Status network_transmit(Kernel &kernel, std::span<const std::byte> frame) override;
+    Status network_try_transmit(Kernel &kernel, std::span<const std::byte> frame) override;
+    Result<net::NativeUdpTransmitState> network_poll_transmit(Kernel &kernel, usize budget) override;
     ExternalGuiDesktopModule *loaded_gui_desktop_module()
     {
         return external_gui_desktop_module_.configured() ? &external_gui_desktop_module_ : nullptr;
@@ -28,6 +35,7 @@ class SystemGuiRuntime final : public KernelExtension
     Status start_selected_system_gui_session(ExternalGuiDesktopModule &desktop);
     Status handle_system_gui_dock_launcher(ExternalGuiDockApp app);
     Status focus_system_gui_app(ExternalGuiDockApp app);
+    Status route_notes_request(ExternalGuiAppModule &files);
     Result<usize> read_user_program_file(std::string_view path);
     Status load_external_gui_desktop_module(std::string_view path, const ModuleImageInfo &image);
     Status launch_system_gui_app(ExternalGuiDockApp app);
@@ -43,6 +51,10 @@ class SystemGuiRuntime final : public KernelExtension
     std::array<std::byte, fs::simplefs_max_file_data> user_program_image_{};
     bool self_test_passed_{false};
     bool boot_announced_{false};
+    bool network_started_{false};
+    bool shutdown_started_{false};
+    bool shutdown_stopped_{false};
+    Status shutdown_failure_{};
     u32 session_accent_{gui::theme::accent};
 };
 KernelExtension *system_gui_extension();

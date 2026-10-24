@@ -1,13 +1,27 @@
 #include "system_gui_runtime.hpp"
 #include "ok/core/entry.hpp"
+#include "ok/net/native_udp_sdk_profile.hpp"
+#include "ok/net/native_tcp_sdk_profile.hpp"
+#include "ok/user/native_futex_wake_operation_sdk_profile.hpp"
 #include "ok/sched/process.hpp"
+#include "drivers/virtio/net.hpp"
+#include "drivers/virtio/rng.hpp"
 
 extern "C" void ok_platform_console_write_char(char value) __attribute__((weak));
 
 namespace obfuscationos::modules
 {
+static_assert(net::NativeUdpSdkExtension<SystemGuiRuntime>);
 namespace
 {
+#if defined(OK_ENABLE_TEST_POINTS)
+void gui_test_trace(Kernel &kernel, std::string_view value)
+{
+    static_cast<void>(kernel.console().write(value));
+    if (ok_platform_console_write_char != nullptr)
+        for (char ch : value) ok_platform_console_write_char(ch);
+}
+#endif
 bool starts_with(std::string_view value, std::string_view prefix)
 {
     return value.size() >= prefix.size() && value.substr(0, prefix.size()) == prefix;
@@ -239,6 +253,55 @@ bool point_hits_window_close(const gui::SurfaceInfo &surface, i32 x, i32 y)
 
 } // namespace
 
+Result<net::NativeUdpLink> SystemGuiRuntime::network_link(Kernel &)
+{
+    if (shutdown_started_) return Status::busy("distribution shutdown closed ordinary admission");
+    auto &device = os::drivers::virtio_net_device();
+    if (!network_started_)
+    {
+        if (auto status = device.start(); !status) return status;
+        network_started_ = true;
+    }
+#if defined(OK_PRIVATE_NATIVE_TCP_SLIRP_FIXTURE)
+    return net::NativeUdpLink{device.mac(), {0x52, 0x55, 0x0a, 0, 2, 2},
+                              {10, 0, 2, 15}, {10, 0, 2, 2}};
+#else
+    return net::NativeUdpLink{device.mac(), {2, 0xaa, 0xbb, 0xcc, 0xdd, 0xee},
+                              {192, 0, 2, 2}, {192, 0, 2, 1}};
+#endif
+}
+
+Result<usize> SystemGuiRuntime::network_receive(Kernel &, std::span<std::byte> frame)
+{
+    if (shutdown_started_) return Status::busy("distribution shutdown closed ordinary admission");
+    if (!network_started_) return Status::not_initialized("native UDP link is inactive");
+    return os::drivers::virtio_net_device().receive(frame);
+}
+
+Status SystemGuiRuntime::network_transmit(Kernel &, std::span<const std::byte> frame)
+{
+    if (shutdown_started_) return Status::busy("distribution shutdown closed ordinary admission");
+    if (!network_started_) return Status::not_initialized("native UDP link is inactive");
+    return os::drivers::virtio_net_device().transmit(frame);
+}
+
+Status SystemGuiRuntime::network_try_transmit(Kernel &, std::span<const std::byte> frame)
+{
+    if (shutdown_started_) return Status::busy("distribution shutdown closed ordinary admission");
+    if (!network_started_) return Status::not_initialized("native UDP link is inactive");
+    return os::drivers::virtio_net_device().try_transmit(frame);
+}
+
+Result<net::NativeUdpTransmitState> SystemGuiRuntime::network_poll_transmit(Kernel &, usize budget)
+{
+    if (shutdown_started_) return Status::busy("distribution shutdown closed ordinary admission");
+    if (!network_started_) return Status::not_initialized("native UDP link is inactive");
+    auto &device = os::drivers::virtio_net_device();
+    auto completed = device.poll_transmit(budget);
+    if (!completed) return completed.status();
+    return net::NativeUdpTransmitState{completed.value(), device.transmit_credit()};
+}
+
 Status SystemGuiRuntime::bind_session_context()
 {
     auto credentials = kernel_->user_space().credentials_for(external_gui_desktop_module_.selected_login_user_name());
@@ -249,6 +312,63 @@ Status SystemGuiRuntime::bind_session_context()
     if (auto status = kernel_->posix().activate(0); !status.ok())
         return status;
     return kernel_->posix().set_credentials(credentials.value());
+}
+
+Status SystemGuiRuntime::shutdown_preflight(Kernel &kernel)
+{
+    if (shutdown_started_)
+        return shutdown_failure_ ? Status::busy("distribution shutdown already consumed its producers") : shutdown_failure_;
+    if (kernel_ != &kernel || network_started_)
+        return Status::unsupported("distribution shutdown has an unknown kernel or active unqualified network owner");
+    if (auto status = os::drivers::virtio_net_device().shutdown_preflight_unused(); !status) return status;
+    if (kernel.gui().desktop().shared_buffer_count())
+        return Status::unsupported("distribution shutdown has an undeclared GUI shared-buffer owner");
+    if (auto status = os::drivers::preflight_virtio_rng_shutdown(kernel.posix().entropy_source()); !status) return status;
+    std::array<gui::SurfaceId, max_external_gui_apps + 1> surfaces{};
+    usize surface_count{};
+    auto observe_surface = [&](gui::SurfaceId surface) -> Status {
+        if (!surface) return {};
+        for (usize index = 0; index < surface_count; ++index)
+            if (surfaces[index] == surface) return Status::unsupported("distribution shutdown has aliased window owners");
+        if (!kernel.gui().compositor().surface_info(surface))
+            return Status::unsupported("distribution shutdown has an unavailable window owner");
+        surfaces[surface_count++] = surface; return {};
+    };
+    if (external_gui_desktop_module_.configured())
+    {
+        if (kernel.kernel_modules().find(external_gui_desktop_module_.module_name()) != &external_gui_desktop_module_)
+            return Status::unsupported("distribution shutdown desktop is not the registered original module");
+        if (auto status = external_gui_desktop_module_.shutdown_preflight(); !status) return status;
+        if (auto status = observe_surface(external_gui_desktop_module_.dashboard_surface()); !status) return status;
+    }
+    for (const auto &app : external_gui_app_modules_)
+    {
+        // This slice admits the original desktop with every application
+        // already closed. Model process records do not prove native retirement.
+        if (app.configured())
+            return Status::unsupported("shutdown requires all application windows closed before prepare");
+        if (auto status = app.shutdown_preflight(); !status) return status;
+    }
+    if (surface_count != kernel.gui().compositor().surface_count())
+        return Status::unsupported("distribution shutdown has an undeclared window owner");
+    return {};
+}
+
+Status SystemGuiRuntime::shutdown_stop_producers(Kernel &kernel)
+{
+    if (shutdown_started_)
+        return !shutdown_failure_ ? shutdown_failure_ : shutdown_stopped_ ? Status{} :
+            Status::busy("distribution shutdown callback is active");
+    if (auto status = shutdown_preflight(kernel); !status) return status;
+    shutdown_started_ = true;
+    auto fail = [&](Status status) { shutdown_failure_ = status; return status; };
+    // Application owners were refused before PREPARE. The coordinator has
+    // closed ordinary admission; ModuleManager alone stops the desktop once.
+    const auto *source = kernel.posix().entropy_source();
+    kernel.posix().set_entropy_source(nullptr);
+    if (auto status = os::drivers::stop_virtio_rng_shutdown(source); !status) return fail(status);
+    shutdown_stopped_ = true;
+    return {};
 }
 
 Status SystemGuiRuntime::start_selected_system_gui_session(ExternalGuiDesktopModule &desktop)
@@ -305,6 +425,42 @@ Status SystemGuiRuntime::focus_system_gui_app(ExternalGuiDockApp app)
         return kernel_->gui().compositor().present();
     }
     return launch_system_gui_app(app);
+}
+
+Status SystemGuiRuntime::route_notes_request(ExternalGuiAppModule &files)
+{
+    if (!files.has_notes_request()) return Status::success();
+    const auto request = files.notes_request();
+    auto find_notes = [&]() -> ExternalGuiAppModule * {
+        for (auto &instance : external_gui_app_modules_)
+            if (instance.configured() && instance.app_id() == "notes" && instance.process_id() != 0 &&
+                kernel_->scheduler().find(instance.process_id())) return &instance;
+        return nullptr;
+    };
+    auto *notes = find_notes();
+    Status accepted{};
+    if (!notes)
+    {
+        accepted = focus_system_gui_app(ExternalGuiDockApp::notes);
+        if (accepted) notes = find_notes();
+    }
+    if (accepted && !notes) accepted = Status::not_found("Default Notes is unavailable");
+    if (accepted) accepted = surface_action(*kernel_, notes->surface(), ExtensionSurfaceAction::focus);
+    if (accepted) accepted = notes->open_notes_target(request);
+    // Policy refusals are visible in Files and retain the previous Notes text.
+    if (!accepted)
+    {
+#if defined(OK_ENABLE_TEST_POINTS)
+        gui_test_trace(*kernel_, "OK_SYSTEM_GUI_HANDOFF_REFUSED reason=");
+        gui_test_trace(*kernel_, accepted.message());
+        gui_test_trace(*kernel_, "\n");
+#endif
+        if (auto status = kernel_->gui().compositor().raise_surface(files.surface()); !status) return status;
+    }
+    // A successful Notes transaction is the final render/present gate. Files
+    // renders its acknowledgement on its next refresh, without another failure
+    // after replacing the previous document.
+    return files.finish_notes_request(accepted, !accepted.ok());
 }
 
 Result<usize> SystemGuiRuntime::read_user_program_file(std::string_view path)
@@ -591,6 +747,7 @@ Status SystemGuiRuntime::self_test(Kernel &kernel)
 
 Status SystemGuiRuntime::start(Kernel &kernel)
 {
+    if (shutdown_started_) return Status::busy("distribution shutdown closed ordinary admission");
     kernel_ = &kernel;
     arch_ptr_ = &kernel.arch();
     if (!external_gui_desktop_module_.configured())
@@ -648,6 +805,7 @@ Result<fs::FileBuffer> SystemGuiRuntime::read_package(Kernel &kernel, std::strin
 
 Status SystemGuiRuntime::load_package(Kernel &kernel, std::string_view path, const ModuleImageInfo &image)
 {
+    if (shutdown_started_) return Status::busy("distribution shutdown closed ordinary admission");
     kernel_ = &kernel;
     arch_ptr_ = &kernel.arch();
     if (image.name.view() != "system-gui")
@@ -657,6 +815,7 @@ Status SystemGuiRuntime::load_package(Kernel &kernel, std::string_view path, con
 
 Result<bool> SystemGuiRuntime::pointer_click(Kernel &kernel, i32 x, i32 y)
 {
+    if (shutdown_started_) return Status::busy("distribution shutdown closed ordinary admission");
     kernel_ = &kernel;
     auto *desktop = loaded_gui_desktop_module();
     if (desktop == nullptr)
@@ -716,6 +875,7 @@ Result<bool> SystemGuiRuntime::pointer_click(Kernel &kernel, i32 x, i32 y)
                             return status;
                     }
             }
+            if (auto status = route_notes_request(instance); !status) return status;
             return true;
         }
     return false;
@@ -723,6 +883,7 @@ Result<bool> SystemGuiRuntime::pointer_click(Kernel &kernel, i32 x, i32 y)
 
 Result<bool> SystemGuiRuntime::key(Kernel &kernel, int value)
 {
+    if (shutdown_started_) return Status::busy("distribution shutdown closed ordinary admission");
     kernel_ = &kernel;
     auto *desktop = loaded_gui_desktop_module();
     if (desktop == nullptr)
@@ -746,11 +907,21 @@ Result<bool> SystemGuiRuntime::key(Kernel &kernel, int value)
         return status;
     if (auto status = external_gui_app_modules_[app.value()].handle_key(value); !status.ok())
         return status;
+#if defined(OK_ENABLE_TEST_POINTS)
+    if (external_gui_app_modules_[app.value()].app_id() == "files" && (value == '\n' || value == '\r'))
+    {
+        gui_test_trace(kernel, "OK_SYSTEM_GUI_FILES_ENTER status=");
+        gui_test_trace(kernel, external_gui_app_modules_[app.value()].app_status());
+        gui_test_trace(kernel, "\n");
+    }
+#endif
+    if (auto status = route_notes_request(external_gui_app_modules_[app.value()]); !status) return status;
     return true;
 }
 
 Status SystemGuiRuntime::surface_action(Kernel &kernel, gui::SurfaceId surface, ExtensionSurfaceAction action)
 {
+    if (shutdown_started_) return Status::busy("distribution shutdown closed ordinary admission");
     kernel_ = &kernel;
     auto app = find_system_gui_app_by_surface(surface);
     if (!app)
@@ -770,6 +941,7 @@ Status SystemGuiRuntime::surface_action(Kernel &kernel, gui::SurfaceId surface, 
 
 Status SystemGuiRuntime::process_exited(Kernel &kernel, sched::ProcessId pid)
 {
+    if (shutdown_started_) return {};
     kernel_ = &kernel;
     auto app = find_system_gui_app_by_process(pid);
     return app ? close_system_gui_app_at(app.value(), false) : Status::success();
@@ -777,6 +949,7 @@ Status SystemGuiRuntime::process_exited(Kernel &kernel, sched::ProcessId pid)
 
 Status SystemGuiRuntime::refresh(Kernel &kernel, bool focus)
 {
+    if (shutdown_started_) return Status::busy("distribution shutdown closed ordinary admission");
     kernel_ = &kernel;
     return refresh_external_gui_modules(focus);
 }
