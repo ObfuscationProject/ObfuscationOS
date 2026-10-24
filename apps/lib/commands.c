@@ -1,3 +1,4 @@
+#define _POSIX_C_SOURCE 200809L
 #include "commands.h"
 
 #include <errno.h>
@@ -141,7 +142,7 @@ int cmd_stat(int argc, char **argv)
             rc = 1;
             continue;
         }
-        printf("%s: type=%s size=%ld mode=%x ino=%lu\n",
+        printf("%s: type=%s size=%ld mode=%lx ino=%lu\n",
                argv[i],
                file_type(st.st_mode),
                (long)st.st_size,
@@ -168,6 +169,147 @@ int cmd_mkdir(int argc, char **argv)
     return rc;
 }
 
+struct command_parent_path {
+    char parent[256];
+    const char *leaf;
+};
+
+/* Keep namespace operations attached to the directories that were opened.
+   The trailing slash is retained on the leaf so directory-only semantics do
+   not become a rename/removal of a regular file. */
+static int command_parent(const char *path, struct command_parent_path *value)
+{
+    if (!path || !*path) {
+        errno = EINVAL;
+        return -1;
+    }
+    size_t length = strlen(path);
+    if (length >= sizeof value->parent) {
+        errno = ENAMETOOLONG;
+        return -1;
+    }
+    size_t end = length;
+    while (end && path[end - 1] == '/')
+        --end;
+    if (!end) {
+        errno = EINVAL;
+        return -1;
+    }
+    size_t separator = end;
+    while (separator && path[separator - 1] != '/')
+        --separator;
+    size_t leaf_length = end - separator;
+    if ((leaf_length == 1 && path[separator] == '.') ||
+        (leaf_length == 2 && path[separator] == '.' && path[separator + 1] == '.')) {
+        errno = EINVAL;
+        return -1;
+    }
+    value->leaf = path + separator;
+    if (!separator) {
+        memcpy(value->parent, ".", 2);
+    } else {
+        size_t parent_length = separator == 1 ? 1 : separator - 1;
+        memcpy(value->parent, path, parent_length);
+        value->parent[parent_length] = 0;
+    }
+    return 0;
+}
+
+static void completion_error(int result, int *error)
+{
+    if (result < 0 && !*error)
+        *error = errno;
+}
+
+/* -1: no namespace commit; 1: committed but sync/close failed; 0: complete.
+   Failed close consumes the descriptor and is never retried. */
+static int durable_move(const char *source, const char *destination)
+{
+    struct command_parent_path from, to;
+    if (command_parent(source, &from) < 0 || command_parent(destination, &to) < 0)
+        return -1;
+    int fromfd = open(from.parent, O_RDONLY | O_DIRECTORY | O_CLOEXEC);
+    if (fromfd < 0) {
+        int error = errno;
+        /* Search/write permission may permit rename without directory read
+           permission. Preserve that operation, but never attest missing sync. */
+        if (error == EACCES && rename(source, destination) == 0) {
+            errno = error;
+            return 1;
+        }
+        return -1;
+    }
+    int tofd = fromfd;
+    if (strcmp(from.parent, to.parent)) {
+        tofd = open(to.parent, O_RDONLY | O_DIRECTORY | O_CLOEXEC);
+        if (tofd < 0) {
+            int error = errno;
+            if (error == EACCES) {
+                int result = renameat(fromfd, from.leaf, AT_FDCWD, destination);
+                int operation_error = errno;
+                if (result == 0)
+                    (void)fsync(fromfd);
+                (void)close(fromfd);
+                errno = result < 0 ? operation_error : error;
+                return result < 0 ? -1 : 1;
+            }
+            (void)close(fromfd);
+            errno = error;
+            return -1;
+        }
+    }
+    if (renameat(fromfd, from.leaf, tofd, to.leaf) < 0) {
+        int error = errno;
+        if (tofd != fromfd)
+            (void)close(tofd);
+        (void)close(fromfd);
+        errno = error;
+        return -1;
+    }
+    int error = 0;
+    completion_error(fsync(tofd), &error);
+    if (tofd != fromfd) {
+        completion_error(fsync(fromfd), &error);
+        completion_error(close(tofd), &error);
+    }
+    completion_error(close(fromfd), &error);
+    if (error) {
+        errno = error;
+        return 1;
+    }
+    return 0;
+}
+
+static int durable_remove(const char *path)
+{
+    struct command_parent_path value;
+    if (command_parent(path, &value) < 0)
+        return -1;
+    int directory = open(value.parent, O_RDONLY | O_DIRECTORY | O_CLOEXEC);
+    if (directory < 0) {
+        int error = errno;
+        if (error == EACCES && unlink(path) == 0) {
+            errno = error;
+            return 1;
+        }
+        return -1;
+    }
+    if (unlinkat(directory, value.leaf, 0) < 0) {
+        int error = errno;
+        (void)close(directory);
+        errno = error;
+        return -1;
+    }
+    int error = 0;
+    completion_error(fsync(directory), &error);
+    completion_error(close(directory), &error);
+    if (error) {
+        errno = error;
+        return 1;
+    }
+    return 0;
+}
+
 int cmd_rm(int argc, char **argv)
 {
     if (argc < 2) {
@@ -177,7 +319,12 @@ int cmd_rm(int argc, char **argv)
 
     int rc = 0;
     for (int i = 1; i < argc; ++i) {
-        if (unlink(argv[i]) < 0) {
+        int result = durable_remove(argv[i]);
+        if (result) {
+            int error = errno;
+            if (result > 0)
+                fputs("File removed; removal completion failed.\n", stderr);
+            errno = error;
             perror(argv[i]);
             rc = 1;
         }
@@ -191,7 +338,12 @@ int cmd_mv(int argc, char **argv)
         fputs("usage: mv SOURCE DEST\n", stderr);
         return 2;
     }
-    if (rename(argv[1], argv[2]) < 0) {
+    int result = durable_move(argv[1], argv[2]);
+    if (result) {
+        int error = errno;
+        if (result > 0)
+            fputs("File moved; move completion failed.\n", stderr);
+        errno = error;
         perror("mv");
         return 1;
     }
@@ -200,11 +352,12 @@ int cmd_mv(int argc, char **argv)
 
 int cmd_ln(int argc, char **argv)
 {
-    if (argc != 3) {
-        fputs("usage: ln SOURCE DEST\n", stderr);
+    const int symbolic = argc == 4 && strcmp(argv[1], "-s") == 0;
+    if (argc != 3 && !symbolic) {
+        fputs("usage: ln [-s] SOURCE DEST\n", stderr);
         return 2;
     }
-    if (link(argv[1], argv[2]) < 0) {
+    if ((symbolic ? symlink(argv[2], argv[3]) : link(argv[1], argv[2])) < 0) {
         perror("ln");
         return 1;
     }
@@ -255,8 +408,6 @@ int cmd_whoami(int argc, char **argv)
     uid_t uid = geteuid();
     if (uid == 0) {
         puts("root");
-    } else if (uid == 1000) {
-        puts("user");
     } else {
         printf("uid%u\n", (unsigned)uid);
     }
@@ -315,7 +466,7 @@ static const struct command_entry COMMANDS[] = {
     {"mkdir", cmd_mkdir, "create directories"},
     {"rm", cmd_rm, "remove files"},
     {"mv", cmd_mv, "rename a path"},
-    {"ln", cmd_ln, "create a hard link"},
+    {"ln", cmd_ln, "create a hard or symbolic link"},
     {"pwd", cmd_pwd, "print working directory"},
     {"cd", cmd_cd, "change directory"},
     {"whoami", cmd_whoami, "print effective user"},

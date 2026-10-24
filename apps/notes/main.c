@@ -1,3 +1,6 @@
+#include "save.h"
+
+#include <errno.h>
 #include <fcntl.h>
 #include <stdio.h>
 #include <string.h>
@@ -8,33 +11,13 @@ int main(int argc, char **argv)
     const char *path = argc > 1 ? argv[1] : "/home/notes.txt";
     if (argc > 2)
     {
-        int fd = open(path, O_CREAT | O_WRONLY | O_TRUNC, 0600);
-        if (fd < 0)
-        {
-            perror(path);
+        enum notes_save_result result = notes_save_words(path, argc - 2, argv + 2);
+        if (result != NOTES_SAVE_DONE) {
+            if (result == NOTES_SAVE_REPLACED_ERROR)
+                fputs("File replaced; save completion failed.\n", stderr);
+            perror("save");
             return 1;
         }
-        for (int i = 2; i < argc; ++i)
-        {
-            if ((i > 2 && write(fd, " ", 1) != 1) || write(fd, argv[i], strlen(argv[i])) != (ssize_t)strlen(argv[i]))
-            {
-                perror("save");
-                close(fd);
-                return 1;
-            }
-        }
-        if (write(fd, "\n", 1) != 1)
-        {
-            close(fd);
-            return 1;
-        }
-        if (fsync(fd) != 0)
-        {
-            perror("sync");
-            close(fd);
-            return 1;
-        }
-        close(fd);
         printf("Saved %s\n", path);
         return 0;
     }
@@ -47,12 +30,27 @@ int main(int argc, char **argv)
     }
     char buffer[256];
     ssize_t count;
-    while ((count = read(fd, buffer, sizeof(buffer))) > 0)
-        if (write(1, buffer, (size_t)count) != count)
-        {
+    for (;;) {
+        count = read(fd, buffer, sizeof(buffer));
+        if (count < 0 && errno == EINTR)
+            continue;
+        if (count <= 0)
+            break;
+        if (notes_write_all(1, buffer, (size_t)count) < 0) {
             close(fd);
             return 1;
         }
-    close(fd);
-    return count < 0 ? 1 : 0;
+    }
+    if (count < 0) {
+        int error = errno;
+        close(fd);
+        errno = error;
+        perror("read");
+        return 1;
+    }
+    if (close(fd) < 0) {
+        perror("close");
+        return 1;
+    }
+    return 0;
 }
