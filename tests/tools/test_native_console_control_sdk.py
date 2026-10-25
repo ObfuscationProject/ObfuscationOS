@@ -2,7 +2,6 @@
 from pathlib import Path
 import argparse
 import hashlib
-import importlib.util
 import re
 import sys
 import unittest
@@ -11,13 +10,12 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / 'tools'))
 import kernel_sdk as consumer
 import test_kernel_sdk as fixtures
+import kernel_checkout
 
-spec = importlib.util.spec_from_file_location(
-    'console_control_sdk_producer', ROOT.parent / 'ObfuscationKernel/tools/export_sdk.py')
-producer = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(producer)
+producer = kernel_checkout.load_producer('console_control_sdk_producer')
 
 
+@kernel_checkout.requires_checkout
 class NativeConsoleControlSdkTests(unittest.TestCase):
     def setUp(self):
         self.fixture = fixtures.KernelSdkTests()
@@ -51,8 +49,8 @@ class NativeConsoleControlSdkTests(unittest.TestCase):
         for validate in (producer.validate_native_console_control_profile,
                          consumer.validate_native_console_control_profile):
             validate(self.sdk / 'include')
-            validate(ROOT.parent / 'ObfuscationKernel/include')
-        self.assertEqual(self.good, (ROOT.parent / 'ObfuscationKernel/include' /
+            validate(kernel_checkout.INCLUDE)
+        self.assertEqual(self.good, (kernel_checkout.INCLUDE /
                                     consumer.NATIVE_CONSOLE_CONTROL_PROFILE_HEADER).read_text())
         self.assertEqual(consumer.validate_sdk(self.sdk, 'x86_64', 'debug')['abi_version'], 74)
         self.fixture.test_all_ten_profile_contracts()

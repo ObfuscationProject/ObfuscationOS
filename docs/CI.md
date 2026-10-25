@@ -33,9 +33,20 @@ It also boots a real Virtio-backed ext4 root twice, saves and synchronizes a not
 reads it after restart, and checks the disk with `e2fsck` and `debugfs`. This
 uses the explicitly supported non-journalled ext4 format; it does not establish
 crash consistency or physical hardware support. The local architecture matrix
-contains ten native profiles; the CI job currently exercises x86_64 only.
+contains ten native profiles; the CI fast lane runs x86_64, arm32 and ppc, with
+the ext4 persistence check on x86_64 only.
 `distro-test` still builds ext4 images on MIPS/MIPS64/PPC but explicitly skips
 their native ext4 boot check until those platforms have a block transport.
 Broader packaging checks remain available through `xmake distro-test`. The model
 tests retain their separate scope; their boot markers alone do not prove native
 execution. Native execution does not imply hardware SMP or runtime module loading.
+
+`artifact-test` runs every suite under `tests/tools` against the SDK artifact,
+with `OK_TEST_KERNEL_SDK`, `OK_TEST_KERNEL_ARCH` and `OK_TEST_KERNEL_MODE` set.
+Suites that also compare against the kernel itself (its SDK producer
+`tools/export_sdk.py` or its source headers) import `tests/tools/kernel_checkout.py`
+and skip without a sibling `ObfuscationKernel` checkout, which CI does not have.
+They run in the umbrella workspace (`python3 scripts/workspace.py cross-tests`,
+also part of `distro-all` and `matrix`), where `OK_REQUIRE_KERNEL_CHECKOUT=1`
+makes a missing checkout an error; `OK_KERNEL_CHECKOUT` points them at a paired
+`wt/kernel-*` worktree.

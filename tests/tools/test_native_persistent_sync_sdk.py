@@ -1,7 +1,6 @@
 """Independent strong-sync capability admission and rehashed deception tests."""
 from pathlib import Path
 import hashlib
-import importlib.util
 import sys
 import unittest
 
@@ -9,15 +8,13 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / 'tools'))
 from kernel_sdk import validate_native_persistent_sync_profile, validate_sdk
 import test_kernel_sdk as sdk_fixture
+import kernel_checkout
 from test_kernel_sdk import PERSISTENT_SYNC_HEADER, PERSISTENT_SYNC_DEFINITIONS, UAPI_HEADER
 
 
 def producer():
-    spec = importlib.util.spec_from_file_location('storage_sdk_exporter',
-        ROOT.parent / 'ObfuscationKernel/tools/export_sdk.py')
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module.validate_native_persistent_sync_profile
+    module = kernel_checkout.load_producer('storage_sdk_exporter')
+    return module.validate_native_persistent_sync_profile if module else None
 
 
 class PersistentSyncSdkTests(unittest.TestCase):
@@ -46,6 +43,7 @@ class PersistentSyncSdkTests(unittest.TestCase):
         with self.subTest(content=content), self.assertRaises(ValueError):
             validate_sdk(self.sdk, 'x86_64', 'debug')
 
+    @kernel_checkout.requires_checkout
     def test_canonical_producer_consumer_and_full_sdk(self):
         self.exporter(self.sdk / 'include')
         validate_native_persistent_sync_profile(self.sdk / 'include')
@@ -66,6 +64,7 @@ class PersistentSyncSdkTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'missing artifacts'):
             validate_sdk(self.sdk, 'x86_64', 'debug')
 
+    @kernel_checkout.requires_checkout
     def test_rehashed_profile_cannot_impersonate_persistent_contract(self):
         source = PERSISTENT_SYNC_HEADER
         attacks = [source.replace('device-flush-v1', 'ordinary-fsync-v1'),
@@ -83,6 +82,7 @@ class PersistentSyncSdkTests(unittest.TestCase):
         for attack in attacks:
             self.reject(self.profile, attack)
 
+    @kernel_checkout.requires_checkout
     def test_rehashed_uapi_cannot_hide_or_redefine_persistent_operation(self):
         for name, value in PERSISTENT_SYNC_DEFINITIONS:
             line = '#define ' + name + ' ' + value + '\n'

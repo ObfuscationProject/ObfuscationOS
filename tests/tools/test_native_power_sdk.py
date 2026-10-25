@@ -1,7 +1,6 @@
 """Independent producer and hashed consumer admission for the scalar power UAPI."""
 from pathlib import Path
 import hashlib
-import importlib.util
 import sys
 import unittest
 
@@ -9,6 +8,7 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / 'tools'))
 from kernel_sdk import validate_native_power_profile, validate_sdk
 import test_kernel_sdk as fixture
+import kernel_checkout
 from test_kernel_sdk import POWER_HEADER, POWER_DEFINITIONS, UAPI_HEADER
 
 
@@ -19,10 +19,7 @@ class NativePowerSdkTests(unittest.TestCase):
         self.sdk = self.fixture.sdk
         self.profile = self.sdk / 'include/ok/user/native_power_profile.hpp'
         self.uapi = self.sdk / 'include/ok/uapi/syscall.h'
-        spec = importlib.util.spec_from_file_location('power_sdk_producer',
-            ROOT.parent / 'ObfuscationKernel/tools/export_sdk.py')
-        self.producer = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(self.producer)
+        self.producer = kernel_checkout.load_producer('power_sdk_producer')
 
     def tearDown(self):
         self.fixture.tearDown()
@@ -41,6 +38,7 @@ class NativePowerSdkTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             validate_sdk(self.sdk, 'x86_64', 'debug')
 
+    @kernel_checkout.requires_checkout
     def test_canonical_contract_keeps_all_ten_architectures(self):
         self.producer.validate_native_power_profile(self.sdk / 'include')
         validate_native_power_profile(self.sdk / 'include')
@@ -60,6 +58,7 @@ class NativePowerSdkTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'missing artifacts'):
             validate_sdk(self.sdk, 'x86_64', 'debug')
 
+    @kernel_checkout.requires_checkout
     def test_wire_definitions_cannot_be_rehashed_into_another_contract(self):
         for name, value in POWER_DEFINITIONS:
             line = '#define ' + name + ' ' + value + '\n'
@@ -76,6 +75,7 @@ class NativePowerSdkTests(unittest.TestCase):
                         UAPI_HEADER.replace('1032ULL', '10/**/32ULL')):
             self.reject(self.uapi, content)
 
+    @kernel_checkout.requires_checkout
     def test_profile_cannot_claim_a_different_boundary(self):
         attacks = [POWER_HEADER.replace('queued-commit-v1', 'direct-power-v1'),
                    '#if 0\n' + POWER_HEADER + '#endif\n',

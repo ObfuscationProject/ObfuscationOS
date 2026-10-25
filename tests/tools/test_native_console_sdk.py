@@ -1,7 +1,6 @@
 """Independent console authority contract and fully rehashed SDK deception checks."""
 from pathlib import Path
 import hashlib
-import importlib.util
 import sys
 import unittest
 
@@ -9,14 +8,13 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / 'tools'))
 from kernel_sdk import validate_native_console_input_profile, validate_sdk
 import test_kernel_sdk as sdk_fixture
+import kernel_checkout
 from test_kernel_sdk import CONSOLE_INPUT_HEADER, CONSOLE_INPUT_DEFINITIONS, UAPI_HEADER
 
 
 def producer():
-    spec = importlib.util.spec_from_file_location('console_sdk_exporter', ROOT.parent / 'ObfuscationKernel/tools/export_sdk.py')
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module.validate_native_console_input_profile
+    module = kernel_checkout.load_producer('console_sdk_exporter')
+    return module.validate_native_console_input_profile if module else None
 
 
 def profile_attacks():
@@ -66,6 +64,7 @@ class ConsoleSdkTests(unittest.TestCase):
         self.fixture.manifest['files'][path.relative_to(self.sdk).as_posix()] = hashlib.sha256(path.read_bytes()).hexdigest()
         self.fixture.save()
 
+    @kernel_checkout.requires_checkout
     def test_independent_canonical_producer_consumer_and_full_sdk(self):
         self.exporter(self.sdk / 'include')
         validate_native_console_input_profile(self.sdk / 'include')
@@ -79,6 +78,7 @@ class ConsoleSdkTests(unittest.TestCase):
             with self.subTest(value=value), self.assertRaisesRegex(ValueError, 'console input profile'):
                 validate_sdk(self.sdk, 'x86_64', 'debug')
 
+    @kernel_checkout.requires_checkout
     def test_rehashed_profile_cannot_impersonate_authority(self):
         for source in profile_attacks():
             self.write_rehashed(self.profile, source)
@@ -88,6 +88,7 @@ class ConsoleSdkTests(unittest.TestCase):
             with self.subTest(source=source), self.assertRaises(ValueError):
                 validate_sdk(self.sdk, 'x86_64', 'debug')
 
+    @kernel_checkout.requires_checkout
     def test_rehashed_uapi_cannot_hide_or_redefine_lease_calls(self):
         for source in uapi_attacks():
             self.write_rehashed(self.uapi, source)

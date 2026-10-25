@@ -16,7 +16,7 @@ class NativeMetadataWrapperTests(unittest.TestCase):
     def test_actual_syscall6_marshalling_reserved_words_and_errno(self):
         self.assertIn('OK_TEST_KERNEL_SDK', os.environ, 'Set OK_TEST_KERNEL_SDK to the explicit exported SDK')
         sdk = Path(os.environ['OK_TEST_KERNEL_SDK']).resolve()
-        manifest = validate_sdk(sdk, 'x86_64', 'debug')
+        manifest = validate_sdk(sdk, os.environ.get('OK_TEST_KERNEL_ARCH', 'x86_64'), os.environ.get('OK_TEST_KERNEL_MODE', 'debug'))
         self.assertEqual(manifest['native_metadata_profile'], 'checked-mode-root-owner-u32-v1')
         with tempfile.TemporaryDirectory(prefix='native-metadata-wrapper-') as directory:
             project = Path(directory)

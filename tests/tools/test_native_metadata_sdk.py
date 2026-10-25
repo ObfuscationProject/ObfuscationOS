@@ -1,7 +1,6 @@
 """Exact metadata capability admission on both sides; no code or guest loading."""
 from pathlib import Path
 import hashlib
-import importlib.util
 import sys
 import unittest
 
@@ -9,13 +8,12 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / 'tools'))
 import kernel_sdk as consumer
 import test_kernel_sdk as fixtures
+import kernel_checkout
 
-spec = importlib.util.spec_from_file_location('native_metadata_sdk_producer',
-                                             ROOT.parent / 'ObfuscationKernel/tools/export_sdk.py')
-producer = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(producer)
+producer = kernel_checkout.load_producer('native_metadata_sdk_producer')
 
 
+@kernel_checkout.requires_checkout
 class NativeMetadataSdkTests(unittest.TestCase):
     def setUp(self):
         self.fixture = fixtures.KernelSdkTests()

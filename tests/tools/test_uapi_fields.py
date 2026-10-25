@@ -11,6 +11,7 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "tools"))
 from check_uapi import struct_fields, parse_defines, validate_directives, EXPECTED_DEFINES, EXPECTED_FIELDS
 from kernel_sdk import validate_sdk
+import kernel_checkout
 
 
 class UapiFieldsTests(unittest.TestCase):
@@ -47,8 +48,9 @@ class UapiFieldsTests(unittest.TestCase):
                                        '#define OK_UAPI_VERSION_MINOR (( 11U ))\n'),
                          {'OK_AT_FDCWD': -100, 'OK_UAPI_VERSION_MINOR': 11})
 
+    @kernel_checkout.requires_checkout
     def test_checked_in_kernel_uapi_header_is_accepted(self):
-        include = ROOT.parent / 'ObfuscationKernel/include'
+        include = kernel_checkout.INCLUDE
         header = include / 'ok/uapi/syscall.h'
         self.assertTrue(header.is_file())
         values = parse_defines(header.read_text())
@@ -66,7 +68,7 @@ class UapiFieldsTests(unittest.TestCase):
         self.assertTrue((sdk / 'manifest.json').is_file())
         mode = os.environ.get('OK_TEST_KERNEL_MODE', 'debug')
         self.assertIn(mode, ('debug', 'release'))
-        manifest = validate_sdk(sdk, 'x86_64', mode)
+        manifest = validate_sdk(sdk, os.environ.get('OK_TEST_KERNEL_ARCH', 'x86_64'), mode)
         self.assertEqual(manifest['abi_version'], 74)
         self.assertEqual(manifest['native_pty_profile'], 'bootcpu-native-raw-pair-ofd-waits-drain-eof-eio-v1')
         values = parse_defines((sdk / 'include/ok/uapi/syscall.h').read_text())
@@ -79,6 +81,7 @@ class UapiFieldsTests(unittest.TestCase):
                                  '--include', str(sdk / 'include')], capture_output=True)
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
+    @kernel_checkout.requires_checkout
     def test_raw_pty_constants_reject_missing_wrong_and_deceptive_declarations(self):
         expected = {
             'OK_SYS_PTY_PAIR': 1035,
@@ -87,7 +90,7 @@ class UapiFieldsTests(unittest.TestCase):
             'OK_NATIVE_PTY_CLOEXEC': 0x080000,
         }
         self.assertEqual({name: EXPECTED_DEFINES[name] for name in expected}, expected)
-        good = (ROOT.parent / 'ObfuscationKernel/include/ok/uapi/syscall.h').read_text()
+        good = (kernel_checkout.INCLUDE / 'ok/uapi/syscall.h').read_text()
         with tempfile.TemporaryDirectory(prefix='ok-uapi-pty-admission-') as directory:
             include = Path(directory)
             header = include / 'ok/uapi/syscall.h'; header.parent.mkdir(parents=True)

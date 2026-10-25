@@ -587,9 +587,11 @@ target("artifact-test")
     set_default(false)
     on_buildcmd(function (target, batchcmds)
         -- Fifteen tool suites compile fixtures against the configured SDK and
-        -- require OK_TEST_KERNEL_SDK; run the whole discovery with it set.
+        -- require OK_TEST_KERNEL_SDK; run the whole discovery with it, and the
+        -- architecture and mode it was exported for, set.
         batchcmds:vrunv("python3", {"-B", "-m", "unittest", "discover", "-s", path.join(project, "tests", "tools"), "-p", "test_*.py"},
-            {envs = {OK_TEST_KERNEL_SDK = sdk, PYTHONDONTWRITEBYTECODE = "1"}})
+            {envs = {OK_TEST_KERNEL_SDK = sdk, OK_TEST_KERNEL_ARCH = arch, OK_TEST_KERNEL_MODE = mode,
+                     PYTHONDONTWRITEBYTECODE = "1"}})
     end)
 target_end()
 
