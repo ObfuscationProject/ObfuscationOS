@@ -611,6 +611,52 @@ static int check_shared_anonymous_memory(void)
     return 0;
 }
 
+// Parent and child each write a private page that fork left shared, once by a
+// CPU store and once by a kernel copy, and must observe only their own values.
+// This holds for eager and copy-on-write fork alike.
+static int check_fork_private_copies(void)
+{
+    const size_t page = 4096;
+    volatile unsigned char *data = mmap(0, 4 * page, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+    CHECK((void *)data != MAP_FAILED);
+    for (size_t i = 0; i < 4; ++i)
+        data[i * page] = (unsigned char)(i + 1);
+    int go[2], answer[2], local[2];
+    CHECK(pipe(go) == 0 && pipe(answer) == 0 && pipe(local) == 0);
+    pid_t child = fork();
+    CHECK(child >= 0);
+    if (child == 0)
+    {
+        char byte;
+        close(go[1]); close(answer[0]);
+        if (read(go[0], &byte, 1) != 1 || data[0] != 1 || data[page] != 2)
+            _Exit(1);
+        if (read(go[0], (void *)(data + 2 * page), 1) != 1 || data[2 * page] != 'k')
+            _Exit(2);
+        data[3 * page] = 44;
+        byte = (char)data[3 * page];
+        if (write(answer[1], &byte, 1) != 1)
+            _Exit(3);
+        _Exit(0);
+    }
+    close(go[0]); close(answer[1]);
+    data[0] = 101;
+    CHECK(write(local[1], "p", 1) == 1 && read(local[0], (void *)(data + page), 1) == 1);
+    CHECK(write(go[1], "x", 1) == 1 && write(go[1], "k", 1) == 1);
+    char value = 0;
+    CHECK(read(answer[0], &value, 1) == 1 && value == 44 && child_status(child) == 0);
+    CHECK(data[0] == 101 && data[page] == 'p' && data[2 * page] == 3 && data[3 * page] == 4);
+    // After the child exits the parent is the sole owner of every page again.
+    data[2 * page] = 103;
+    data[3 * page] = 104;
+    CHECK(data[2 * page] == 103 && data[3 * page] == 104);
+    CHECK(close(go[1]) == 0 && close(answer[0]) == 0 && close(local[0]) == 0 && close(local[1]) == 0);
+    CHECK(munmap((void *)data, 4 * page) == 0);
+    puts("OK_VM_FORK_COPY scope=hardware parent_store=pass parent_kernel_copy=pass child_kernel_copy=pass "
+         "child_store=pass");
+    return 0;
+}
+
 static int check_private_file_mapping(void)
 {
     const size_t page = 4096;
@@ -752,6 +798,7 @@ int main(int argc, char **argv)
     CHECK(check_file_names() == 0);
     CHECK(check_native_memory() == 0);
     CHECK(check_shared_anonymous_memory() == 0);
+    CHECK(check_fork_private_copies() == 0);
     CHECK(check_private_file_mapping() == 0);
     CHECK(check_symbolic_links() == 0);
     pid_t child = fork();
