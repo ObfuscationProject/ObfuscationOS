@@ -64,6 +64,7 @@ class DistroMarkerTests(unittest.TestCase):
         clock = "OK_TIME_NATIVE scope=hardware monotonic=pass sleep=pass absolute=pass sibling=pass validation=pass\n"
         sleep = "OK_SLEEP_NATIVE scope=hardware sole_sleeper=pass\n"
         poll = "OK_POLL_NATIVE scope=hardware nonblock=pass readiness=pass timeout=pass wake=pass peer_close=pass\n"
+        quota = "OK_VM_QUOTA scope=hardware resource=address-space refused=enomem restored=pass\n"
         self.assertEqual(self.run_guest_output([gui], native=True), 124)
         self.assertEqual(self.run_guest_output([gui, user], native=True), 124)
         self.assertEqual(self.run_guest_output([gui, timer, user], native=True), 124)
@@ -73,7 +74,9 @@ class DistroMarkerTests(unittest.TestCase):
         self.assertEqual(self.run_guest_output([gui, paths, vm, timer, user, clock, sleep], native=True), 124)
         self.assertEqual(self.run_guest_output([gui, paths, vm, timer, user, clock, sleep, poll], native=True), 124)
         self.assertEqual(self.run_guest_output([gui, paths, vm, paged_vm, timer, user, clock, sleep, poll], native=True), 124)
-        self.assertEqual(self.run_guest_output([gui, paths, vm, paged_vm, shared_vm, timer, user, clock, sleep, poll], native=True), 0)
+        # The pressure phase must have run against a real per-process quota.
+        self.assertEqual(self.run_guest_output([gui, paths, vm, paged_vm, shared_vm, timer, user, clock, sleep, poll], native=True), 124)
+        self.assertEqual(self.run_guest_output([gui, paths, vm, paged_vm, shared_vm, quota, timer, user, clock, sleep, poll], native=True), 0)
         self.assertEqual(self.run_guest_output([gui, "POSIX_CHECK failed: fork\n"], native=True), 1)
 
     def test_symlink_gap_is_rejected_on_every_filesystem(self):

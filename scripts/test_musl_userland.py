@@ -187,46 +187,46 @@ def validate_execution(serial, require_files=False, require_heap=False, require_
 
 
 def validate_runtime_frames(serial, architecture):
-    firmware = architecture in ("i386", "x86_64", "aarch64", "arm32", "rv32", "rv64", "ppc")
-    source = b"firmware" if firmware else b"linker"
+    # Kernel SDK 75: every profile discovers its boot memory and the native page
+    # pool shares the kernel frame allocator (OK_BOOT_MEMORY, OK_NATIVE_FRAMES v3).
     lines = [line.strip() for line in serial.splitlines()]
-    preparations = [line for line in lines if line.startswith(b"OK_NATIVE_MEMORY stage=prepare ")]
-    if len(preparations) != 1:
-        raise RuntimeError("missing unique native memory preparation")
+    boots = [line for line in lines if line.startswith(b"OK_BOOT_MEMORY ")]
+    if len(boots) != 1:
+        raise RuntimeError("missing unique kernel boot memory provenance")
+    boot = re.fullmatch(rb"OK_BOOT_MEMORY version=1 protocol=([a-z0-9-]+) source=(e820|fdt|board) status=pass "
+                        rb"image_begin=(0x[0-9a-f]+) image_end=(0x[0-9a-f]+) direct_offset=(0x[0-9a-f]+) "
+                        rb"managed_pages=([0-9]+) managed_ranges=([0-9]+) excluded=([0-9]+)", boots[0])
+    if not boot:
+        raise RuntimeError("boot memory was not discovered from the loader")
+    first, last = int(boot[3],16), int(boot[4],16)
+    managed_pages, managed_ranges = int(boot[6]), int(boot[7])
+    if first >= last or not managed_pages:
+        raise RuntimeError("invalid complete linker reservation or empty managed RAM")
     ranges = []
-    if firmware:
-        match = re.fullmatch(rb"OK_NATIVE_MEMORY stage=prepare source=firmware status=pass image_begin=(0x[0-9a-f]+) image_end=(0x[0-9a-f]+) limit=1024", preparations[0])
-        if not match:
-            raise RuntimeError("firmware profile did not qualify real runtime memory")
-        first, last = int(match[1],16), int(match[2],16)
-        if first >= last:
-            raise RuntimeError("invalid complete linker reservation")
-        for line in lines:
-            if line.startswith(b"OK_NATIVE_MEMORY_RANGE "):
-                match = re.fullmatch(rb"OK_NATIVE_MEMORY_RANGE base=(0x[0-9a-f]+) size=(0x[0-9a-f]+)",line)
-                if not match:
-                    raise RuntimeError("invalid managed frame provenance")
-                base, size = int(match[1],16), int(match[2],16)
-                if not size or (base | size) & 4095 or (base < last and first < base + size):
-                    raise RuntimeError("managed frames overlap linked image or are unaligned")
-                if any(base < b+s and b < base+size for b,s in ranges):
-                    raise RuntimeError("managed frame ranges overlap")
-                ranges.append((base,size))
-        if sum(size for _,size in ranges) != 1024*4096:
-            raise RuntimeError("qualified frame capacity differs from runtime bound")
-    elif preparations[0] != b"OK_NATIVE_MEMORY stage=prepare source=linker reason=unsupported-firmware-profile limit=1024":
-        raise RuntimeError("unsupported profile lacks explicit linker fallback provenance")
+    for line in lines:
+        if line.startswith(b"OK_BOOT_MEMORY_RANGE "):
+            match = re.fullmatch(rb"OK_BOOT_MEMORY_RANGE base=(0x[0-9a-f]+) size=(0x[0-9a-f]+)",line)
+            if not match:
+                raise RuntimeError("invalid managed frame provenance")
+            base, size = int(match[1],16), int(match[2],16)
+            if not size or (base | size) & 4095 or (base < last and first < base + size) or base == 0:
+                raise RuntimeError("managed frames overlap linked image or page zero, or are unaligned")
+            if any(base < b+s and b < base+size for b,s in ranges):
+                raise RuntimeError("managed frame ranges overlap")
+            ranges.append((base,size))
+    if len(ranges) != managed_ranges or sum(size for _,size in ranges) != managed_pages*4096:
+        raise RuntimeError("managed ranges differ from the boot memory summary")
     if architecture == "arm32":
         entries = [line for line in lines if line.startswith(b"OK_ARM32_ENTRY")]
-        sources = [line for line in lines if line.startswith(b"OK_NATIVE_MEMORY_SOURCE")]
+        sources = [line for line in lines if line.startswith(b"OK_BOOT_MEMORY_SOURCE")]
         if len(entries) != 1 or len(sources) != 1:
             raise RuntimeError("missing unique ARM loader state or FDT source")
         entry = re.fullmatch(rb"OK_ARM32_ENTRY cpsr=(0x[0-9a-f]+) sctlr=(0x[0-9a-f]+) mpidr=(0x[0-9a-f]+) status=pass",entries[0])
-        storage = re.fullmatch(rb"OK_NATIVE_MEMORY_SOURCE protocol=arm32-linux-image fdt=(0x[0-9a-f]+) size=(0x[0-9a-f]+)",sources[0])
-        if not entry or not storage or not lines.index(entries[0]) < lines.index(sources[0]) < lines.index(preparations[0]):
+        storage = re.fullmatch(rb"OK_BOOT_MEMORY_SOURCE base=(0x[0-9a-f]+) size=(0x[0-9a-f]+) decoded=(0x[0-9a-f]+)",sources[0])
+        if not entry or not storage or not lines.index(entries[0]) < lines.index(boots[0]) < lines.index(sources[0]):
             raise RuntimeError("invalid ARM loader identity or source order")
         cpsr,sctlr,mpidr = map(lambda word:int(word,16),entry.groups())
-        address,length = map(lambda word:int(word,16),storage.groups())
+        address,length = int(storage[1],16), int(storage[2],16)
         if cpsr & 0x23f != 0x13 or sctlr & 0x02000005 or mpidr & 0xffffff:
             raise RuntimeError("ARM physical-access entry state was not qualified")
         if address & 7 or not 40 <= length <= 2*1024*1024 or not 0x40000000 <= address < address+length <= 0x60000000:
@@ -238,21 +238,22 @@ def validate_runtime_frames(serial, architecture):
                 raise RuntimeError("ARM frames overlap FDT/boot prefix or exceed supervisor RAM")
     statistics = []
     ownership = []
-    reserve = None
+    reserve = limit = total = None
     for line in lines:
         if line.startswith(b"OK_NATIVE_FRAMES "):
-            match = re.fullmatch(rb"OK_NATIVE_FRAMES version=2 source=(firmware|linker) used=([0-9]+) total=([0-9]+) allocations=([0-9]+) releases=([0-9]+) pinned=([0-9]+) user=([0-9]+) objects=([0-9]+) free=([0-9]+) pending=([0-9]+) reserve=([0-9]+) user_limit=([0-9]+)",line)
-            if not match or match[1] != source:
+            match = re.fullmatch(rb"OK_NATIVE_FRAMES version=3 source=firmware used=([0-9]+) total=([0-9]+) allocations=([0-9]+) releases=([0-9]+) pinned=([0-9]+) user=([0-9]+) objects=([0-9]+) free=([0-9]+) pending=([0-9]+) reserve=([0-9]+) user_limit=([0-9]+)(?: object_quarantine=0)?",line)
+            if not match:
                 raise RuntimeError("native allocation source or accounting version mismatch")
-            used,total,allocated,released,pinned,user,objects,free,pending,current_reserve,user_limit = map(int,match.groups()[1:])
-            if (total != 1024 or pinned or pending or allocated-released != used or
-                    user+objects != used or used+free != total or
-                    not 0 < current_reserve < total or user_limit != total-current_reserve or
+            used,current_total,allocated,released,pinned,user,objects,free,pending,current_reserve,user_limit = map(int,match.groups())
+            # The allocator is shared: other kernel owners hold the remaining frames.
+            if (pinned or pending or allocated-released != used or user+objects != used or
+                    used+free > current_total or current_total > managed_pages or
+                    not 0 < current_reserve < current_total or user_limit + current_reserve > current_total or
                     user > user_limit or objects > current_reserve):
                 raise RuntimeError("native frame ownership, purpose or retirement accounting mismatch")
-            if reserve is not None and reserve != current_reserve:
-                raise RuntimeError("native object reserve changed during execution")
-            reserve = current_reserve
+            if reserve is not None and (reserve, limit, total) != (current_reserve, user_limit, current_total):
+                raise RuntimeError("native object reserve or user quota changed during execution")
+            reserve, limit, total = current_reserve, user_limit, current_total
             if statistics and (allocated < statistics[-1][1] or released < statistics[-1][2]):
                 raise RuntimeError("native frame counters moved backward")
             statistics.append((used,allocated,released))
@@ -262,21 +263,24 @@ def validate_runtime_frames(serial, architecture):
     images = []
     for line in lines:
         if line.startswith(b"OK_NATIVE_IMAGE "):
-            match = re.fullmatch(rb"OK_NATIVE_IMAGE personality=linux source=(firmware|linker) pages=([0-9]+) physical_first=(0x[0-9a-f]+) physical_last=(0x[0-9a-f]+) owner=retained",line)
-            if not match or match[1] != source or not 0 < int(match[2]) <= 128:
+            match = re.fullmatch(rb"OK_NATIVE_IMAGE personality=linux source=firmware pages=([0-9]+) physical_first=(0x[0-9a-f]+) physical_last=(0x[0-9a-f]+) owner=retained",line)
+            if not match or not 0 < int(match[1]) <= 1024:
                 raise RuntimeError("Linux image lacks retained frame ownership")
-            low,high = int(match[3],16),int(match[4],16)
+            low,high = int(match[2],16),int(match[3],16)
             if low > high or (low|high)&4095:
                 raise RuntimeError("invalid Linux physical image bounds")
-            if firmware and any(not any(base <= address and address+4096 <= base+size for base,size in ranges) for address in (low,high)):
+            offset = int(boot[5],16)
+            if any(not any(base <= address - offset and address - offset + 4096 <= base+size for base,size in ranges)
+                   for address in (low,high)):
                 raise RuntimeError("Linux image physical pages lie outside qualified ranges")
-            images.append(int(match[2]))
+            images.append(int(match[1]))
     if len(images) < 4:
         raise RuntimeError("missing repeated Linux exec ownership evidence")
-    return {"accounting_version":2,"source":source.decode(),"total":1024,"process_limit":128,"linux_images":len(images),
-            "object_reserve":reserve,"user_limit":1024-reserve,"remaining_user":ownership[-1][0],
-            "remaining_objects":ownership[-1][1],"free":ownership[-1][2],"pending":0,
-            "allocations":statistics[-1][1],"releases":statistics[-1][2],"remaining":statistics[-1][0],"pinned":0}
+    return {"accounting_version":3,"source":"firmware","boot_protocol":boot[1].decode(),"total":total,
+            "managed_pages":managed_pages,"linux_images":len(images),"object_reserve":reserve,"user_limit":limit,
+            "remaining_user":ownership[-1][0],"remaining_objects":ownership[-1][1],"free":ownership[-1][2],
+            "pending":0,"allocations":statistics[-1][1],"releases":statistics[-1][2],
+            "remaining":statistics[-1][0],"pinned":0}
 
 
 def main():

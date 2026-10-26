@@ -552,9 +552,15 @@ static int check_shared_anonymous_memory(void)
         _Exit(127);
     }
     CHECK(child_status(child) == 0 && shared[2 * page] == 51);
-    // Respect the current user-page reserve instead of assuming two fixed
-    // allocations fit. Stop at a bounded resource refusal and test recovery.
-    enum { pressure_pages = 64, pressure_slots = 32 };
+    // Pressure runs against this process's own address-space quota. A 3 MiB
+    // soft RLIMIT_AS (common UAPI resource 9) lies below both the per-space
+    // mapping capacity and the shared page pool, so the refusal is the quota.
+    enum { pressure_pages = 64, pressure_slots = 32, rlimit_as = 9 };
+    struct ok_rlimit saved_limit, quota;
+    CHECK(ok_syscall4(OK_SYS_PRLIMIT64, 0, rlimit_as, 0, (long)&saved_limit) == 0);
+    quota.current = 3 * 1024 * 1024;
+    quota.maximum = saved_limit.maximum;
+    CHECK(ok_syscall4(OK_SYS_PRLIMIT64, 0, rlimit_as, (long)&quota, 0) == 0);
     volatile unsigned char *pressure[pressure_slots];
     size_t pressure_count = 0;
     for (; pressure_count < pressure_slots; ++pressure_count)
@@ -579,6 +585,15 @@ static int check_shared_anonymous_memory(void)
         for (size_t i = 0; i < pressure_pages; ++i)
             CHECK(pressure[allocation][i * page] == (unsigned char)(allocation + 1) &&
                   pressure[allocation][(i + 1) * page - 1] == (unsigned char)(i + 65));
+    // Restoring the saved limit reads back the quota and admits the refused size.
+    struct ok_rlimit current;
+    CHECK(ok_syscall4(OK_SYS_PRLIMIT64, 0, rlimit_as, (long)&saved_limit, (long)&current) == 0);
+    CHECK(current.current == quota.current && current.maximum == quota.maximum);
+    volatile unsigned char *admitted = mmap(0, pressure_pages * page, PROT_READ | PROT_WRITE,
+                                            MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+    CHECK((void *)admitted != MAP_FAILED && admitted[0] == 0);
+    CHECK(munmap((void *)admitted, pressure_pages * page) == 0);
+    puts("OK_VM_QUOTA scope=hardware resource=address-space refused=enomem restored=pass");
     CHECK(shared[2 * page] == 51);
     CHECK(munmap((void *)pressure[pressure_count - 1], pressure_pages * page) == 0);
     pressure[pressure_count - 1] = mmap(0, pressure_pages * page, PROT_READ | PROT_WRITE,

@@ -69,7 +69,7 @@ class UapiFieldsTests(unittest.TestCase):
         mode = os.environ.get('OK_TEST_KERNEL_MODE', 'debug')
         self.assertIn(mode, ('debug', 'release'))
         manifest = validate_sdk(sdk, os.environ.get('OK_TEST_KERNEL_ARCH', 'x86_64'), mode)
-        self.assertEqual(manifest['abi_version'], 74)
+        self.assertEqual(manifest['abi_version'], 75)
         self.assertEqual(manifest['native_pty_profile'], 'bootcpu-native-raw-pair-ofd-waits-drain-eof-eio-v1')
         values = parse_defines((sdk / 'include/ok/uapi/syscall.h').read_text())
         self.assertEqual(values['OK_AT_FDCWD'], -100)
