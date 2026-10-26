@@ -287,6 +287,11 @@ task("qemu-distro")
         end
         if option.get("require-native") then
             table.insert(args, "--require-native")
+            -- Native PPC ELF admission exists only for the measured e500v2
+            -- single-CPU profile; without it startup is refused by design.
+            if arch == "ppc" then
+                table.insert(args, "--native-profile")
+            end
         end
         os.execv("python3", args)
     end)
