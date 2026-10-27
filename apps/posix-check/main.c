@@ -430,7 +430,15 @@ static int check_native_memory(void)
     CHECK(mmap((void *)(bulk + 171 * page), page, PROT_READ | PROT_WRITE,
                MAP_PRIVATE | MAP_ANONYMOUS | MAP_FIXED, -1, 0) == (void *)(bulk + 171 * page));
     CHECK(bulk[171 * page] == 0);
-    CHECK(mmap(0, 1024 * page, PROT_READ | PROT_WRITE,
+    // Mapping records are bounded by the user window, not by a fixed count:
+    // 1024 more pages map, and only a request beyond the window is refused.
+    volatile unsigned char *large = mmap(0, 1024 * page, PROT_READ | PROT_WRITE,
+                                         MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+    CHECK((void *)large != MAP_FAILED);
+    large[0] = 1;
+    large[1023 * page] = 2;
+    CHECK(large[0] == 1 && large[1023 * page] == 2 && munmap((void *)large, 1024 * page) == 0);
+    CHECK(mmap(0, (size_t)1 << 31, PROT_READ | PROT_WRITE,
                MAP_PRIVATE | MAP_ANONYMOUS, -1, 0) == MAP_FAILED && errno == ENOMEM);
     CHECK(bulk[0] == 0x5a && bulk[170 * page] == (unsigned char)(170 ^ 0x5a) &&
           bulk[172 * page] == (unsigned char)(172 ^ 0x5a) && memory[0] == 11 && memory[2 * page] == 33);
@@ -552,9 +560,15 @@ static int check_shared_anonymous_memory(void)
         _Exit(127);
     }
     CHECK(child_status(child) == 0 && shared[2 * page] == 51);
-    // Respect the current user-page reserve instead of assuming two fixed
-    // allocations fit. Stop at a bounded resource refusal and test recovery.
-    enum { pressure_pages = 64, pressure_slots = 32 };
+    // Pressure runs against this process's own address-space quota. A 3 MiB
+    // soft RLIMIT_AS (common UAPI resource 9) lies below both the user window
+    // and the shared page pool, so the refusal is the quota.
+    enum { pressure_pages = 64, pressure_slots = 32, rlimit_as = 9 };
+    struct ok_rlimit saved_limit, quota;
+    CHECK(ok_syscall4(OK_SYS_PRLIMIT64, 0, rlimit_as, 0, (long)&saved_limit) == 0);
+    quota.current = 3 * 1024 * 1024;
+    quota.maximum = saved_limit.maximum;
+    CHECK(ok_syscall4(OK_SYS_PRLIMIT64, 0, rlimit_as, (long)&quota, 0) == 0);
     volatile unsigned char *pressure[pressure_slots];
     size_t pressure_count = 0;
     for (; pressure_count < pressure_slots; ++pressure_count)
@@ -579,6 +593,15 @@ static int check_shared_anonymous_memory(void)
         for (size_t i = 0; i < pressure_pages; ++i)
             CHECK(pressure[allocation][i * page] == (unsigned char)(allocation + 1) &&
                   pressure[allocation][(i + 1) * page - 1] == (unsigned char)(i + 65));
+    // Restoring the saved limit reads back the quota and admits the refused size.
+    struct ok_rlimit current;
+    CHECK(ok_syscall4(OK_SYS_PRLIMIT64, 0, rlimit_as, (long)&saved_limit, (long)&current) == 0);
+    CHECK(current.current == quota.current && current.maximum == quota.maximum);
+    volatile unsigned char *admitted = mmap(0, pressure_pages * page, PROT_READ | PROT_WRITE,
+                                            MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+    CHECK((void *)admitted != MAP_FAILED && admitted[0] == 0);
+    CHECK(munmap((void *)admitted, pressure_pages * page) == 0);
+    puts("OK_VM_QUOTA scope=hardware resource=address-space refused=enomem restored=pass");
     CHECK(shared[2 * page] == 51);
     CHECK(munmap((void *)pressure[pressure_count - 1], pressure_pages * page) == 0);
     pressure[pressure_count - 1] = mmap(0, pressure_pages * page, PROT_READ | PROT_WRITE,
@@ -593,6 +616,52 @@ static int check_shared_anonymous_memory(void)
     CHECK(munmap((void *)shared, 3 * page) == 0 && munmap((void *)private_pages, page) == 0);
     puts("OK_VM_SHARED scope=hardware fork=pass private_isolation=pass protect=pass none=pass "
          "partial_unmap=pass fixed=pass exec_exit=pass pressure=pass cleanup=pass");
+    return 0;
+}
+
+// Parent and child each write a private page that fork left shared, once by a
+// CPU store and once by a kernel copy, and must observe only their own values.
+// This holds for eager and copy-on-write fork alike.
+static int check_fork_private_copies(void)
+{
+    const size_t page = 4096;
+    volatile unsigned char *data = mmap(0, 4 * page, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+    CHECK((void *)data != MAP_FAILED);
+    for (size_t i = 0; i < 4; ++i)
+        data[i * page] = (unsigned char)(i + 1);
+    int go[2], answer[2], local[2];
+    CHECK(pipe(go) == 0 && pipe(answer) == 0 && pipe(local) == 0);
+    pid_t child = fork();
+    CHECK(child >= 0);
+    if (child == 0)
+    {
+        char byte;
+        close(go[1]); close(answer[0]);
+        if (read(go[0], &byte, 1) != 1 || data[0] != 1 || data[page] != 2)
+            _Exit(1);
+        if (read(go[0], (void *)(data + 2 * page), 1) != 1 || data[2 * page] != 'k')
+            _Exit(2);
+        data[3 * page] = 44;
+        byte = (char)data[3 * page];
+        if (write(answer[1], &byte, 1) != 1)
+            _Exit(3);
+        _Exit(0);
+    }
+    close(go[0]); close(answer[1]);
+    data[0] = 101;
+    CHECK(write(local[1], "p", 1) == 1 && read(local[0], (void *)(data + page), 1) == 1);
+    CHECK(write(go[1], "x", 1) == 1 && write(go[1], "k", 1) == 1);
+    char value = 0;
+    CHECK(read(answer[0], &value, 1) == 1 && value == 44 && child_status(child) == 0);
+    CHECK(data[0] == 101 && data[page] == 'p' && data[2 * page] == 3 && data[3 * page] == 4);
+    // After the child exits the parent is the sole owner of every page again.
+    data[2 * page] = 103;
+    data[3 * page] = 104;
+    CHECK(data[2 * page] == 103 && data[3 * page] == 104);
+    CHECK(close(go[1]) == 0 && close(answer[0]) == 0 && close(local[0]) == 0 && close(local[1]) == 0);
+    CHECK(munmap((void *)data, 4 * page) == 0);
+    puts("OK_VM_FORK_COPY scope=hardware parent_store=pass parent_kernel_copy=pass child_kernel_copy=pass "
+         "child_store=pass");
     return 0;
 }
 
@@ -737,6 +806,7 @@ int main(int argc, char **argv)
     CHECK(check_file_names() == 0);
     CHECK(check_native_memory() == 0);
     CHECK(check_shared_anonymous_memory() == 0);
+    CHECK(check_fork_private_copies() == 0);
     CHECK(check_private_file_mapping() == 0);
     CHECK(check_symbolic_links() == 0);
     pid_t child = fork();

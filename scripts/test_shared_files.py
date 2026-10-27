@@ -30,8 +30,8 @@ RIGHTS = b"queue_last_owner=pass roundtrip=pass cloexec=pass alias=pass discard=
 COMPLETE = b"OK_SHARED_FILES_SUITE native=2 static_musl=2 child_exit=0"
 MARKERS = (b"OK_NATIVE_SHARED_FILES " + DETAILS, b"OK_NATIVE_SHARED_RIGHTS " + RIGHTS,
            b"OK_MUSL_SHARED_FILES " + DETAILS, b"OK_STATIC_SHARED_RIGHTS " + RIGHTS, COMPLETE)
-# The bounded native provider exports at most 1024 allocator frames.
-FRAME_CAPACITY = 1024
+# Kernel SDK 75: the native provider is a quota over the shared kernel frame
+# allocator, so other kernel owners hold the frames neither used nor free.
 FRAME_FIELDS = {"version", "source", "used", "total", "allocations", "releases", "pinned", "user",
                 "objects", "free", "pending", "reserve", "user_limit", "object_quarantine"}
 FILE_FIELDS = {"version", "files", "aliases", "retiring_files", "retained_frames", "reserved_cells"}
@@ -86,7 +86,7 @@ def run_evidence(serial: bytes) -> dict:
         raise ValueError("latest owner ledger records are malformed, prefixed or unpaired")
     frames = parse_fields(pair[1], FRAME_FIELDS)
     files = parse_fields(pair[2], FILE_FIELDS)
-    if frames["version"] != 2 or files["version"] != 1:
+    if frames["version"] not in (2, 3) or files["version"] != 1:
         raise ValueError("owner ledger version mismatch")
     if any(files[name] for name in FILE_FIELDS - {"version"}):
         raise ValueError("shared file ownership was not fully reclaimed")
@@ -95,9 +95,11 @@ def run_evidence(serial: bytes) -> dict:
     if frames["allocations"] - frames["releases"] != frames["used"] or \
             frames["used"] != frames["user"] + frames["objects"]:
         raise ValueError("physical owner counters disagree")
-    if not 0 < frames["total"] <= FRAME_CAPACITY or frames["reserve"] > frames["total"] or \
-            frames["free"] + frames["used"] != frames["total"] or \
-            frames["reserve"] + frames["user_limit"] != frames["total"] or \
+    if not 0 < frames["total"] or (frames["version"] == 2 and frames["total"] > 1024) or frames["reserve"] > frames["total"] or \
+            (frames["free"] + frames["used"] != frames["total"] if frames["version"] == 2 else
+             frames["free"] + frames["used"] > frames["total"]) or \
+            (frames["reserve"] + frames["user_limit"] != frames["total"] if frames["version"] == 2 else
+             frames["reserve"] + frames["user_limit"] > frames["total"]) or \
             frames["user"] > frames["user_limit"] or frames["objects"] > frames["reserve"]:
         raise ValueError("physical pool capacity or quota counters disagree")
     return {"shared_files": files, "frames": frames, "ledger_serial_offset": pair.start()}

@@ -205,9 +205,13 @@ def run_until_marker(command: list[str], timeout: float, require_native: bool = 
             observed.add("paged-vm")
         if line.startswith("OK_VM_SHARED scope=hardware fork=pass private_isolation=pass protect=pass none=pass partial_unmap=pass fixed=pass exec_exit=pass pressure=pass cleanup=pass"):
             observed.add("shared-vm")
+        if line.startswith("OK_VM_QUOTA scope=hardware resource=address-space refused=enomem restored=pass"):
+            observed.add("vm-quota")
+        if line.startswith("OK_VM_FORK_COPY scope=hardware parent_store=pass parent_kernel_copy=pass child_kernel_copy=pass child_store=pass"):
+            observed.add("fork-copy")
         if line.startswith("OK_VM_FILE_PRIVATE scope=hardware ext4=pass offset=pass short_length=pass tail_zero=pass errno=pass unlink=pass private_write=pass fork=pass"):
             observed.add("file-private-vm")
-        required = {"gui", "userland", "preemption", "paths", "vm", "paged-vm", "shared-vm", "time", "sole-sleeper", "poll"} if require_native else {"gui"}
+        required = {"gui", "userland", "preemption", "paths", "vm", "paged-vm", "shared-vm", "vm-quota", "fork-copy", "time", "sole-sleeper", "poll"} if require_native else {"gui"}
         if require_storage:
             required.update(("storage", "file-private-vm"))
         if require_journalled:
