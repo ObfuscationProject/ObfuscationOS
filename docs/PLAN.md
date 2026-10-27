@@ -78,6 +78,15 @@ Consume the ABI 75 SDK from kernel WT1.1/WT1.2: `tools/kernel_sdk.py` admission,
 `check_uapi.py`, SDK header lists, `tests/tools/test_kernel_sdk.py`. Exit: all
 twenty architecture/mode SDKs pass admission; `distro_image` links on ten profiles.
 
+### WT1.7 `refactor/ext4-layout` (S)
+
+Consume the kernel WT1.3 ext4 module headers (`ok/fs/ext4/<module>.hpp`):
+`modules/boot/storage.cpp`, `tests/native`, the `tools/kernel_sdk.py` header lists,
+the `tools/jbd2` manifest checks and the ledger implementation paths. The two ext4
+SDK profile marker headers keep their paths. Exit: `kernel-sdk-check`,
+`artifact-test` and the ext4 two-boot persistence test pass on the fast lane
+against the kernel worktree SDK; lands with the kernel merge and its ABI bump.
+
 ## P2
 
 ### WT2.2 `feat/getty-login` (M)

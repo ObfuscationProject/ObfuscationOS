@@ -1,5 +1,5 @@
 #include "drivers/virtio/block.hpp"
-#include <ok/fs/ext4_mounted_metadata.hpp>
+#include <ok/fs/ext4/mount.hpp>
 #include <ok/posix/posix.hpp>
 #include <new>
 #include "linux_fixture.hpp"

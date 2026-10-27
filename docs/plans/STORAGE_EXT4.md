@@ -51,7 +51,7 @@ rerun for this plan.
 
 | Area | Current implementation/evidence | Limit relevant to this plan |
 | --- | --- | --- |
-| Mounted ext4 | Kernel `include/ok/fs/ext4_fs.hpp`, `src/fs/ext4_fs.cpp`; `Ext4Node` implements VFS operations | Bounded non-journalled writer, not modern-default ext4 support |
+| Mounted ext4 | Kernel `include/ok/fs/ext4/layout.hpp`, `src/fs/ext4_fs.cpp`; `Ext4Node` implements VFS operations | Bounded non-journalled writer, not modern-default ext4 support |
 | Format admission | Requires clean state; exact incompatibility mask `0x42` (`filetype`, `extents`), zero compatible bits, read-only-compatible bits limited to `sparse_super` and `large_file` | Even read-only mounts use this narrow gate; `has_journal`, `metadata_csum`, `64bit`, `dir_index`, and other modern combinations are rejected |
 | Geometry | 512-byte device sectors; 1/2/4 KiB filesystem blocks; 128/256-byte Linux-layout inodes; at most 32 groups | No general 4Kn path, large descriptor layouts, larger blocks/inodes, or arbitrary-size group table |
 | Mapping/allocation | Extent-tree reads through depth three; inline extent mutation with at most four physical runs; low 32-bit file size/block accounting | No general tree split/merge, unwritten-extent mutation, or complete large-file behavior; accepting `large_file` does not establish large-file support |

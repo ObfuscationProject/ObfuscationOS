@@ -2,7 +2,7 @@
 #include <ok/arch/clock.hpp>
 #include <ok/arch/realtime.hpp>
 #include <ok/core/entry.hpp>
-#include <ok/fs/ext4_fs.hpp>
+#include <ok/fs/ext4/layout.hpp>
 #include <ok/user/runtime.hpp>
 
 using namespace ok;

@@ -75,7 +75,7 @@ def main():
         cxx, ar, objcopy = [Path(str(prefix) + name) for name in ("g++", "ar", "objcopy")]
         sdk = out / "sdk"
         manifest, manifest_sha = snapshot_sdk(args.kernel_sdk, sdk, args.arch, cxx, args.mode)
-        if args.runtime_binding and "include/ok/fs/ext4_recovery.hpp" not in manifest["files"]:
+        if args.runtime_binding and "include/ok/fs/ext4/journal.hpp" not in manifest["files"]:
             raise ValueError("runtime binding requires its header and implementation in the exported SDK")
         if "-frtti" not in manifest["cxxflags"] or "-fno-rtti" in manifest["cxxflags"]:
             raise ValueError("SDK must retain RTTI")
@@ -139,7 +139,7 @@ def main():
         summary["source_sha256"] = source_files
         extra_headers = []
         if args.candidate_headers:
-            for name in ("jbd2.hpp", "jbd2_replay.hpp"):
+            for name in ("ext4/journal.hpp",):
                 source = args.candidate_headers.resolve() / "ok/fs" / name
                 target = out / "candidate/ok/fs" / name
                 target.parent.mkdir(parents=True, exist_ok=True); target.write_bytes(source.read_bytes())

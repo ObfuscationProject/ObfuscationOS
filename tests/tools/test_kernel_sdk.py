@@ -605,8 +605,7 @@ class KernelSdkTests(unittest.TestCase):
                      *("include/" + name for name in NATIVE_PTY_HEADERS),
                      "include/ok/core/module.hpp", "boot/boot16.bin",
                      "include/ok/fs/ext4_mounted_common_profile.hpp",
-                     "include/ok/fs/ext4_mounted_metadata.hpp",
-                     "include/ok/fs/ext4_mounted_common_opening_budget.hpp",
+                     "include/ok/fs/ext4/mount.hpp",
                      "include/ok/block/session_counters.hpp",
                      *("include/" + name for name in UDP_PROFILE_HEADERS),
                      *("include/" + name for name in TCP_PROFILE_HEADERS),
@@ -810,8 +809,7 @@ class KernelSdkTests(unittest.TestCase):
 
     def test_common_headers_must_be_explicit_hashed_artifacts(self):
         for name in ("include/ok/fs/ext4_mounted_common_profile.hpp",
-                     "include/ok/fs/ext4_mounted_metadata.hpp",
-                     "include/ok/fs/ext4_mounted_common_opening_budget.hpp",
+                     "include/ok/fs/ext4/mount.hpp",
                      "include/ok/block/session_counters.hpp"):
             digest = self.manifest["files"].pop(name)
             self.save()

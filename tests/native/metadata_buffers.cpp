@@ -1,6 +1,6 @@
 #include "drivers/virtio/block.hpp"
-#include <ok/fs/jbd2_replay.hpp>
-#include <ok/fs/metadata_buffers.hpp>
+#include <ok/fs/ext4/journal.hpp>
+#include <ok/fs/ext4/txn.hpp>
 #include <ok/block/sessions.hpp>
 #include <new>
 #include "linux_fixture.hpp"

@@ -39,7 +39,7 @@ NATIVE_CONSOLE_INPUT_DEFINES = {
 NATIVE_PERSISTENT_SYNC_PROFILE = "retained-linked-mounted-ordered-journal-device-flush-v1"
 NATIVE_PERSISTENT_SYNC_PROFILE_HEADER = "ok/fs/persistent_sync_profile.hpp"
 NATIVE_PERSISTENT_SYNC_HEADERS = (
-    NATIVE_PERSISTENT_SYNC_PROFILE_HEADER, "ok/fs/vfs.hpp", "ok/fs/ext4_mounted_metadata.hpp",
+    NATIVE_PERSISTENT_SYNC_PROFILE_HEADER, "ok/fs/vfs.hpp", "ok/fs/ext4/mount.hpp",
     "ok/posix/posix.hpp", "ok/uapi/syscall.h", "ok/core/types.hpp",
 )
 NATIVE_PERSISTENT_SYNC_DEFINES = {
@@ -601,8 +601,7 @@ def validate_native_termination_profile(headers: Path) -> None:
 
 COMMON_HEADERS = (
     "include/ok/fs/ext4_mounted_common_profile.hpp",
-    "include/ok/fs/ext4_mounted_metadata.hpp",
-    "include/ok/fs/ext4_mounted_common_opening_budget.hpp",
+    "include/ok/fs/ext4/mount.hpp",
     "include/ok/block/session_counters.hpp",
 )
 
@@ -610,13 +609,9 @@ COMMON_HEADERS = (
 DIRECTORY_CREATE_PROFILE_HEADER = "ok/fs/ext4_directory_create_sdk_profile.hpp"
 DIRECTORY_CREATE_PROFILE = "bounded-journalled-single-block-directory-create-ordered-free-init-v2"
 DIRECTORY_CREATE_PROFILE_HEADERS = (
-    DIRECTORY_CREATE_PROFILE_HEADER, "ok/fs/ext4_directory_create_plan.hpp",
-    "ok/fs/ext4_directory_create_witness.hpp", "ok/fs/ext4_create_transaction.hpp",
-    "ok/fs/ext4_owned_transaction.hpp", "ok/fs/ext4_directory_initialization_budget.hpp",
-    "ok/fs/ext4_replay_view.hpp",
-    "ok/fs/ext4_completion.hpp", "ok/fs/ext4_recovery.hpp",
-    "ok/fs/ext4_replay_shape.hpp", "ok/fs/ext4_mounted_metadata.hpp",
-    "ok/fs/ext4_mounted_startup_port.inc",
+    DIRECTORY_CREATE_PROFILE_HEADER, "ok/fs/ext4/alloc.hpp", "ok/fs/ext4/txn.hpp",
+    "ok/fs/ext4/mount.hpp", "ok/fs/ext4/dir.hpp", "ok/fs/ext4/journal.hpp", "ok/fs/ext4/recovery.hpp",
+    "ok/fs/ext4/detail/mounted_startup_port.inc",
 )
 
 
