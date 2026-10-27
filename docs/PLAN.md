@@ -83,11 +83,12 @@ object-pressure tool require ABI 75 and refuse 74/76. `posix-check` runs its
 pressure phase against a lowered `RLIMIT_AS` and prints `OK_VM_QUOTA`, and a
 fork copy probe in which parent and child each write a still-shared private page
 by CPU store and by kernel copy (`OK_VM_FORK_COPY`); `qemu_distro.py
---require-native` requires both. The probe passes against eager and
-`native_cow_fork` kernel SDKs on all ten profiles. `test_musl_userland.py` validates
-`OK_BOOT_MEMORY` provenance and `OK_NATIVE_FRAMES` version 3; the shared-file and
-object-pressure parsers accept version 2 receipts and version 3 (shared kernel
-allocator) records. All twenty architecture/mode SDKs pass admission and link
+--require-native` requires both. The probe passes against the default
+copy-on-write and the eager (`--native_cow_fork=n`) kernel SDKs on all ten
+profiles. `test_musl_userland.py` validates `OK_BOOT_MEMORY` provenance and
+`OK_NATIVE_FRAMES` version 3; the shared-file and object-pressure parsers accept
+version 2 receipts and version 3 (shared kernel allocator) records, and the
+SDK 75 parsers admit the `OK_NATIVE_COW` line of copy-on-write kernels. All twenty architecture/mode SDKs pass admission and link
 `distro_image`; the ten debug images boot natively with
 `qemu-distro --require-native`.
 

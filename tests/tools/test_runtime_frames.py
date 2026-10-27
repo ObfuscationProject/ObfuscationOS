@@ -71,6 +71,9 @@ class RuntimeFrameEvidenceTests(unittest.TestCase):
                         (b'object_quarantine=0',b'object_quarantine=1')]:
             with self.subTest(old=old,new=new),self.assertRaises(RuntimeError):
                 validate_runtime_frames(GOOD.replace(old,new),'x86_64')
+        # Copy-on-write kernels report fork sharing beside each frame record.
+        cow=b'OK_NATIVE_COW version=1 shared=12 copied=3 reused=4\n'
+        self.assertEqual(validate_runtime_frames(GOOD.replace(b'user_limit=1004\n',b'user_limit=1004\n'+cow),'x86_64'),result)
         # The quota and reserve are fixed at activation.
         with self.assertRaises(RuntimeError):
             validate_runtime_frames(GOOD.replace(b'reserve=8 user_limit=1004',b'reserve=9 user_limit=1003',1),'x86_64')

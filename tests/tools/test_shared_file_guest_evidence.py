@@ -59,6 +59,13 @@ class SharedFileGuestEvidenceTests(unittest.TestCase):
             with self.subTest(frame=frame), self.assertRaisesRegex(ValueError, "capacity or quota"):
                 run_evidence(OUTCOME + frame + FILE)
 
+    def test_copy_on_write_counters_follow_the_pair(self):
+        # Copy-on-write kernels report fork sharing after the ledger pair.
+        cow = b"OK_NATIVE_COW version=1 shared=5900 copied=170 reused=173\n"
+        self.assertEqual(run_evidence(OUTCOME + FRAME + FILE + cow + b"oksh> ")["ledger_serial_offset"], len(OUTCOME))
+        with self.assertRaises(ValueError):
+            run_evidence(OUTCOME + FRAME + cow + FILE)
+
     def test_realistic_pool_capacity_and_quota_consistency_are_required(self):
         for frame in (FRAME.replace(b"free=1004", b"free=0"),
                       FRAME.replace(b"user_limit=960", b"user_limit=1024"),
