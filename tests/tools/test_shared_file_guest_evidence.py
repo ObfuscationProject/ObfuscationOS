@@ -48,6 +48,24 @@ class SharedFileGuestEvidenceTests(unittest.TestCase):
             with self.subTest(order=order), self.assertRaisesRegex(ValueError, "runner order"):
                 run_evidence(b"\n".join(order) + b"\n" + FRAME + FILE)
 
+    def test_shared_allocator_generation_admits_other_kernel_owners(self):
+        # Kernel SDK 75 (version 3): a quota over the shared kernel allocator.
+        shared = (b"OK_NATIVE_FRAMES version=3 source=firmware used=20 total=40000 allocations=120 releases=100 "
+                  b"pinned=0 user=17 objects=3 free=39000 pending=0 reserve=270 user_limit=39500 object_quarantine=0\n")
+        self.assertEqual(run_evidence(OUTCOME + shared + FILE)["frames"]["total"], 40000)
+        for frame in (shared.replace(b"free=39000", b"free=39990"),
+                      shared.replace(b"user_limit=39500", b"user_limit=39800"),
+                      shared.replace(b"reserve=270", b"reserve=40001")):
+            with self.subTest(frame=frame), self.assertRaisesRegex(ValueError, "capacity or quota"):
+                run_evidence(OUTCOME + frame + FILE)
+
+    def test_copy_on_write_counters_follow_the_pair(self):
+        # Copy-on-write kernels report fork sharing after the ledger pair.
+        cow = b"OK_NATIVE_COW version=1 shared=5900 copied=170 reused=173\n"
+        self.assertEqual(run_evidence(OUTCOME + FRAME + FILE + cow + b"oksh> ")["ledger_serial_offset"], len(OUTCOME))
+        with self.assertRaises(ValueError):
+            run_evidence(OUTCOME + FRAME + cow + FILE)
+
     def test_realistic_pool_capacity_and_quota_consistency_are_required(self):
         for frame in (FRAME.replace(b"free=1004", b"free=0"),
                       FRAME.replace(b"user_limit=960", b"user_limit=1024"),
@@ -100,7 +118,7 @@ class SharedFileGuestEvidenceTests(unittest.TestCase):
 
     def test_duplicate_missing_wrong_version_and_inconsistent_counts_are_refused(self):
         for frame in (FRAME.replace(b"used=20", b"used=20 used=20"), FRAME.replace(b"used=20 ", b""),
-                      FRAME.replace(b"version=2", b"version=3"), FRAME.replace(b"releases=100", b"releases=99"),
+                      FRAME.replace(b"version=2", b"version=4"), FRAME.replace(b"releases=100", b"releases=99"),
                       FRAME.replace(b"objects=3", b"objects=4"), FRAME.replace(b"pinned=0", b"pinned=-1")):
             with self.subTest(frame=frame), self.assertRaises(ValueError):
                 run_evidence(OUTCOME + frame + FILE)

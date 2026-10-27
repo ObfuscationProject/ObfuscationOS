@@ -88,7 +88,9 @@ jobs:
           xmake -y -b rootfs-simplefs
           xmake -y -b rootfs-ext4
       - name: Verify desktop and native userland in QEMU
-        run: xmake qemu-distro --fs=simplefs --require-native --timeout=30
+        # posix-check's quota, fork-copy and bulk-mapping probes push the
+        # emulated x86_64 boot past 30 s on hosted runners.
+        run: xmake qemu-distro --fs=simplefs --require-native --timeout=90
       - name: Verify ext4 persistence across boots
         if: matrix.arch == 'x86_64'
         run: |

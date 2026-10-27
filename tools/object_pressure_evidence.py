@@ -1,4 +1,4 @@
-"""Strict SDK74 admission and serial evidence for object-pressure guests."""
+"""Strict SDK75 admission and serial evidence for object-pressure guests."""
 from __future__ import annotations
 
 import hashlib
@@ -14,7 +14,7 @@ SOURCE_FILES = ('AGENTS.md', 'xmake.lua')
 FRAME_FIELDS = ('used', 'total', 'allocations', 'releases', 'pinned', 'user',
                 'objects', 'free', 'pending', 'reserve', 'user_limit')
 NUMBER = rb'(0|[1-9][0-9]{0,19})'
-FRAME = re.compile(rb'OK_NATIVE_FRAMES version=2 source=(firmware|linker)' +
+FRAME = re.compile(rb'OK_NATIVE_FRAMES version=([23]) source=(firmware|linker)' +
                    b''.join(b' ' + key.encode() + b'=' + NUMBER for key in FRAME_FIELDS) + rb'(?: object_quarantine=' + NUMBER + rb')?\r?\n')
 PRESSURE = re.compile(rb'OK_MUSL_OBJECT_PRESSURE children=' + NUMBER + rb' pages=' + NUMBER +
                       rb' first=' + NUMBER + rb' last=' + NUMBER +
@@ -90,8 +90,8 @@ def admit_sdk(sdk, expected, arch, mode, compiler, compiler_hash):
     for name in manifest['files']:
         relative_file(sdk, name)
     manifest = validate_sdk(sdk, arch, mode, compiler)
-    if manifest['abi_version'] != 74 or manifest['compiler'].get('family') != 'gcc':
-        raise ValueError('object pressure requires SDK74 GCC ABI74')
+    if manifest['abi_version'] != 75 or manifest['compiler'].get('family') != 'gcc':
+        raise ValueError('object pressure requires SDK75 GCC ABI75')
     return manifest
 
 
@@ -104,27 +104,49 @@ def failure_line(serial):
     return None
 
 
+def frame_source(arch, version):
+    # SDK <= 74 (version 2) kept linker backing on three profiles; SDK 75
+    # (version 3) discovers boot memory on every profile.
+    if version == 3:
+        return 'firmware'
+    return 'linker' if arch in ('loongarch64', 'mips', 'mips64') else 'firmware'
+
+
+def frame_version(serial):
+    match = re.search(rb'OK_NATIVE_FRAMES version=([23]) ', serial)
+    if not match:
+        raise ValueError('missing frame records')
+    return int(match[1])
+
+
 def decode_frames(serial, arch, *, require_quarantine=False):
     if arch not in ARCH_TRIPLES:
         raise ValueError('unknown architecture')
-    source = 'linker' if arch in ('loongarch64', 'mips', 'mips64') else 'firmware'
     rows = []
+    version = None
     for line in serial.splitlines(keepends=True):
         if b'OK_NATIVE_FRAMES' not in line:
             continue
         match = FRAME.fullmatch(line)
-        if not match or match[1].decode() != source:
-            raise ValueError('incomplete, malformed or wrong-source version 2 frame record')
+        if not match or (version is not None and int(match[1]) != version) or \
+                match[2].decode() != frame_source(arch, int(match[1])):
+            raise ValueError('incomplete, malformed, mixed-version or wrong-source frame record')
+        version = int(match[1])
         if require_quarantine and match.groups()[-1] is None:
             raise ValueError('missing current mapping quarantine accounting')
-        row = dict(zip(FRAME_FIELDS, map(int, match.groups()[1:-1])))
+        row = dict(zip(FRAME_FIELDS, map(int, match.groups()[2:-1])))
         row['object_quarantine'] = int(match.groups()[-1] or 0)
+        # Version 2 owned a dedicated allocator; version 3 is a quota over the
+        # shared kernel allocator, whose other owners hold the remaining frames.
+        exclusive = version == 2
         if (any(value > 0xffffffffffffffff for value in row.values()) or
                 not 0 < row['reserve'] < row['total'] or
-                row['user_limit'] != row['total'] - row['reserve'] or
+                (row['user_limit'] != row['total'] - row['reserve'] if exclusive else
+                 row['user_limit'] + row['reserve'] > row['total']) or
                 row['user'] > row['user_limit'] or row['objects'] > row['reserve'] or
                 row['used'] != row['user'] + row['objects'] or
-                row['used'] + row['free'] != row['total'] or
+                (row['used'] + row['free'] != row['total'] if exclusive else
+                 row['used'] + row['free'] > row['total']) or
                 row['allocations'] - row['releases'] != row['used'] or
                 row['pinned'] or row['pending'] or row['object_quarantine']):
             raise ValueError('invalid frame ownership, purpose quota or reclamation accounting')
@@ -133,7 +155,7 @@ def decode_frames(serial, arch, *, require_quarantine=False):
             raise ValueError('frame capacity changed or lifetime counters moved backward')
         rows.append(row)
     if not rows:
-        raise ValueError('missing version 2 frame records')
+        raise ValueError('missing frame records')
     return rows
 
 
@@ -184,7 +206,7 @@ def validate_execution(serial, baseline_begin, pressure_begin, pressure_end, nat
             result['pages'] >= rows[0]['user_limit'] or
             final['allocations'] <= during[-1]['allocations']):
         raise ValueError('missing actual object use, page reclamation or post-pressure allocation')
-    return dict(pressure=result, accounting_version=2, source='linker' if arch in
-                ('loongarch64', 'mips', 'mips64') else 'firmware', total=final['total'],
+    version = frame_version(serial)
+    return dict(pressure=result, accounting_version=version, source=frame_source(arch, version), total=final['total'],
                 reserve=final['reserve'], user_limit=final['user_limit'], baseline=baseline, final=final,
                 observed_object_pages=max(row['objects'] for row in during), records=len(rows))

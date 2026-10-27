@@ -92,7 +92,7 @@ def owner_evidence(raw: bytes, completion: int, offset: int) -> dict:
             pair.end() != shaped[-1].end()):
         raise ValueError("latest owner ledgers are not the exact pair after suite completion")
     frames, files = parse_fields(pair[1], FRAME_FIELDS), parse_fields(pair[2], FILE_FIELDS)
-    if frames["version"] != 2 or files["version"] != 1:
+    if frames["version"] not in (2, 3) or files["version"] != 1:
         raise ValueError("owner ledger version mismatch")
     if any(files[name] for name in FILE_FIELDS - {"version"}):
         raise ValueError("shared ownership not reclaimed")
@@ -100,9 +100,11 @@ def owner_evidence(raw: bytes, completion: int, offset: int) -> dict:
         raise ValueError("physical retirement pending")
     if (frames["allocations"] - frames["releases"] != frames["used"] or
             frames["used"] != frames["user"] + frames["objects"] or
-            not 0 < frames["total"] <= 1024 or frames["reserve"] > frames["total"] or
-            frames["free"] + frames["used"] != frames["total"] or
-            frames["reserve"] + frames["user_limit"] != frames["total"] or
+            not 0 < frames["total"] or (frames["version"] == 2 and frames["total"] > 1024) or frames["reserve"] > frames["total"] or
+            (frames["free"] + frames["used"] != frames["total"] if frames["version"] == 2 else
+             frames["free"] + frames["used"] > frames["total"]) or
+            (frames["reserve"] + frames["user_limit"] != frames["total"] if frames["version"] == 2 else
+             frames["reserve"] + frames["user_limit"] > frames["total"]) or
             frames["user"] > frames["user_limit"] or frames["objects"] > frames["reserve"]):
         raise ValueError("physical accounting/capacity mismatch")
     return {"frames": frames, "files": files, "raw_pair_extent": [offset + pair.start(), offset + pair.end()]}
