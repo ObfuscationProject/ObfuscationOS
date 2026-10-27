@@ -3,7 +3,7 @@
 #include <ok/arch/realtime.hpp>
 #include <ok/arch/terminal_power.hpp>
 #include <ok/core/shutdown_storage.hpp>
-#include <ok/fs/ext4_fs.hpp>
+#include <ok/fs/ext4/layout.hpp>
 #include <ok/fs/fat_fs.hpp>
 #include <ok/fs/ext4_mounted_common_profile.hpp>
 #include <new>

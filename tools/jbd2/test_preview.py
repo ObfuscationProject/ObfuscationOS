@@ -81,7 +81,7 @@ def main():
         cxx, ar, objcopy = [Path(str(prefix) + x) for x in ("g++", "ar", "objcopy")]
         sdk = out / "sdk"
         manifest, manifest_sha = snapshot_sdk(args.kernel_sdk, sdk, args.arch, cxx, args.mode)
-        if not {"include/ok/fs/ext4_readonly.hpp", "include/ok/fs/ext4_replay_view.hpp", "include/ok/fs/ext4_recovery.hpp"}.issubset(manifest["files"]):
+        if not {"include/ok/fs/ext4/layout.hpp", "include/ok/fs/ext4/txn.hpp", "include/ok/fs/ext4/journal.hpp"}.issubset(manifest["files"]):
             raise ValueError("exact SDK lacks the ext4 binding/view headers")
         if "-frtti" not in manifest["cxxflags"] or "-fno-rtti" in manifest["cxxflags"]:
             raise ValueError("SDK must retain RTTI")

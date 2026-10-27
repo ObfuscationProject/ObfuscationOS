@@ -50,7 +50,7 @@ def snapshot_sdk(source, target, arch, compiler, mode="debug"):
     source = source.resolve()
     manifest_bytes = (source / "manifest.json").read_bytes()
     manifest = validate_sdk(source, arch, mode, compiler)
-    required_headers = {"include/ok/fs/jbd2.hpp", "include/ok/fs/jbd2_replay.hpp"}
+    required_headers = {"include/ok/fs/ext4/journal.hpp"}
     if not required_headers.issubset(manifest["files"]):
         raise ValueError("the exact SDK does not export both JBD2 headers")
     target.mkdir()

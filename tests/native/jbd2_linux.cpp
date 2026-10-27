@@ -1,7 +1,6 @@
 #include "drivers/virtio/block.hpp"
-#include <ok/fs/jbd2_replay.hpp>
+#include <ok/fs/ext4/journal.hpp>
 #ifdef OS_EXT4_RUNTIME_BINDING
-#include <ok/fs/ext4_recovery.hpp>
 #endif
 #include <new>
 #include "linux_fixture.hpp"

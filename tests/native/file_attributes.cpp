@@ -1,5 +1,5 @@
 #include "drivers/virtio/block.hpp"
-#include <ok/fs/ext4_fs.hpp>
+#include <ok/fs/ext4/layout.hpp>
 #include <ok/posix/posix.hpp>
 #include <new>
 #include "attribute_fixture.hpp"

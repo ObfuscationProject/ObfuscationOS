@@ -52,7 +52,7 @@ class NativeConsoleControlSdkTests(unittest.TestCase):
             validate(kernel_checkout.INCLUDE)
         self.assertEqual(self.good, (kernel_checkout.INCLUDE /
                                     consumer.NATIVE_CONSOLE_CONTROL_PROFILE_HEADER).read_text())
-        self.assertEqual(consumer.validate_sdk(self.sdk, 'x86_64', 'debug')['abi_version'], 75)
+        self.assertEqual(consumer.validate_sdk(self.sdk, 'x86_64', 'debug')['abi_version'], 76)
         self.fixture.test_all_ten_profile_contracts()
 
     def test_manifest_requires_explicit_console_capability(self):
@@ -86,9 +86,9 @@ class NativeConsoleControlSdkTests(unittest.TestCase):
         attacks = [self.good + self.good, '/*\n' + self.good + '*/\n',
                    '#if 0\n' + self.good + '#endif\n',
                    'const char *example = R"(\n' + self.good + ')";\n',
-                   '#define native_console_control_module_abi 75\n' + self.good,
-                   self.good.replace('module_abi = 75', 'module_abi = 72'),
-                   self.good.replace('module_abi = 75', 'module_abi = 76'),
+                   '#define native_console_control_module_abi 76\n' + self.good,
+                   self.good.replace('module_abi = 76', 'module_abi = 72'),
+                   self.good.replace('module_abi = 76', 'module_abi = 77'),
                    self.good.replace('ioctl-v1', 'ioctl-v2'),
                    self.good.replace('\n', '\u2028'),
                    self.good.replace('#pragma once', '#pragma once\\\n')]
@@ -119,8 +119,8 @@ class NativeConsoleControlSdkTests(unittest.TestCase):
     def test_old_future_and_mixed_cohorts_are_refused(self):
         module = self.sdk / 'include/ok/core/module.hpp'
         good_module = module.read_text()
-        for abi in (72, 74, 76):
-            module.write_text(good_module.replace('= 75;', '= ' + str(abi) + ';'))
+        for abi in (72, 75, 77):
+            module.write_text(good_module.replace('= 76;', '= ' + str(abi) + ';'))
             self.rehash(module)
             with self.subTest(abi=abi):
                 self.refused()
@@ -154,7 +154,7 @@ class NativeConsoleControlSdkTests(unittest.TestCase):
         marker.write_bytes(b'prior SDK')
         args = argparse.Namespace(headers=self.sdk / 'include', output=output, mode='debug',
                                   arch='x86_64', define=['OK_NATIVE_SIGNAL_RUNTIME'], asflag=[], cxxflag=[])
-        for attack in (self.good.replace('module_abi = 75', 'module_abi = 72'),
+        for attack in (self.good.replace('module_abi = 76', 'module_abi = 72'),
                        self.good.replace('pty = 0', 'pty = 1')):
             self.header.write_text(attack)
             with self.subTest(attack=attack), self.assertRaisesRegex(ValueError, 'native console control profile'):

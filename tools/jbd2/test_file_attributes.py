@@ -31,7 +31,7 @@ def main():
         prefix = args.toolchain.resolve()/'bin'/(ARCH_TRIPLES[args.arch]+'-'); cxx, ar, objcopy = [Path(str(prefix)+x) for x in ('g++','ar','objcopy')]
         sdk = out/'sdk'; manifest, sdk_sha = snapshot_sdk(args.kernel_sdk, sdk, args.arch, cxx, args.mode)
         if manifest['abi_version'] != 31: raise ValueError('file attributes require exact SDK31')
-        if not {'include/ok/fs/attributes.hpp','include/ok/fs/ext4_times.hpp'}.issubset(manifest['files']): raise ValueError('missing attribute SDK')
+        if not {'include/ok/fs/attributes.hpp','include/ok/fs/ext4/layout.hpp'}.issubset(manifest['files']): raise ValueError('missing attribute SDK')
         if '-frtti' not in manifest['cxxflags'] or '-fno-rtti' in manifest['cxxflags']: raise ValueError('SDK RTTI disabled')
         report.update(sdk_abi=manifest['abi_version'], sdk_manifest_sha256=sdk_sha, compiler=manifest['compiler'])
         fixtures = json.loads((args.fixtures/'result.json').read_text())

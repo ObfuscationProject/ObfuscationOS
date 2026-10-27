@@ -39,7 +39,7 @@ class NativeMetadataSdkTests(unittest.TestCase):
     def test_exact_profile_and_uapi_admitted_on_both_sides(self):
         for validate in (producer.validate_native_metadata_profile, consumer.validate_native_metadata_profile):
             validate(self.sdk / 'include')
-        self.assertEqual(consumer.validate_sdk(self.sdk, 'x86_64', 'debug')['abi_version'], 75)
+        self.assertEqual(consumer.validate_sdk(self.sdk, 'x86_64', 'debug')['abi_version'], 76)
         self.assertEqual(consumer.NATIVE_METADATA_DEFINES, producer.NATIVE_METADATA_DEFINES)
         self.assertEqual(consumer.NATIVE_METADATA_HEADERS, producer.NATIVE_METADATA_HEADERS)
 
@@ -62,9 +62,9 @@ class NativeMetadataSdkTests(unittest.TestCase):
         good = self.good_profile
         for value in (good + good, '#if 0\n' + good + '#endif\n', '/*\n' + good + '*/\n',
                       'const char *decoy = R"(\n' + good + ')";\n',
-                      '#define native_metadata_module_abi 75\n' + good,
-                      good.replace('module_abi = 75', 'module_abi = 69'),
-                      good.replace('module_abi = 75', 'module_abi = 76'),
+                      '#define native_metadata_module_abi 76\n' + good,
+                      good.replace('module_abi = 76', 'module_abi = 69'),
+                      good.replace('module_abi = 76', 'module_abi = 77'),
                       good.replace('version = 1', 'version = 2'),
                       good.replace('checked-mode-root-owner-u32-v1', 'unchecked-v1'),
                       good.replace('#pragma once', '#pragma once\n#define u32 unsigned')):

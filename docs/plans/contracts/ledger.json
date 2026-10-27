@@ -4730,7 +4730,7 @@
       ],
       "feature_profile": "modern-ext4",
       "implementation_paths": [
-        "ObfuscationKernel/include/ok/fs/jbd2_replay.hpp"
+        "ObfuscationKernel/include/ok/fs/ext4/journal.hpp"
       ],
       "state": "native-partial",
       "model_test_ids": [],
@@ -5895,7 +5895,7 @@
       ],
       "feature_profile": "jbd2-v3-plan-model",
       "implementation_paths": [
-        "ObfuscationKernel/include/ok/fs/jbd2.hpp",
+        "ObfuscationKernel/include/ok/fs/ext4/journal.hpp",
         "ObfuscationKernel/scripts/generate_jbd2_fixture.py",
         "ObfuscationKernel/tests/fixtures/jbd2_v3.bin",
         "ObfuscationKernel/docs/fs/jbd2-sources.json"
@@ -6074,7 +6074,7 @@
       ],
       "feature_profile": "jbd2-v3-executor-model",
       "implementation_paths": [
-        "ObfuscationKernel/include/ok/fs/jbd2_replay.hpp"
+        "ObfuscationKernel/include/ok/fs/ext4/journal.hpp"
       ],
       "state": "native-partial",
       "model_test_ids": [
@@ -6162,7 +6162,7 @@
       ],
       "feature_profile": "workstation",
       "implementation_paths": [
-        "ObfuscationKernel/include/ok/fs/ext4_recovery.hpp",
+        "ObfuscationKernel/include/ok/fs/ext4/journal.hpp",
         "ObfuscationKernel/src/fs/ext4_recovery.cpp"
       ],
       "state": "native-partial",
@@ -6379,8 +6379,8 @@
       ],
       "feature_profile": "workstation",
       "implementation_paths": [
-        "ObfuscationKernel/include/ok/fs/ext4_readonly.hpp",
-        "ObfuscationKernel/include/ok/fs/ext4_replay_view.hpp"
+        "ObfuscationKernel/include/ok/fs/ext4/layout.hpp",
+        "ObfuscationKernel/include/ok/fs/ext4/txn.hpp"
       ],
       "state": "native-partial",
       "model_test_ids": [
@@ -6556,7 +6556,7 @@
       ],
       "feature_profile": "workstation",
       "implementation_paths": [
-        "ObfuscationKernel/include/ok/fs/ext4_completion.hpp"
+        "ObfuscationKernel/include/ok/fs/ext4/txn.hpp"
       ],
       "state": "native-partial",
       "limitations": [
@@ -6631,7 +6631,7 @@
       ],
       "feature_profile": "workstation",
       "implementation_paths": [
-        "ObfuscationKernel/include/ok/fs/ext4_completion.hpp"
+        "ObfuscationKernel/include/ok/fs/ext4/txn.hpp"
       ],
       "state": "native-partial",
       "limitations": [
@@ -6758,7 +6758,7 @@
       ],
       "feature_profile": "workstation",
       "implementation_paths": [
-        "ObfuscationKernel/include/ok/fs/ext4_metadata_transaction.hpp"
+        "ObfuscationKernel/include/ok/fs/ext4/txn.hpp"
       ],
       "state": "native-partial",
       "limitations": [
@@ -6793,7 +6793,7 @@
       ],
       "feature_profile": "workstation",
       "implementation_paths": [
-        "ObfuscationKernel/include/ok/fs/ext4_metadata_transaction.hpp"
+        "ObfuscationKernel/include/ok/fs/ext4/txn.hpp"
       ],
       "state": "native-partial",
       "limitations": [
@@ -6970,7 +6970,7 @@
       ],
       "feature_profile": "workstation",
       "implementation_paths": [
-        "ObfuscationKernel/include/ok/fs/metadata_buffers.hpp",
+        "ObfuscationKernel/include/ok/fs/ext4/txn.hpp",
         "ObfuscationKernel/include/ok/block/sessions.hpp"
       ],
       "state": "native-partial",
@@ -7197,7 +7197,7 @@
       "feature_profile": "workstation",
       "implementation_paths": [
         "ObfuscationKernel/include/ok/fs/attributes.hpp",
-        "ObfuscationKernel/include/ok/fs/ext4_times.hpp",
+        "ObfuscationKernel/include/ok/fs/ext4/layout.hpp",
         "ObfuscationKernel/include/ok/posix/native_stat.hpp",
         "ObfuscationKernel/src/fs/ext4_fs.cpp",
         "ObfuscationKernel/src/posix/fd.cpp",
@@ -7245,10 +7245,8 @@
       ],
       "feature_profile": "workstation",
       "implementation_paths": [
-        "ObfuscationKernel/include/ok/fs/ext4_owned_transaction.hpp",
-        "ObfuscationKernel/include/ok/fs/metadata_buffers.hpp",
-        "ObfuscationKernel/include/ok/fs/ext4_metadata_transaction.hpp",
-        "ObfuscationKernel/include/ok/fs/ext4_completion.hpp"
+        "ObfuscationKernel/include/ok/fs/ext4/mount.hpp",
+        "ObfuscationKernel/include/ok/fs/ext4/txn.hpp"
       ],
       "state": "native-partial",
       "limitations": [
@@ -7283,7 +7281,7 @@
       ],
       "feature_profile": "workstation",
       "implementation_paths": [
-        "ObfuscationKernel/include/ok/fs/ext4_owned_transaction.hpp"
+        "ObfuscationKernel/include/ok/fs/ext4/mount.hpp"
       ],
       "state": "native-partial",
       "limitations": [
@@ -7460,9 +7458,8 @@
       ],
       "feature_profile": "workstation",
       "implementation_paths": [
-        "ObfuscationKernel/include/ok/fs/ext4_mounted_metadata.hpp",
-        "ObfuscationKernel/include/ok/fs/ext4_owned_transaction.hpp",
-        "ObfuscationKernel/include/ok/fs/metadata_buffers.hpp"
+        "ObfuscationKernel/include/ok/fs/ext4/mount.hpp",
+        "ObfuscationKernel/include/ok/fs/ext4/txn.hpp"
       ],
       "state": "native-partial",
       "limitations": [
@@ -7497,9 +7494,8 @@
       ],
       "feature_profile": "workstation",
       "implementation_paths": [
-        "ObfuscationKernel/include/ok/fs/ext4_mounted_metadata.hpp",
-        "ObfuscationKernel/include/ok/fs/ext4_owned_transaction.hpp",
-        "ObfuscationKernel/include/ok/fs/metadata_buffers.hpp"
+        "ObfuscationKernel/include/ok/fs/ext4/mount.hpp",
+        "ObfuscationKernel/include/ok/fs/ext4/txn.hpp"
       ],
       "state": "native-partial",
       "limitations": [
@@ -7755,8 +7751,7 @@
       ],
       "feature_profile": "workstation",
       "implementation_paths": [
-        "ObfuscationKernel/include/ok/fs/ext4_times.hpp",
-        "ObfuscationKernel/include/ok/fs/ext4_fs.hpp",
+        "ObfuscationKernel/include/ok/fs/ext4/layout.hpp",
         "ObfuscationKernel/include/ok/fs/vfs.hpp",
         "ObfuscationKernel/src/fs/ext4_fs.cpp",
         "ObfuscationOS/tests/native/ext4_timestamps.cpp",
@@ -7839,7 +7834,7 @@
       "implementation_paths": [
         "ObfuscationKernel/include/ok/abi/linux_stat.hpp",
         "ObfuscationKernel/include/ok/abi/linux_stat_call.hpp",
-        "ObfuscationKernel/include/ok/fs/ext4_blocks.hpp",
+        "ObfuscationKernel/include/ok/fs/ext4/layout.hpp",
         "ObfuscationKernel/include/ok/user/linux_bootstrap.hpp",
         "ObfuscationOS/tests/native/linux_stat_user.cpp",
         "ObfuscationOS/tests/musl/linux_stat.c"

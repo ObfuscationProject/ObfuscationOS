@@ -69,7 +69,7 @@ def main():
     try:
         prefix=args.toolchain.resolve()/'bin'/(ARCH_TRIPLES[args.arch]+'-');cxx,ar,objcopy=[Path(str(prefix)+x) for x in ('g++','ar','objcopy')]
         sdk=out/'sdk';manifest,sdk_hash=snapshot_sdk(args.kernel_sdk,sdk,args.arch,cxx,args.mode)
-        if 'include/ok/fs/ext4_completion.hpp' not in manifest['files']:raise ValueError('exact SDK lacks completion API')
+        if 'include/ok/fs/ext4/txn.hpp' not in manifest['files']:raise ValueError('exact SDK lacks completion API')
         if '-frtti' not in manifest['cxxflags'] or '-fno-rtti' in manifest['cxxflags']:raise ValueError('SDK RTTI disabled')
         report.update(sdk_abi=manifest['abi_version'],sdk_manifest_sha256=sdk_hash,compiler=manifest['compiler'])
         for f in sdk.rglob('*'):

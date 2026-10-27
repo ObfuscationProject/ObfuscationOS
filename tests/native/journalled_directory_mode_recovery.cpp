@@ -2,8 +2,8 @@
 #include <ok/arch/clock.hpp>
 #include <ok/arch/realtime.hpp>
 #include <ok/core/entry.hpp>
-#include <ok/fs/ext4_mounted_metadata.hpp>
-#include <ok/fs/ext4_completion.hpp>
+#include <ok/fs/ext4/mount.hpp>
+#include <ok/fs/ext4/txn.hpp>
 #include <ok/user/runtime.hpp>
 #include <new>
 #include "journalled_directory_mode_fixture.hpp"

@@ -92,7 +92,7 @@ def main():
         prefix = args.toolchain.resolve() / 'bin' / (ARCH_TRIPLES[args.arch] + '-')
         cxx, ar, objcopy = [Path(str(prefix) + suffix) for suffix in ('g++', 'ar', 'objcopy')]
         sdk = out / 'sdk'; manifest, sdk_sha = snapshot_sdk(original_sdk, sdk, args.arch, cxx, args.mode)
-        required = {'include/ok/fs/ext4_fs.hpp', 'include/ok/fs/ext4_times.hpp', 'include/ok/arch/realtime.hpp'}
+        required = {'include/ok/fs/ext4/layout.hpp', 'include/ok/arch/realtime.hpp'}
         if sdk_sha != args.sdk_manifest_sha256 or manifest['abi_version'] != 31 or not required.issubset(manifest['files']):
             raise ValueError('exact SDK31 maintained interfaces required')
         if '-frtti' not in manifest['cxxflags'] or '-fno-rtti' in manifest['cxxflags']:
