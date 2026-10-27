@@ -680,8 +680,8 @@ UDP_PROFILE_HEADERS = (
 
 
 SHARED_FILE_PROFILE_HEADER = "ok/user/native_shared_files_sdk_profile.hpp"
-NATIVE_SHARED_FILE_PROFILE = "bootcpu-volatile-sealed-size-write-eager-pages-v2"
-LINUX_SHARED_FILE_PROFILE = "bootcpu-volatile-sealed-size-write-eager-pages-v2"
+NATIVE_SHARED_FILE_PROFILE = "bootcpu-volatile-sealed-size-write-eager-pages-v3"
+LINUX_SHARED_FILE_PROFILE = "bootcpu-volatile-sealed-size-write-eager-pages-v3"
 SHARED_FILE_PROFILE_HEADERS = (
     SHARED_FILE_PROFILE_HEADER, "ok/user/native_shared_files.hpp",
     "ok/user/native_shared_file_handle.hpp", "ok/user/native_mapping_pages.hpp",
@@ -884,9 +884,8 @@ def validate_shared_file_profile(headers: Path) -> None:
         pattern = rf'^[ \t]*inline[ \t]+constexpr[ \t]+std::string_view[ \t]+{name}[ \t]*=[ \t]*"([^"\n]+)"[ \t]*;[ \t]*$'
         if contract_declaration_values(source, name, pattern) != [expected]:
             raise ValueError("SDK75 shared-file profile mismatch: " + name)
+    # Profile v3 has no fixed file or page-count bound; the pool's quotas apply.
     for name, kind, expected in (("native_shared_file_module_abi", "u32", "75"),
-                                 ("native_shared_file_capacity", "usize", "16"),
-                                 ("native_shared_file_max_pages", "usize", "64"),
                                  ("native_shared_file_page_size", "usize", "4096"),
                                  ("native_shared_file_supported_seals", "u32", "15")):
         pattern = rf"^[ \t]*inline[ \t]+constexpr[ \t]+{kind}[ \t]+{name}[ \t]*=[ \t]*([0-9]+)[ \t]*;[ \t]*$"

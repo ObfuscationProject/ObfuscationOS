@@ -83,7 +83,10 @@ object-pressure tool require ABI 75 and refuse 74/76. `posix-check` runs its
 pressure phase against a lowered `RLIMIT_AS` and prints `OK_VM_QUOTA`, and a
 fork copy probe in which parent and child each write a still-shared private page
 by CPU store and by kernel copy (`OK_VM_FORK_COPY`); `qemu_distro.py
---require-native` requires both. The probe passes against the default
+--require-native` requires both. Its bulk probe maps 1024 more pages, which the
+former per-space record bound refused, and expects `ENOMEM` only beyond the
+user window. Admission requires shared-file profile v3, whose header no longer
+declares a file capacity or page bound. The probe passes against the default
 copy-on-write and the eager (`--native_cow_fork=n`) kernel SDKs on all ten
 profiles. `test_musl_userland.py` validates `OK_BOOT_MEMORY` provenance and
 `OK_NATIVE_FRAMES` version 3; the shared-file and object-pressure parsers accept

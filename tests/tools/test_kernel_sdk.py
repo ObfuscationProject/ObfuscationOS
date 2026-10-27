@@ -129,7 +129,7 @@ UDP_HEADER = 'inline constexpr std::string_view native_udp_profile = "bootcpu-st
 TCP_HEADER = 'inline constexpr std::string_view native_tcp_profile = "bootcpu-static-peer-ipv4-captured-nonblocking-immediate-v1";\ninline constexpr std::string_view linux_tcp_profile = "bootcpu-direct-static-peer-ipv4-captured-nonblocking-immediate-v1";\ninline constexpr std::string_view native_tcp_accept_profile = "bootcpu-explicit-ipv4-captured-nonblocking-reserved-accept-v1";\ninline constexpr std::string_view linux_tcp_accept_profile = "bootcpu-direct-explicit-ipv4-captured-nonblocking-reserved-accept-v1";\ninline constexpr u32 native_tcp_module_abi = 75;\ninline constexpr usize native_tcp_stream_capacity = 16;\ninline constexpr usize native_tcp_connection_capacity = 8;\ninline constexpr usize native_tcp_listener_capacity = 4;\ninline constexpr usize native_tcp_backlog_capacity = 4;\ninline constexpr usize native_tcp_send_capacity = 1024;\ninline constexpr usize native_tcp_receive_capacity = 1024;\ninline constexpr usize native_tcp_segment_capacity = 536;\ninline constexpr usize native_tcp_poll_budget = 8;\n'
 
 
-SHARED_FILE_HEADER = 'inline constexpr std::string_view native_shared_file_profile = "bootcpu-volatile-sealed-size-write-eager-pages-v2";\ninline constexpr std::string_view linux_shared_file_profile = "bootcpu-volatile-sealed-size-write-eager-pages-v2";\ninline constexpr u32 native_shared_file_module_abi = 75;\ninline constexpr usize native_shared_file_capacity = 16;\ninline constexpr usize native_shared_file_max_pages = 64;\ninline constexpr usize native_shared_file_page_size = 4096;\ninline constexpr u32 native_shared_file_supported_seals = 15;\n'
+SHARED_FILE_HEADER = 'inline constexpr std::string_view native_shared_file_profile = "bootcpu-volatile-sealed-size-write-eager-pages-v3";\ninline constexpr std::string_view linux_shared_file_profile = "bootcpu-volatile-sealed-size-write-eager-pages-v3";\ninline constexpr u32 native_shared_file_module_abi = 75;\ninline constexpr usize native_shared_file_page_size = 4096;\ninline constexpr u32 native_shared_file_supported_seals = 15;\n'
 
 
 FUTEX_WAKE_OPERATION_HEADER = 'inline constexpr std::string_view native_futex_wake_operation_profile = "bootcpu-serialized-two-key-private-anonymous-shared-signed-wrap-legacy-count-v1";\ninline constexpr std::string_view linux_futex_wake_operation_profile = "bootcpu-serialized-two-key-private-anonymous-shared-signed-wrap-legacy-count-v1";\ninline constexpr u32 native_futex_wake_operation_module_abi = 75;\ninline constexpr usize native_futex_wake_operation_word_bits = 32;\ninline constexpr usize native_futex_wake_operation_operand_bits = 12;\ninline constexpr usize native_futex_wake_operation_shift_bits = 5;\ninline constexpr usize native_futex_wake_operation_arithmetic_count = 5;\ninline constexpr usize native_futex_wake_operation_comparison_count = 6;\ninline constexpr usize native_futex_wake_operation_wake_passes = 2;\ninline constexpr usize native_futex_wake_operation_key_domains = 2;\ninline constexpr usize native_futex_wake_operation_nonpositive_wake_minimum = 1;\ninline constexpr u32 native_futex_wake_operation_smp_atomic = 0;\ninline constexpr u32 native_futex_wake_operation_file_backed = 0;\ninline constexpr u32 native_futex_wake_operation_cross_process_clone_vm = 0;\n'
@@ -403,13 +403,12 @@ class KernelSdkTests(unittest.TestCase):
                     SHARED_FILE_HEADER.replace("module_abi = 75", "module_abi = 64"),
                     SHARED_FILE_HEADER.replace("module_abi = 75", "module_abi = 65"),
                     SHARED_FILE_HEADER.replace("module_abi = 75", "module_abi = 76"),
-                    SHARED_FILE_HEADER.replace("capacity = 16", "capacity = 32"),
-                    SHARED_FILE_HEADER.replace("max_pages = 64", "max_pages = 128"),
+                    SHARED_FILE_HEADER.replace("write-eager-pages-v3", "write-eager-pages-v2"),
                     SHARED_FILE_HEADER.replace("page_size = 4096", "page_size = 8192"),
                     SHARED_FILE_HEADER.replace("supported_seals = 15", "supported_seals = 7"),
                     SHARED_FILE_HEADER.replace("supported_seals = 15", "supported_seals = 31"),
-                    SHARED_FILE_HEADER.replace("volatile-sealed-size-write-eager-pages-v2", "persistent-full-v1"),
-                    SHARED_FILE_HEADER.replace("volatile-sealed-size-write-eager-pages-v2", "volatile-sealed-size-eager-pages-v1")]
+                    SHARED_FILE_HEADER.replace("volatile-sealed-size-write-eager-pages-v3", "persistent-full-v1"),
+                    SHARED_FILE_HEADER.replace("volatile-sealed-size-write-eager-pages-v3", "volatile-sealed-size-eager-pages-v1")]
         for source in invalid:
             header.write_text(source)
             self.manifest["files"][name] = hashlib.sha256(header.read_bytes()).hexdigest()
