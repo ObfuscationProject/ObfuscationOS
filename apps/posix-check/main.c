@@ -430,7 +430,15 @@ static int check_native_memory(void)
     CHECK(mmap((void *)(bulk + 171 * page), page, PROT_READ | PROT_WRITE,
                MAP_PRIVATE | MAP_ANONYMOUS | MAP_FIXED, -1, 0) == (void *)(bulk + 171 * page));
     CHECK(bulk[171 * page] == 0);
-    CHECK(mmap(0, 1024 * page, PROT_READ | PROT_WRITE,
+    // Mapping records are bounded by the user window, not by a fixed count:
+    // 1024 more pages map, and only a request beyond the window is refused.
+    volatile unsigned char *large = mmap(0, 1024 * page, PROT_READ | PROT_WRITE,
+                                         MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+    CHECK((void *)large != MAP_FAILED);
+    large[0] = 1;
+    large[1023 * page] = 2;
+    CHECK(large[0] == 1 && large[1023 * page] == 2 && munmap((void *)large, 1024 * page) == 0);
+    CHECK(mmap(0, (size_t)1 << 31, PROT_READ | PROT_WRITE,
                MAP_PRIVATE | MAP_ANONYMOUS, -1, 0) == MAP_FAILED && errno == ENOMEM);
     CHECK(bulk[0] == 0x5a && bulk[170 * page] == (unsigned char)(170 ^ 0x5a) &&
           bulk[172 * page] == (unsigned char)(172 ^ 0x5a) && memory[0] == 11 && memory[2 * page] == 33);
@@ -553,8 +561,8 @@ static int check_shared_anonymous_memory(void)
     }
     CHECK(child_status(child) == 0 && shared[2 * page] == 51);
     // Pressure runs against this process's own address-space quota. A 3 MiB
-    // soft RLIMIT_AS (common UAPI resource 9) lies below both the per-space
-    // mapping capacity and the shared page pool, so the refusal is the quota.
+    // soft RLIMIT_AS (common UAPI resource 9) lies below both the user window
+    // and the shared page pool, so the refusal is the quota.
     enum { pressure_pages = 64, pressure_slots = 32, rlimit_as = 9 };
     struct ok_rlimit saved_limit, quota;
     CHECK(ok_syscall4(OK_SYS_PRLIMIT64, 0, rlimit_as, 0, (long)&saved_limit) == 0);
