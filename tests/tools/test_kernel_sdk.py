@@ -37,9 +37,9 @@ from kernel_sdk import (ARCH_TRIPLES, EXTENDED_BIOS_PAYLOAD_CAPACITY,
                         NATIVE_CONSOLE_CONTROL_PROFILE, NATIVE_CONSOLE_CONTROL_PROFILE_HEADER, NATIVE_CONSOLE_CONTROL_HEADERS,
                         NATIVE_PTY_PROFILE, NATIVE_PTY_PROFILE_HEADER, NATIVE_PTY_HEADERS)
 
-UNIX_PATHNAME_HEADER = 'inline constexpr std::string_view native_unix_pathname_profile = "bootcpu-ram-pathname-stream-owned-queue-direct-v1";\ninline constexpr std::string_view linux_unix_pathname_profile = "bootcpu-ram-pathname-stream-owned-queue-direct-v1";\ninline constexpr u32 unix_pathname_module_abi = 75;\ninline constexpr usize unix_pathname_endpoint_capacity = 32;\ninline constexpr usize unix_pathname_backlog_capacity = 4;\ninline constexpr usize unix_pathname_address_capacity = 110;\ninline constexpr usize unix_pathname_text_capacity = 107;\ninline constexpr usize unix_pathname_peer_credentials_bytes = 12;\n'
+UNIX_PATHNAME_HEADER = 'inline constexpr std::string_view native_unix_pathname_profile = "bootcpu-ram-pathname-stream-owned-queue-direct-v1";\ninline constexpr std::string_view linux_unix_pathname_profile = "bootcpu-ram-pathname-stream-owned-queue-direct-v1";\ninline constexpr u32 unix_pathname_module_abi = 76;\ninline constexpr usize unix_pathname_endpoint_capacity = 32;\ninline constexpr usize unix_pathname_backlog_capacity = 4;\ninline constexpr usize unix_pathname_address_capacity = 110;\ninline constexpr usize unix_pathname_text_capacity = 107;\ninline constexpr usize unix_pathname_peer_credentials_bytes = 12;\n'
 
-DIRECTORY_CREATE_HEADER = 'inline constexpr std::string_view ext4_directory_create_profile = "bounded-journalled-single-block-directory-create-ordered-free-init-v2";\ninline constexpr u32 ext4_directory_create_module_abi = 75;\ninline constexpr usize ext4_directory_create_home_capacity = 8;\ninline constexpr usize ext4_directory_create_owner_buffers = 9;\n'
+DIRECTORY_CREATE_HEADER = 'inline constexpr std::string_view ext4_directory_create_profile = "bounded-journalled-single-block-directory-create-ordered-free-init-v2";\ninline constexpr u32 ext4_directory_create_module_abi = 76;\ninline constexpr usize ext4_directory_create_home_capacity = 8;\ninline constexpr usize ext4_directory_create_owner_buffers = 9;\n'
 
 BOOT_ARCHIVE_DIRECTORY_HEADER = ('#pragma once\n#include "ok/core/types.hpp"\n#include <string_view>\n'
     'namespace ok::fs\n{\n'
@@ -73,7 +73,7 @@ POWER_DEFINITIONS = (
     ('OK_POWER_HALT', '1U'), ('OK_POWER_REBOOT', '2U'), ('OK_POWER_POWEROFF', '3U'),
     ('OK_SYS_POWER_PREPARE', '1032ULL'), ('OK_SYS_POWER_COMMIT', '1033ULL'))
 
-METADATA_HEADER = '#pragma once\n#include "ok/core/types.hpp"\n#include <string_view>\nnamespace ok::user\n{\ninline constexpr std::string_view native_metadata_profile = "checked-mode-root-owner-u32-v1";\ninline constexpr u32 native_metadata_version = 1;\ninline constexpr u32 native_metadata_module_abi = 75;\n} // namespace ok::user\n'
+METADATA_HEADER = '#pragma once\n#include "ok/core/types.hpp"\n#include <string_view>\nnamespace ok::user\n{\ninline constexpr std::string_view native_metadata_profile = "checked-mode-root-owner-u32-v1";\ninline constexpr u32 native_metadata_version = 1;\ninline constexpr u32 native_metadata_module_abi = 76;\n} // namespace ok::user\n'
 METADATA_DEFINITIONS = (('OK_NATIVE_METADATA_VERSION', '1'), ('OK_SYS_CHMOD', '90ULL'), ('OK_SYS_FCHMOD', '91ULL'), ('OK_SYS_CHOWN', '92ULL'), ('OK_SYS_FCHOWN', '93ULL'), ('OK_SYS_FCHOWNAT', '260ULL'), ('OK_SYS_FCHMODAT', '268ULL'), ('OK_AT_EMPTY_PATH', '0x1000U'), ('OK_AT_SYMLINK_NOFOLLOW', '0x0100U'))
 
 EXPECTED_CREDENTIALS_PROFILE = 'bootcpu-single-live-thread-real-effective-saved-v1'
@@ -120,33 +120,33 @@ def invalid_credentials_sources():
     yield 'digraph conditional', '%:if 0\n' + UAPI_HEADER + '%:endif\n'
     yield 'trigraph continuation', '// hidden contract??/\n' + UAPI_HEADER
 TERMINATION_HEADER = '#ifndef OK_UAPI_SIGNAL_H\n#define OK_UAPI_SIGNAL_H\n#define OK_SIGKILL 9\n#define OK_SIGTERM 15\n#define OK_NATIVE_SIGNAL_MAX 64\n#define OK_NATIVE_TERMINATION_VERSION 1\n#endif\n'
-COMMON_HEADER = 'inline constexpr std::string_view ext4_common_opening_profile = "serialized-common-eight-family-directory-create-ordered-free-init-zero-refill-optional-revoke-legacy-v4";\ninline constexpr u32 ext4_common_module_abi = 75;\ninline constexpr u32 ext4_common_session_counter_bits = 64;\n'
+COMMON_HEADER = 'inline constexpr std::string_view ext4_common_opening_profile = "serialized-common-eight-family-directory-create-ordered-free-init-zero-refill-optional-revoke-legacy-v4";\ninline constexpr u32 ext4_common_module_abi = 76;\ninline constexpr u32 ext4_common_session_counter_bits = 64;\n'
 
 
-UDP_HEADER = 'inline constexpr std::string_view native_udp_profile = "bootcpu-static-peer-ipv4-polling-captured-connected-zero-send-v3";\ninline constexpr std::string_view linux_udp_profile = "bootcpu-static-peer-ipv4-captured-connected-zero-send-v3";\ninline constexpr std::string_view native_udp_connected_profile = "bounded-static-peer-association-zero-destination-output-v2";\ninline constexpr u32 native_udp_module_abi = 75;\ninline constexpr usize native_udp_socket_capacity = 16;\ninline constexpr usize native_udp_queue_capacity = 2;\ninline constexpr usize native_udp_datagram_capacity = 1472;\ninline constexpr usize native_udp_frame_capacity = 1514;\n'
+UDP_HEADER = 'inline constexpr std::string_view native_udp_profile = "bootcpu-static-peer-ipv4-polling-captured-connected-zero-send-v3";\ninline constexpr std::string_view linux_udp_profile = "bootcpu-static-peer-ipv4-captured-connected-zero-send-v3";\ninline constexpr std::string_view native_udp_connected_profile = "bounded-static-peer-association-zero-destination-output-v2";\ninline constexpr u32 native_udp_module_abi = 76;\ninline constexpr usize native_udp_socket_capacity = 16;\ninline constexpr usize native_udp_queue_capacity = 2;\ninline constexpr usize native_udp_datagram_capacity = 1472;\ninline constexpr usize native_udp_frame_capacity = 1514;\n'
 
 
-TCP_HEADER = 'inline constexpr std::string_view native_tcp_profile = "bootcpu-static-peer-ipv4-captured-nonblocking-immediate-v1";\ninline constexpr std::string_view linux_tcp_profile = "bootcpu-direct-static-peer-ipv4-captured-nonblocking-immediate-v1";\ninline constexpr std::string_view native_tcp_accept_profile = "bootcpu-explicit-ipv4-captured-nonblocking-reserved-accept-v1";\ninline constexpr std::string_view linux_tcp_accept_profile = "bootcpu-direct-explicit-ipv4-captured-nonblocking-reserved-accept-v1";\ninline constexpr u32 native_tcp_module_abi = 75;\ninline constexpr usize native_tcp_stream_capacity = 16;\ninline constexpr usize native_tcp_connection_capacity = 8;\ninline constexpr usize native_tcp_listener_capacity = 4;\ninline constexpr usize native_tcp_backlog_capacity = 4;\ninline constexpr usize native_tcp_send_capacity = 1024;\ninline constexpr usize native_tcp_receive_capacity = 1024;\ninline constexpr usize native_tcp_segment_capacity = 536;\ninline constexpr usize native_tcp_poll_budget = 8;\n'
+TCP_HEADER = 'inline constexpr std::string_view native_tcp_profile = "bootcpu-static-peer-ipv4-captured-nonblocking-immediate-v1";\ninline constexpr std::string_view linux_tcp_profile = "bootcpu-direct-static-peer-ipv4-captured-nonblocking-immediate-v1";\ninline constexpr std::string_view native_tcp_accept_profile = "bootcpu-explicit-ipv4-captured-nonblocking-reserved-accept-v1";\ninline constexpr std::string_view linux_tcp_accept_profile = "bootcpu-direct-explicit-ipv4-captured-nonblocking-reserved-accept-v1";\ninline constexpr u32 native_tcp_module_abi = 76;\ninline constexpr usize native_tcp_stream_capacity = 16;\ninline constexpr usize native_tcp_connection_capacity = 8;\ninline constexpr usize native_tcp_listener_capacity = 4;\ninline constexpr usize native_tcp_backlog_capacity = 4;\ninline constexpr usize native_tcp_send_capacity = 1024;\ninline constexpr usize native_tcp_receive_capacity = 1024;\ninline constexpr usize native_tcp_segment_capacity = 536;\ninline constexpr usize native_tcp_poll_budget = 8;\n'
 
 
-SHARED_FILE_HEADER = 'inline constexpr std::string_view native_shared_file_profile = "bootcpu-volatile-sealed-size-write-eager-pages-v3";\ninline constexpr std::string_view linux_shared_file_profile = "bootcpu-volatile-sealed-size-write-eager-pages-v3";\ninline constexpr u32 native_shared_file_module_abi = 75;\ninline constexpr usize native_shared_file_page_size = 4096;\ninline constexpr u32 native_shared_file_supported_seals = 15;\n'
+SHARED_FILE_HEADER = 'inline constexpr std::string_view native_shared_file_profile = "bootcpu-volatile-sealed-size-write-eager-pages-v3";\ninline constexpr std::string_view linux_shared_file_profile = "bootcpu-volatile-sealed-size-write-eager-pages-v3";\ninline constexpr u32 native_shared_file_module_abi = 76;\ninline constexpr usize native_shared_file_page_size = 4096;\ninline constexpr u32 native_shared_file_supported_seals = 15;\n'
 
 
-FUTEX_WAKE_OPERATION_HEADER = 'inline constexpr std::string_view native_futex_wake_operation_profile = "bootcpu-serialized-two-key-private-anonymous-shared-signed-wrap-legacy-count-v1";\ninline constexpr std::string_view linux_futex_wake_operation_profile = "bootcpu-serialized-two-key-private-anonymous-shared-signed-wrap-legacy-count-v1";\ninline constexpr u32 native_futex_wake_operation_module_abi = 75;\ninline constexpr usize native_futex_wake_operation_word_bits = 32;\ninline constexpr usize native_futex_wake_operation_operand_bits = 12;\ninline constexpr usize native_futex_wake_operation_shift_bits = 5;\ninline constexpr usize native_futex_wake_operation_arithmetic_count = 5;\ninline constexpr usize native_futex_wake_operation_comparison_count = 6;\ninline constexpr usize native_futex_wake_operation_wake_passes = 2;\ninline constexpr usize native_futex_wake_operation_key_domains = 2;\ninline constexpr usize native_futex_wake_operation_nonpositive_wake_minimum = 1;\ninline constexpr u32 native_futex_wake_operation_smp_atomic = 0;\ninline constexpr u32 native_futex_wake_operation_file_backed = 0;\ninline constexpr u32 native_futex_wake_operation_cross_process_clone_vm = 0;\n'
+FUTEX_WAKE_OPERATION_HEADER = 'inline constexpr std::string_view native_futex_wake_operation_profile = "bootcpu-serialized-two-key-private-anonymous-shared-signed-wrap-legacy-count-v1";\ninline constexpr std::string_view linux_futex_wake_operation_profile = "bootcpu-serialized-two-key-private-anonymous-shared-signed-wrap-legacy-count-v1";\ninline constexpr u32 native_futex_wake_operation_module_abi = 76;\ninline constexpr usize native_futex_wake_operation_word_bits = 32;\ninline constexpr usize native_futex_wake_operation_operand_bits = 12;\ninline constexpr usize native_futex_wake_operation_shift_bits = 5;\ninline constexpr usize native_futex_wake_operation_arithmetic_count = 5;\ninline constexpr usize native_futex_wake_operation_comparison_count = 6;\ninline constexpr usize native_futex_wake_operation_wake_passes = 2;\ninline constexpr usize native_futex_wake_operation_key_domains = 2;\ninline constexpr usize native_futex_wake_operation_nonpositive_wake_minimum = 1;\ninline constexpr u32 native_futex_wake_operation_smp_atomic = 0;\ninline constexpr u32 native_futex_wake_operation_file_backed = 0;\ninline constexpr u32 native_futex_wake_operation_cross_process_clone_vm = 0;\n'
 
 
-FUTEX_REQUEUE_HEADER = 'inline constexpr std::string_view native_futex_requeue_profile = "bootcpu-nonpi-read-keys-signed-counts-exact-origin-ticket-sequence-owned-transfer-v1";\ninline constexpr std::string_view linux_futex_requeue_profile = "bootcpu-nonpi-read-keys-signed-counts-exact-origin-ticket-sequence-owned-transfer-v1";\ninline constexpr u32 native_futex_requeue_module_abi = 75;\ninline constexpr usize native_futex_requeue_word_bits = 32;\ninline constexpr usize native_futex_requeue_operation_count = 2;\ninline constexpr usize native_futex_requeue_linux_operation = 3;\ninline constexpr usize native_futex_cmp_requeue_linux_operation = 4;\ninline constexpr usize native_futex_requeue_private_flag = 128;\ninline constexpr usize native_futex_requeue_key_domains = 2;\ninline constexpr usize native_futex_requeue_waiter_capacity = 64;\ninline constexpr usize native_futex_requeue_sequence_bits = 64;\ninline constexpr u32 native_futex_requeue_original_continuation_preserved = 1;\ninline constexpr u32 native_futex_requeue_same_key_sequence_preserved = 1;\ninline constexpr u32 native_futex_requeue_zero_wake_minimum = 0;\ninline constexpr u32 native_futex_requeue_signed_negative_counts_rejected = 1;\ninline constexpr u32 native_futex_requeue_transfer_pin_owners_retained = 1;\ninline constexpr u32 native_futex_requeue_smp_atomic = 0;\ninline constexpr u32 native_futex_requeue_priority_inheritance = 0;\ninline constexpr u32 native_futex_requeue_realtime_priority = 0;\ninline constexpr u32 native_futex_requeue_file_backed = 0;\ninline constexpr u32 native_futex_requeue_cross_process_clone_vm = 0;\n'
+FUTEX_REQUEUE_HEADER = 'inline constexpr std::string_view native_futex_requeue_profile = "bootcpu-nonpi-read-keys-signed-counts-exact-origin-ticket-sequence-owned-transfer-v1";\ninline constexpr std::string_view linux_futex_requeue_profile = "bootcpu-nonpi-read-keys-signed-counts-exact-origin-ticket-sequence-owned-transfer-v1";\ninline constexpr u32 native_futex_requeue_module_abi = 76;\ninline constexpr usize native_futex_requeue_word_bits = 32;\ninline constexpr usize native_futex_requeue_operation_count = 2;\ninline constexpr usize native_futex_requeue_linux_operation = 3;\ninline constexpr usize native_futex_cmp_requeue_linux_operation = 4;\ninline constexpr usize native_futex_requeue_private_flag = 128;\ninline constexpr usize native_futex_requeue_key_domains = 2;\ninline constexpr usize native_futex_requeue_waiter_capacity = 64;\ninline constexpr usize native_futex_requeue_sequence_bits = 64;\ninline constexpr u32 native_futex_requeue_original_continuation_preserved = 1;\ninline constexpr u32 native_futex_requeue_same_key_sequence_preserved = 1;\ninline constexpr u32 native_futex_requeue_zero_wake_minimum = 0;\ninline constexpr u32 native_futex_requeue_signed_negative_counts_rejected = 1;\ninline constexpr u32 native_futex_requeue_transfer_pin_owners_retained = 1;\ninline constexpr u32 native_futex_requeue_smp_atomic = 0;\ninline constexpr u32 native_futex_requeue_priority_inheritance = 0;\ninline constexpr u32 native_futex_requeue_realtime_priority = 0;\ninline constexpr u32 native_futex_requeue_file_backed = 0;\ninline constexpr u32 native_futex_requeue_cross_process_clone_vm = 0;\n'
 
-SESSIONS_HEADER = '#pragma once\n#include "ok/core/types.hpp"\n#include <string_view>\nnamespace ok::user\n{\ninline constexpr std::string_view native_sessions_profile = "bootcpu-serialized-process-group-session-console-lifecycle-v3";\ninline constexpr u32 native_sessions_version = 3;\ninline constexpr u32 native_sessions_module_abi = 75;\ninline constexpr u32 native_sessions_pid_bits = 32;\ninline constexpr u32 native_sessions_process_capacity = 64;\ninline constexpr u32 native_sessions_fork_inherits = 1;\ninline constexpr u32 native_sessions_exec_preserves = 1;\ninline constexpr u32 native_sessions_reparent_preserves = 1;\ninline constexpr u32 native_sessions_controlling_tty = 1;\ninline constexpr u32 native_sessions_pty = 0;\ninline constexpr u32 native_sessions_job_control = 0;\n} // namespace ok::user\n'
-GROUP_SIGNAL_HEADER = '#pragma once\n#include "ok/core/types.hpp"\n#include <string_view>\nnamespace ok::user\n{\ninline constexpr std::string_view native_group_signal_profile = "bootcpu-signed32-current-negative-pgid-probe-term-kill-deferred-partial-v2";\ninline constexpr u32 native_group_signal_version = 2;\ninline constexpr u32 native_group_signal_module_abi = 75;\ninline constexpr u32 native_group_signal_pid_bits = 32;\ninline constexpr u32 native_group_signal_process_capacity = 64;\ninline constexpr u32 native_group_signal_current_group = 1;\ninline constexpr u32 native_group_signal_negative_group = 1;\ninline constexpr u32 native_group_signal_probe = 1;\ninline constexpr u32 native_group_signal_term = 15;\ninline constexpr u32 native_group_signal_kill = 9;\ninline constexpr u32 native_group_signal_deferred_fatal = 1;\ninline constexpr u32 native_group_signal_partial_success = 1;\ninline constexpr u32 native_group_signal_broadcast = 0;\ninline constexpr u32 native_group_signal_stop_continue = 0;\ninline constexpr u32 native_group_signal_controlling_tty = 1;\ninline constexpr u32 native_group_signal_job_control = 0;\ninline constexpr u32 native_group_signal_smp = 0;\n} // namespace ok::user\n'
+SESSIONS_HEADER = '#pragma once\n#include "ok/core/types.hpp"\n#include <string_view>\nnamespace ok::user\n{\ninline constexpr std::string_view native_sessions_profile = "bootcpu-serialized-process-group-session-console-lifecycle-v3";\ninline constexpr u32 native_sessions_version = 3;\ninline constexpr u32 native_sessions_module_abi = 76;\ninline constexpr u32 native_sessions_pid_bits = 32;\ninline constexpr u32 native_sessions_process_capacity = 64;\ninline constexpr u32 native_sessions_fork_inherits = 1;\ninline constexpr u32 native_sessions_exec_preserves = 1;\ninline constexpr u32 native_sessions_reparent_preserves = 1;\ninline constexpr u32 native_sessions_controlling_tty = 1;\ninline constexpr u32 native_sessions_pty = 0;\ninline constexpr u32 native_sessions_job_control = 0;\n} // namespace ok::user\n'
+GROUP_SIGNAL_HEADER = '#pragma once\n#include "ok/core/types.hpp"\n#include <string_view>\nnamespace ok::user\n{\ninline constexpr std::string_view native_group_signal_profile = "bootcpu-signed32-current-negative-pgid-probe-term-kill-deferred-partial-v2";\ninline constexpr u32 native_group_signal_version = 2;\ninline constexpr u32 native_group_signal_module_abi = 76;\ninline constexpr u32 native_group_signal_pid_bits = 32;\ninline constexpr u32 native_group_signal_process_capacity = 64;\ninline constexpr u32 native_group_signal_current_group = 1;\ninline constexpr u32 native_group_signal_negative_group = 1;\ninline constexpr u32 native_group_signal_probe = 1;\ninline constexpr u32 native_group_signal_term = 15;\ninline constexpr u32 native_group_signal_kill = 9;\ninline constexpr u32 native_group_signal_deferred_fatal = 1;\ninline constexpr u32 native_group_signal_partial_success = 1;\ninline constexpr u32 native_group_signal_broadcast = 0;\ninline constexpr u32 native_group_signal_stop_continue = 0;\ninline constexpr u32 native_group_signal_controlling_tty = 1;\ninline constexpr u32 native_group_signal_job_control = 0;\ninline constexpr u32 native_group_signal_smp = 0;\n} // namespace ok::user\n'
 SESSIONS_DEFINITIONS = (("OK_NATIVE_SESSIONS_VERSION", "3"), ("OK_SYS_SETPGID", "109ULL"), ("OK_SYS_GETPGRP", "111ULL"), ("OK_SYS_SETSID", "112ULL"), ("OK_SYS_GETPGID", "121ULL"), ("OK_SYS_GETSID", "124ULL"), ("OK_ESRCH", "3"))
 UAPI_HEADER = UAPI_HEADER.replace("#endif", "".join("#define " + n + " " + v + "\n" for n,v in SESSIONS_DEFINITIONS) + "#endif")
 
-CONSOLE_CONTROL_HEADER = '#pragma once\n#include "ok/core/types.hpp"\n#include <string_view>\nnamespace ok::user\n{\ninline constexpr std::string_view native_console_control_profile = "bootcpu-lease-epoch-explicit-session-foreground-eio-pid32-ioctl-v1";\ninline constexpr u32 native_console_control_version = 1;\ninline constexpr u32 native_console_control_module_abi = 75;\ninline constexpr u32 native_console_control_serialized_boot_cpu = 1;\ninline constexpr u32 native_console_control_lease_epoch = 1;\ninline constexpr u32 native_console_control_explicit_acquire = 1;\ninline constexpr u32 native_console_control_original_lease_session_leader = 1;\ninline constexpr u32 native_console_control_foreground_read = 1;\ninline constexpr u32 native_console_control_background_eio = 1;\ninline constexpr u32 native_console_control_same_session_background_control = 1;\ninline constexpr u32 native_console_control_zombie_group_until_reap = 1;\ninline constexpr u32 native_console_control_pid_bytes = 4;\ninline constexpr u32 native_console_control_native_uniform_requests = 1;\ninline constexpr u32 native_console_control_linux_generated_requests = 1;\ninline constexpr u32 native_console_control_auto_open_acquire = 0;\ninline constexpr u32 native_console_control_force_steal = 0;\ninline constexpr u32 native_console_control_empty_foreground_replaced = 0;\ninline constexpr u32 native_console_control_pty = 0;\ninline constexpr u32 native_console_control_termios = 0;\ninline constexpr u32 native_console_control_stop_continue = 0;\ninline constexpr u32 native_console_control_job_control = 0;\ninline constexpr u32 native_console_control_smp = 0;\n} // namespace ok::user\n'
+CONSOLE_CONTROL_HEADER = '#pragma once\n#include "ok/core/types.hpp"\n#include <string_view>\nnamespace ok::user\n{\ninline constexpr std::string_view native_console_control_profile = "bootcpu-lease-epoch-explicit-session-foreground-eio-pid32-ioctl-v1";\ninline constexpr u32 native_console_control_version = 1;\ninline constexpr u32 native_console_control_module_abi = 76;\ninline constexpr u32 native_console_control_serialized_boot_cpu = 1;\ninline constexpr u32 native_console_control_lease_epoch = 1;\ninline constexpr u32 native_console_control_explicit_acquire = 1;\ninline constexpr u32 native_console_control_original_lease_session_leader = 1;\ninline constexpr u32 native_console_control_foreground_read = 1;\ninline constexpr u32 native_console_control_background_eio = 1;\ninline constexpr u32 native_console_control_same_session_background_control = 1;\ninline constexpr u32 native_console_control_zombie_group_until_reap = 1;\ninline constexpr u32 native_console_control_pid_bytes = 4;\ninline constexpr u32 native_console_control_native_uniform_requests = 1;\ninline constexpr u32 native_console_control_linux_generated_requests = 1;\ninline constexpr u32 native_console_control_auto_open_acquire = 0;\ninline constexpr u32 native_console_control_force_steal = 0;\ninline constexpr u32 native_console_control_empty_foreground_replaced = 0;\ninline constexpr u32 native_console_control_pty = 0;\ninline constexpr u32 native_console_control_termios = 0;\ninline constexpr u32 native_console_control_stop_continue = 0;\ninline constexpr u32 native_console_control_job_control = 0;\ninline constexpr u32 native_console_control_smp = 0;\n} // namespace ok::user\n'
 CONSOLE_CONTROL_DEFINITIONS = (('OK_NATIVE_CONSOLE_CONTROL_VERSION', '1'), ('OK_SYS_IOCTL', '16ULL'), ('OK_TIOCSCTTY', '0x540eU'), ('OK_TIOCGSID', '0x5429U'), ('OK_TIOCGPGRP', '0x540fU'), ('OK_TIOCSPGRP', '0x5410U'), ('OK_EBADF', '9'), ('OK_EACCES', '13'), ('OK_EFAULT', '14'), ('OK_EIO', '5'), ('OK_EPERM', '1'), ('OK_ENOTTY', '25'), ('OK_EOPNOTSUPP', '95'))
 UAPI_HEADER = UAPI_HEADER.replace("#endif", "".join("#define " + n + " " + v + "\n" for n,v in CONSOLE_CONTROL_DEFINITIONS) + "#endif")
 
-PTY_HEADER = '#pragma once\n#include "ok/core/types.hpp"\n#include <string_view>\nnamespace ok::user\n{\ninline constexpr std::string_view native_pty_profile = "bootcpu-native-raw-pair-ofd-waits-drain-eof-eio-v1";\ninline constexpr u32 native_pty_version = 1;\ninline constexpr u32 native_pty_module_abi = 75;\ninline constexpr u32 native_pty_pair_capacity = 8;\ninline constexpr u32 native_pty_queue_capacity = 4096;\ninline constexpr u32 native_pty_generation_bits = 64;\ninline constexpr u32 native_pty_descriptor_bytes = 4;\ninline constexpr u32 native_pty_pair_output_bytes = 8;\ninline constexpr u32 native_pty_serialized_boot_cpu = 1;\ninline constexpr u32 native_pty_raw = 1;\ninline constexpr u32 native_pty_retained_ofd_waits = 1;\ninline constexpr u32 native_pty_unconditional_hangup = 1;\ninline constexpr u32 native_pty_slave_master_closed_poll_error = 1;\ninline constexpr u32 native_pty_master_slave_closed_poll_error = 0;\ninline constexpr u32 native_pty_scm_rights = 0;\ninline constexpr u32 native_pty_linux_creation = 0;\ninline constexpr u32 native_pty_slave_reopen = 0;\ninline constexpr u32 native_pty_termios = 0;\ninline constexpr u32 native_pty_controlling_terminal = 0;\ninline constexpr u32 native_pty_terminal_signals = 0;\ninline constexpr u32 native_pty_job_control = 0;\ninline constexpr u32 native_pty_devpts = 0;\ninline constexpr u32 native_pty_smp = 0;\n} // namespace ok::user\n'
+PTY_HEADER = '#pragma once\n#include "ok/core/types.hpp"\n#include <string_view>\nnamespace ok::user\n{\ninline constexpr std::string_view native_pty_profile = "bootcpu-native-raw-pair-ofd-waits-drain-eof-eio-v1";\ninline constexpr u32 native_pty_version = 1;\ninline constexpr u32 native_pty_module_abi = 76;\ninline constexpr u32 native_pty_pair_capacity = 8;\ninline constexpr u32 native_pty_queue_capacity = 4096;\ninline constexpr u32 native_pty_generation_bits = 64;\ninline constexpr u32 native_pty_descriptor_bytes = 4;\ninline constexpr u32 native_pty_pair_output_bytes = 8;\ninline constexpr u32 native_pty_serialized_boot_cpu = 1;\ninline constexpr u32 native_pty_raw = 1;\ninline constexpr u32 native_pty_retained_ofd_waits = 1;\ninline constexpr u32 native_pty_unconditional_hangup = 1;\ninline constexpr u32 native_pty_slave_master_closed_poll_error = 1;\ninline constexpr u32 native_pty_master_slave_closed_poll_error = 0;\ninline constexpr u32 native_pty_scm_rights = 0;\ninline constexpr u32 native_pty_linux_creation = 0;\ninline constexpr u32 native_pty_slave_reopen = 0;\ninline constexpr u32 native_pty_termios = 0;\ninline constexpr u32 native_pty_controlling_terminal = 0;\ninline constexpr u32 native_pty_terminal_signals = 0;\ninline constexpr u32 native_pty_job_control = 0;\ninline constexpr u32 native_pty_devpts = 0;\ninline constexpr u32 native_pty_smp = 0;\n} // namespace ok::user\n'
 PTY_DEFINITIONS = (('OK_SYS_PTY_PAIR', '1035ULL'), ('OK_NATIVE_PTY_PAIR_VERSION', '1U'), ('OK_NATIVE_PTY_NONBLOCK', '0x0800U'), ('OK_NATIVE_PTY_CLOEXEC', '0x080000U'))
 UAPI_HEADER = UAPI_HEADER.replace("#endif", "".join("#define " + n + " " + v + "\n" for n, v in PTY_DEFINITIONS) + "#endif")
 
@@ -203,7 +203,7 @@ class KernelSdkTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "checksum mismatch"):
             validate_sdk(self.sdk, "x86_64", "debug")
 
-    def test_abi74_rehashed_profiles_refuse_stale73_and_future75(self):
+    def test_abi76_rehashed_profiles_refuse_stale75_and_future77(self):
         cases = (("include/ok/fs/ext4_mounted_common_profile.hpp", COMMON_HEADER),
                  ("include/" + UDP_PROFILE_HEADER, UDP_HEADER),
                  ("include/" + TCP_PROFILE_HEADER, TCP_HEADER),
@@ -212,12 +212,12 @@ class KernelSdkTests(unittest.TestCase):
                  ("include/" + DIRECTORY_CREATE_PROFILE_HEADER, DIRECTORY_CREATE_HEADER),
                  ("include/" + FUTEX_WAKE_OPERATION_PROFILE_HEADER, FUTEX_WAKE_OPERATION_HEADER),
                  ("include/" + FUTEX_REQUEUE_PROFILE_HEADER, FUTEX_REQUEUE_HEADER))
-        self.assertEqual(validate_sdk(self.sdk, "x86_64", "debug")["abi_version"], 75)
+        self.assertEqual(validate_sdk(self.sdk, "x86_64", "debug")["abi_version"], 76)
         for name, declaration in cases:
-            self.assertIn("module_abi = 75;", declaration)
+            self.assertIn("module_abi = 76;", declaration)
             header = self.sdk / name
-            for version in (69, 70, 71, 72, 73, 74, 76):
-                header.write_text(declaration.replace("module_abi = 75;", f"module_abi = {version};"))
+            for version in (69, 70, 71, 72, 73, 75, 77):
+                header.write_text(declaration.replace("module_abi = 76;", f"module_abi = {version};"))
                 self.manifest["files"][name] = hashlib.sha256(header.read_bytes()).hexdigest()
                 self.save()
                 with self.subTest(marker=name, version=version), self.assertRaises(ValueError):
@@ -314,8 +314,8 @@ class KernelSdkTests(unittest.TestCase):
         lines = FUTEX_WAKE_OPERATION_HEADER.splitlines(keepends=True)
         invalid = [FUTEX_WAKE_OPERATION_HEADER.replace(line, "") for line in lines]
         invalid += [FUTEX_WAKE_OPERATION_HEADER + line for line in lines]
-        invalid += [FUTEX_WAKE_OPERATION_HEADER.replace("module_abi = 75", "module_abi = 65"),
-                    FUTEX_WAKE_OPERATION_HEADER.replace("module_abi = 75", "module_abi = 76"),
+        invalid += [FUTEX_WAKE_OPERATION_HEADER.replace("module_abi = 76", "module_abi = 65"),
+                    FUTEX_WAKE_OPERATION_HEADER.replace("module_abi = 76", "module_abi = 77"),
                     FUTEX_WAKE_OPERATION_HEADER.replace("word_bits = 32", "word_bits = 64"),
                     FUTEX_WAKE_OPERATION_HEADER.replace("operand_bits = 12", "operand_bits = 16"),
                     FUTEX_WAKE_OPERATION_HEADER.replace("shift_bits = 5", "shift_bits = 6"),
@@ -372,7 +372,7 @@ class KernelSdkTests(unittest.TestCase):
                 self.save()
                 with self.subTest(arch=arch, mode=mode):
                     admitted = validate_sdk(self.sdk, arch, mode)
-                    self.assertEqual(admitted["abi_version"], 75)
+                    self.assertEqual(admitted["abi_version"], 76)
                     self.assertEqual(admitted['native_credentials_profile'], EXPECTED_CREDENTIALS_PROFILE)
                     self.assertEqual(admitted["native_futex_wake_operation_profile"], FUTEX_WAKE_OPERATION_PROFILE)
                     self.assertEqual(admitted["linux_futex_wake_operation_profile"], FUTEX_WAKE_OPERATION_PROFILE)
@@ -398,11 +398,11 @@ class KernelSdkTests(unittest.TestCase):
         header = self.sdk / name
         invalid = [SHARED_FILE_HEADER.replace(line, "") for line in SHARED_FILE_HEADER.splitlines(keepends=True)]
         invalid += [SHARED_FILE_HEADER + line for line in SHARED_FILE_HEADER.splitlines(keepends=True)]
-        invalid += [SHARED_FILE_HEADER.replace("module_abi = 75", "module_abi = 59"),
-                    SHARED_FILE_HEADER.replace("module_abi = 75", "module_abi = 58"),
-                    SHARED_FILE_HEADER.replace("module_abi = 75", "module_abi = 64"),
-                    SHARED_FILE_HEADER.replace("module_abi = 75", "module_abi = 65"),
-                    SHARED_FILE_HEADER.replace("module_abi = 75", "module_abi = 76"),
+        invalid += [SHARED_FILE_HEADER.replace("module_abi = 76", "module_abi = 59"),
+                    SHARED_FILE_HEADER.replace("module_abi = 76", "module_abi = 58"),
+                    SHARED_FILE_HEADER.replace("module_abi = 76", "module_abi = 64"),
+                    SHARED_FILE_HEADER.replace("module_abi = 76", "module_abi = 65"),
+                    SHARED_FILE_HEADER.replace("module_abi = 76", "module_abi = 77"),
                     SHARED_FILE_HEADER.replace("write-eager-pages-v3", "write-eager-pages-v2"),
                     SHARED_FILE_HEADER.replace("page_size = 4096", "page_size = 8192"),
                     SHARED_FILE_HEADER.replace("supported_seals = 15", "supported_seals = 7"),
@@ -468,13 +468,13 @@ class KernelSdkTests(unittest.TestCase):
         header = self.sdk / name
         invalid = [TCP_HEADER.replace(line, "") for line in TCP_HEADER.splitlines(keepends=True)]
         invalid += [TCP_HEADER + line for line in TCP_HEADER.splitlines(keepends=True)]
-        invalid += [TCP_HEADER.replace("module_abi = 75", "module_abi = 59"),
-                    TCP_HEADER.replace("module_abi = 75", "module_abi = 55"),
-                    TCP_HEADER.replace("module_abi = 75", "module_abi = 56"),
-                    TCP_HEADER.replace("module_abi = 75", "module_abi = 58"),
-                    TCP_HEADER.replace("module_abi = 75", "module_abi = 64"),
-                    TCP_HEADER.replace("module_abi = 75", "module_abi = 65"),
-                    TCP_HEADER.replace("module_abi = 75", "module_abi = 76"),
+        invalid += [TCP_HEADER.replace("module_abi = 76", "module_abi = 59"),
+                    TCP_HEADER.replace("module_abi = 76", "module_abi = 55"),
+                    TCP_HEADER.replace("module_abi = 76", "module_abi = 56"),
+                    TCP_HEADER.replace("module_abi = 76", "module_abi = 58"),
+                    TCP_HEADER.replace("module_abi = 76", "module_abi = 64"),
+                    TCP_HEADER.replace("module_abi = 76", "module_abi = 65"),
+                    TCP_HEADER.replace("module_abi = 76", "module_abi = 77"),
                     TCP_HEADER.replace("nonblocking-immediate-v1", "blocking-full-v1"),
                     TCP_HEADER.replace("segment_capacity = 536", "segment_capacity = 1460")]
         for source in invalid:
@@ -503,7 +503,7 @@ class KernelSdkTests(unittest.TestCase):
             self.manifest["files"][name] = digest
             self.save()
 
-    def test_existing_native_contracts_require_real_typed_markers_and_ABI75(self):
+    def test_existing_native_contracts_require_real_typed_markers_and_ABI76(self):
         cases = (("include/ok/fs/ext4_mounted_common_profile.hpp", COMMON_HEADER),
                  ("include/" + UDP_PROFILE_HEADER, UDP_HEADER),
                  ("include/" + SHARED_FILE_PROFILE_HEADER, SHARED_FILE_HEADER))
@@ -511,10 +511,10 @@ class KernelSdkTests(unittest.TestCase):
             header = self.sdk / name
             bad = ["// " + declaration.replace("\n", "\n// "), "/*\n" + declaration + "*/\n",
                    declaration.replace("inline constexpr", "extern"),
-                   declaration.replace("module_abi = 75", "module_abi = 59"),
-                   declaration.replace("module_abi = 75", "module_abi = 64"),
-                   declaration.replace("module_abi = 75", "module_abi = 65"),
-                   declaration.replace("module_abi = 75", "module_abi = 76")]
+                   declaration.replace("module_abi = 76", "module_abi = 59"),
+                   declaration.replace("module_abi = 76", "module_abi = 64"),
+                   declaration.replace("module_abi = 76", "module_abi = 65"),
+                   declaration.replace("module_abi = 76", "module_abi = 77")]
             for line in declaration.splitlines(keepends=True):
                 field = line.split(" = ", 1)[0].rsplit(" ", 1)[1]
                 bad.append(declaration.replace(field, "unrelated_" + field))
@@ -552,13 +552,13 @@ class KernelSdkTests(unittest.TestCase):
     def test_comment_only_and_untyped_native_module_declarations_are_refused(self):
         name = "include/ok/core/module.hpp"
         header = self.sdk / name
-        for source in ("// inline constexpr u32 kernel_module_abi_version = 75;\n",
-                       "/* inline constexpr u32 kernel_module_abi_version = 75; */\n",
-                       "kernel_module_abi_version = 75;\n"):
+        for source in ("// inline constexpr u32 kernel_module_abi_version = 76;\n",
+                       "/* inline constexpr u32 kernel_module_abi_version = 76; */\n",
+                       "kernel_module_abi_version = 76;\n"):
             header.write_text(source)
             self.manifest["files"][name] = hashlib.sha256(header.read_bytes()).hexdigest()
             self.save()
-            with self.subTest(source=source), self.assertRaisesRegex(ValueError, "ABI75 header"):
+            with self.subTest(source=source), self.assertRaisesRegex(ValueError, "ABI76 header"):
                 validate_sdk(self.sdk, "x86_64", "debug")
 
     def test_all_native_markers_reject_conditional_raw_string_and_malformed_duplicate_declarations(self):
@@ -567,7 +567,7 @@ class KernelSdkTests(unittest.TestCase):
                  ("include/" + TCP_PROFILE_HEADER, TCP_HEADER),
                  ("include/" + SHARED_FILE_PROFILE_HEADER, SHARED_FILE_HEADER),
                  ("include/" + FUTEX_WAKE_OPERATION_PROFILE_HEADER, FUTEX_WAKE_OPERATION_HEADER),
-                 ("include/ok/core/module.hpp", "inline constexpr u32 kernel_module_abi_version = 75;\n"))
+                 ("include/ok/core/module.hpp", "inline constexpr u32 kernel_module_abi_version = 76;\n"))
         for name, declaration in cases:
             header = self.sdk / name
             for source in nondeclaration_marker_sources(declaration):
@@ -618,7 +618,7 @@ class KernelSdkTests(unittest.TestCase):
             content = (bytes(510) + b"\x55\xaa" if name.endswith("boot16.bin") else
                        UAPI_HEADER.encode() if name.endswith("syscall.h") else
                        TERMINATION_HEADER.encode() if name == "include/ok/uapi/signal.h" else
-                       b"inline constexpr u32 kernel_module_abi_version = 75;\n"
+                       b"inline constexpr u32 kernel_module_abi_version = 76;\n"
                        if name.endswith("module.hpp") else
                        COMMON_HEADER.encode() if name.endswith("ext4_mounted_common_profile.hpp") else
                        UDP_HEADER.encode() if name == "include/" + UDP_PROFILE_HEADER else
@@ -640,7 +640,7 @@ class KernelSdkTests(unittest.TestCase):
                        FUTEX_REQUEUE_HEADER.encode() if name == "include/" + FUTEX_REQUEUE_PROFILE_HEADER else name.encode())
             path.write_bytes(content)
             files[name] = hashlib.sha256(content).hexdigest()
-        self.manifest = {"schema": 1, "abi_version": 75, "kernel_version": "0.1.0",
+        self.manifest = {"schema": 1, "abi_version": 76, "kernel_version": "0.1.0",
                          "native_udp_profile": NATIVE_UDP_PROFILE, "linux_udp_profile": LINUX_UDP_PROFILE,
                          "native_udp_connected_profile": CONNECTED_UDP_PROFILE,
                          "native_tcp_profile": NATIVE_TCP_PROFILE, "linux_tcp_profile": LINUX_TCP_PROFILE,
@@ -772,18 +772,18 @@ class KernelSdkTests(unittest.TestCase):
     def test_rehashed_udp_contract_mixed_markers_are_rejected(self):
         name = "include/" + UDP_PROFILE_HEADER
         header = self.sdk / name
-        for content in (UDP_HEADER.replace("module_abi = 75", "module_abi = 49"),
-                        UDP_HEADER.replace("module_abi = 75", "module_abi = 51"),
-                        UDP_HEADER.replace("module_abi = 75", "module_abi = 52"),
-                        UDP_HEADER.replace("module_abi = 75", "module_abi = 53"),
-                        UDP_HEADER.replace("module_abi = 75", "module_abi = 54"),
-                        UDP_HEADER.replace("module_abi = 75", "module_abi = 55"),
-                        UDP_HEADER.replace("module_abi = 75", "module_abi = 56"),
-                        UDP_HEADER.replace("module_abi = 75", "module_abi = 57"),
-                        UDP_HEADER.replace("module_abi = 75", "module_abi = 58"),
-                        UDP_HEADER.replace("module_abi = 75", "module_abi = 64"),
-                        UDP_HEADER.replace("module_abi = 75", "module_abi = 65"),
-                        UDP_HEADER.replace("module_abi = 75", "module_abi = 76"),
+        for content in (UDP_HEADER.replace("module_abi = 76", "module_abi = 49"),
+                        UDP_HEADER.replace("module_abi = 76", "module_abi = 51"),
+                        UDP_HEADER.replace("module_abi = 76", "module_abi = 52"),
+                        UDP_HEADER.replace("module_abi = 76", "module_abi = 53"),
+                        UDP_HEADER.replace("module_abi = 76", "module_abi = 54"),
+                        UDP_HEADER.replace("module_abi = 76", "module_abi = 55"),
+                        UDP_HEADER.replace("module_abi = 76", "module_abi = 56"),
+                        UDP_HEADER.replace("module_abi = 76", "module_abi = 57"),
+                        UDP_HEADER.replace("module_abi = 76", "module_abi = 58"),
+                        UDP_HEADER.replace("module_abi = 76", "module_abi = 64"),
+                        UDP_HEADER.replace("module_abi = 76", "module_abi = 65"),
+                        UDP_HEADER.replace("module_abi = 76", "module_abi = 77"),
                         UDP_HEADER.replace("capacity = 16", "capacity = 15"),
                         UDP_HEADER.replace("capacity = 2", "capacity = 1"),
                         UDP_HEADER.replace("capacity = 1472", "capacity = 1500"),
@@ -819,17 +819,17 @@ class KernelSdkTests(unittest.TestCase):
     def test_rehashed_common_header_cannot_admit_old_or_duplicate_layout_markers(self):
         name = "include/ok/fs/ext4_mounted_common_profile.hpp"
         header = self.sdk / name
-        for content in (COMMON_HEADER.replace("module_abi = 75", "module_abi = 51"),
-                        COMMON_HEADER.replace("module_abi = 75", "module_abi = 52"),
-                        COMMON_HEADER.replace("module_abi = 75", "module_abi = 53"),
-                        COMMON_HEADER.replace("module_abi = 75", "module_abi = 54"),
-                        COMMON_HEADER.replace("module_abi = 75", "module_abi = 55"),
-                        COMMON_HEADER.replace("module_abi = 75", "module_abi = 56"),
-                        COMMON_HEADER.replace("module_abi = 75", "module_abi = 57"),
-                        COMMON_HEADER.replace("module_abi = 75", "module_abi = 58"),
-                        COMMON_HEADER.replace("module_abi = 75", "module_abi = 64"),
-                        COMMON_HEADER.replace("module_abi = 75", "module_abi = 65"),
-                        COMMON_HEADER.replace("module_abi = 75", "module_abi = 76"),
+        for content in (COMMON_HEADER.replace("module_abi = 76", "module_abi = 51"),
+                        COMMON_HEADER.replace("module_abi = 76", "module_abi = 52"),
+                        COMMON_HEADER.replace("module_abi = 76", "module_abi = 53"),
+                        COMMON_HEADER.replace("module_abi = 76", "module_abi = 54"),
+                        COMMON_HEADER.replace("module_abi = 76", "module_abi = 55"),
+                        COMMON_HEADER.replace("module_abi = 76", "module_abi = 56"),
+                        COMMON_HEADER.replace("module_abi = 76", "module_abi = 57"),
+                        COMMON_HEADER.replace("module_abi = 76", "module_abi = 58"),
+                        COMMON_HEADER.replace("module_abi = 76", "module_abi = 64"),
+                        COMMON_HEADER.replace("module_abi = 76", "module_abi = 65"),
+                        COMMON_HEADER.replace("module_abi = 76", "module_abi = 77"),
                         COMMON_HEADER.replace("counter_bits = 64", "counter_bits = 32"),
                         COMMON_HEADER.replace("optional-revoke-legacy-v4", "unrestricted-v1"),
                         COMMON_HEADER + COMMON_HEADER,
@@ -1102,7 +1102,7 @@ class KernelSdkTests(unittest.TestCase):
                 validate_sdk(self.sdk, 'x86_64', 'debug')
 
     def test_reject_mismatched_native_interface_abi(self):
-        for version in (*range(1, 75), 76):
+        for version in (*range(1, 76), 77):
             self.manifest["abi_version"] = version
             self.save()
             with self.subTest(abi_version=version), self.assertRaisesRegex(ValueError, "abi_version mismatch"):
@@ -1111,7 +1111,7 @@ class KernelSdkTests(unittest.TestCase):
     def test_schema_and_native_abi_require_json_integer_identity(self):
         # 1.0 == 1, True == 1 and 71.0 == 71 in Python; these exact-value
         # impostors previously passed the manifest equality comparison.
-        for field, accepted in (("schema", 1), ("abi_version", 75)):
+        for field, accepted in (("schema", 1), ("abi_version", 76)):
             for value in (True, False, float(accepted), float(accepted) + 0.5,
                           str(accepted), None, [], {}):
                 self.manifest[field] = value
@@ -1161,11 +1161,11 @@ class KernelSdkTests(unittest.TestCase):
                        "inline constexpr u32 kernel_module_abi_version = 69;\n",
                        "inline constexpr u32 kernel_module_abi_version = 71;\n",
                        "inline constexpr u32 unrelated = 49;\n",
-                       "inline constexpr u32 kernel_module_abi_version = 75;\n" * 2):
+                       "inline constexpr u32 kernel_module_abi_version = 76;\n" * 2):
             header.write_text(source)
             self.manifest["files"]["include/ok/core/module.hpp"] = hashlib.sha256(header.read_bytes()).hexdigest()
             self.save()
-            with self.subTest(source=source), self.assertRaisesRegex(ValueError, "ABI75 header"):
+            with self.subTest(source=source), self.assertRaisesRegex(ValueError, "ABI76 header"):
                 validate_sdk(self.sdk, "x86_64", "debug")
 
     def test_reject_wrong_hashed_uapi_version(self):

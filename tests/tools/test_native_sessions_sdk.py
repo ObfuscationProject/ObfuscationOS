@@ -44,7 +44,7 @@ class NativeSessionsSdkTests(unittest.TestCase):
         self.assertEqual(consumer.NATIVE_SESSIONS_DEFINES, producer.NATIVE_SESSIONS_DEFINES)
         self.assertEqual(consumer.NATIVE_SESSIONS_HEADERS, producer.NATIVE_SESSIONS_HEADERS)
         self.assertEqual(consumer.NATIVE_SESSIONS_PROFILE, 'bootcpu-serialized-process-group-session-console-lifecycle-v3')
-        self.assertEqual(consumer.validate_sdk(self.sdk, 'x86_64', 'debug')['abi_version'], 75)
+        self.assertEqual(consumer.validate_sdk(self.sdk, 'x86_64', 'debug')['abi_version'], 76)
         self.fixture.test_all_ten_profile_contracts()
 
     def test_manifest_capability_is_required(self):
@@ -74,9 +74,9 @@ class NativeSessionsSdkTests(unittest.TestCase):
         good = self.good_profile
         attacks = [good + good, '#if 0\n' + good + '#endif\n', '/*\n' + good + '*/\n',
                    'const char *decoy = R"(\n' + good + ')";\n',
-                   '#define native_sessions_module_abi 75\n' + good,
-                   good.replace('module_abi = 75', 'module_abi = 72'),
-                   good.replace('module_abi = 75', 'module_abi = 76'),
+                   '#define native_sessions_module_abi 76\n' + good,
+                   good.replace('module_abi = 76', 'module_abi = 72'),
+                   good.replace('module_abi = 76', 'module_abi = 77'),
                    good.replace('pid_bits = 32', 'pid_bits = 64'),
                    good.replace('process_capacity = 64', 'process_capacity = 128'),
                    good.replace('lifecycle-v3', 'lifecycle-v4'),
@@ -124,7 +124,7 @@ class NativeSessionsSdkTests(unittest.TestCase):
         retained.write_bytes(b'preserved SDK')
         args = argparse.Namespace(headers=self.sdk / 'include', output=output, mode='debug',
                                   arch='x86_64', define=['OK_NATIVE_SIGNAL_RUNTIME'], asflag=[], cxxflag=[])
-        for value in (self.good_profile.replace('module_abi = 75', 'module_abi = 70'),
+        for value in (self.good_profile.replace('module_abi = 76', 'module_abi = 70'),
                       self.good_profile.replace('pty = 0', 'pty = 1')):
             self.profile.write_text(value)
             with self.subTest(profile=value), self.assertRaisesRegex(ValueError, 'native sessions profile'):

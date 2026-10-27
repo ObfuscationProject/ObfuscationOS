@@ -102,7 +102,8 @@ Consume the kernel WT1.3 ext4 module headers (`ok/fs/ext4/<module>.hpp`):
 the `tools/jbd2` manifest checks and the ledger implementation paths. The two ext4
 SDK profile marker headers keep their paths. Exit: `kernel-sdk-check`,
 `artifact-test` and the ext4 two-boot persistence test pass on the fast lane
-against the kernel worktree SDK; lands with the kernel merge and its ABI bump.
+against the kernel worktree SDK. Admission and the SDK suites require ABI 76 and
+refuse 75/77; lands right after the kernel merge.
 
 ## P2
 
