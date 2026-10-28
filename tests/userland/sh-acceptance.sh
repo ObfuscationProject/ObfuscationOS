@@ -98,6 +98,22 @@ check exit_status "3" "$(sh -c 'exit 3'; echo $?)"
 check command_v "path" "$(case $(command -v cat) in /*/cat) echo path ;; esac)"
 check eval "6" "$(eval 'echo $((1 + 2 + 3))')"
 
+# execve: long argument and environment lists, #! scripts and the ENOEXEC
+# fallback of a plain executable text file.
+set -- $(seq 1 400)
+check exec_args "400:400" "$(sh -c 'echo $#:${400}' sh "$@")"
+long=$(printf '%010000d' 0)
+check exec_env "10000" "$(LONG=$long sh -c 'echo ${#LONG}')"
+printf '#!/bin/sh\necho "script:$1"\n' > script.sh && chmod +x script.sh
+check exec_script "script:arg" "$(./script.sh arg)"
+printf 'echo plain:$1\n' > plain.sh && chmod +x plain.sh
+check exec_enoexec "plain:arg" "$(./plain.sh arg)"
+
+# Kernel character devices on /dev.
+check dev_null "0:yes" "$(echo discarded > /dev/null; wc -c < /dev/null | tr -d ' '):$([ -c /dev/null ] && echo yes)"
+check dev_zero "512" "$(head -c 512 /dev/zero | wc -c | tr -d ' ')"
+check dev_full "fails" "$(echo x 2>/dev/null > /dev/full || echo fails)"
+
 cd / && rm -rf "$work"
 if [ -n "$failed" ]; then
     echo "OK_MUSL_SH_FAIL checks=$failed"
