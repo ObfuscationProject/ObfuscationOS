@@ -114,6 +114,18 @@ check dev_null "0:yes" "$(echo discarded > /dev/null; wc -c < /dev/null | tr -d 
 check dev_zero "512" "$(head -c 512 /dev/zero | wc -c | tr -d ' ')"
 check dev_full "fails" "$(echo x 2>/dev/null > /dev/full || echo fails)"
 
+# Linux uname, sysinfo, link, symlink and chown.
+check uname "Linux" "$(uname -s)"
+check uptime "up" "$(uptime | sed -n 's/.* \(up\) .*/\1/p')"
+check hostname "named" "$([ -n "$(hostname)" ] && echo named)"
+echo a > linked && ln linked hard && echo b >> hard && ln -s hard soft
+check links "a b:symlink" "$(cat linked | tr '\n' ' ' | sed 's/ $//'):$([ -L soft ] && echo symlink)"
+if [ "$(id -u)" = 0 ]; then
+    check chown "7:8" "$(chown 7:8 linked && ls -n linked | awk '{print $3":"$4}')"
+else
+    check chown "refused" "$(chown 7:8 linked 2>/dev/null || echo refused)"
+fi
+
 cd / && rm -rf "$work"
 if [ -n "$failed" ]; then
     echo "OK_MUSL_SH_FAIL checks=$failed"

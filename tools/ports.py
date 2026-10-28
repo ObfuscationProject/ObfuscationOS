@@ -34,9 +34,9 @@ REQUIRED = {"name", "version", "archive", "sha256", "license", "depends", "profi
 SYSTEMS = {"musl", "kconfig", "configure", "make", "xmake"}
 RECIPES = {"musl", "kconfig"}
 DEFINES = ["-D__linux__=1", "-D__linux=1", "-D__unix__=1", "-D__unix=1"]
-# CLONE_VM|CLONE_VFORK is not routed by the Linux personality (it returns
-# ENOSYS), so ports call fork where upstream calls vfork.
-PORT_CFLAGS = ["-Dvfork=fork"]
+# The Linux personality runs vfork and CLONE_VM|CLONE_VFORK as a
+# copy-on-write fork, so ports keep upstream's vfork calls.
+PORT_CFLAGS: list[str] = []
 LINKER_SCRIPT = PORTS / "musl/static-exec.ld"
 # The kconfig recipe sets these; a fragment may not.
 RECIPE_SYMBOLS = {"CONFIG_EXTRA_CFLAGS", "CONFIG_EXTRA_LDFLAGS", "CONFIG_EXTRA_LDLIBS", "CONFIG_DEBUG",
