@@ -40,5 +40,8 @@ ELF per profile instead of two.
 - Applets that need `link`, `symlink`, `utimensat`, `uname`, `sysinfo`,
   `statfs`, `mknodat`, `fchownat` or `/proc` wait for the kernel to route them;
   each kernel addition moves the corresponding applet from okcrt to BusyBox.
+- `bc`, `dc` and the `bzip2` compressor are held back on every profile while
+  ppc ELF admission reads only a 512 KiB file prefix, so `/bin` stays the same
+  on all ten profiles.
 - Job control (`ASH_JOB_CONTROL`) and line editing wait for termios and
   sessions on a PTY (`feat/getty-login`, kernel WT2.2).
