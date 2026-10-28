@@ -130,6 +130,11 @@ fi
 check bc "18446744073709551616:5" "$(echo '2^64' | bc):$(echo '2 3 + p' | dc)"
 check bzip2 "round" "$(echo round | bzip2 | bunzip2)"
 
+# A directory listing spans more than one 64-entry provider page.
+mkdir listed && i=0 && while [ $i -lt 66 ] && : > "listed/f$i"; do i=$((i + 1)); done
+check listing "66:66" "$i:$(ls listed | wc -l | tr -d ' ')"
+check listing_glob "66" "$(set -- listed/*; echo $#)"
+
 cd / && rm -rf "$work"
 if [ -n "$failed" ]; then
     echo "OK_MUSL_SH_FAIL checks=$failed"
