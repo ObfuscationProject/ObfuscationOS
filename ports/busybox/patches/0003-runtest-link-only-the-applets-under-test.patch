@@ -1,0 +1,19 @@
+SPDX-License-Identifier: GPL-2.0-only
+Link only the applets under test.
+
+The kernel's ext4 writer caches at most 128 inodes per mount and never evicts
+one, so runtest's link for every implemented applet exhausted it before any
+test ran. With applet arguments only those applets get links; without
+arguments every applet is still linked.
+
+--- a/testsuite/runtest
++++ b/testsuite/runtest
+@@ -124,7 +124,7 @@
+ rm -rf "$LINKSDIR" 2>/dev/null
+ 
+ mkdir "$LINKSDIR" 2>/dev/null
+-for i in $implemented; do
++for i in $applets; do
+ 	# Note: if $LINKSDIR/applet exists, we do not overwrite it.
+ 	# Useful if one wants to run tests against a standard utility,
+ 	# not an applet.

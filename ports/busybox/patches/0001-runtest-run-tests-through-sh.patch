@@ -1,0 +1,18 @@
+SPDX-License-Identifier: GPL-2.0-only
+Run new-style tests through sh instead of executing them directly.
+
+The kernel Linux personality refuses a non-ELF execve with EINVAL instead of
+ENOEXEC, so neither the #! line nor ash's ENOEXEC fallback can start a script
+that is executed by path. Old-style tests already run as `sh -x -e`.
+
+--- a/testsuite/runtest
++++ b/testsuite/runtest
+@@ -155,7 +155,7 @@
+ 		fi
+ #		echo "Running test $tsdir/$applet.tests"
+ 		PATH="$LINKSDIR:$tsdir:$bindir:$PATH" \
+-			"$tsdir/$applet.tests"
++			sh "$tsdir/$applet.tests"
+ 		rc=$?
+ 		total_failed=$((total_failed + rc))
+ 		test $rc -ne 0 && status=1
