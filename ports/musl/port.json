@@ -6,8 +6,21 @@
   "sha256": "a9a118bbe84d8764da0ea0d28b3ab3fae8477fc7e4085d90102b8596fc7c75e4",
   "license": "MIT",
   "depends": [],
-  "profiles": [],
-  "state": "builds",
-  "build": {"system": "musl"},
+  "profiles": [
+    "i386",
+    "x86_64",
+    "aarch64",
+    "arm32",
+    "rv64",
+    "rv32",
+    "loongarch64",
+    "mips",
+    "mips64",
+    "ppc"
+  ],
+  "state": "executes",
+  "build": {
+    "system": "musl"
+  },
   "notes": "Static libc and startup objects for all ten profiles through tools/musl_source.py; the archive pin is the ledger musl reference. Shared libc and ld.so belong to feat/shared-musl-loader."
 }

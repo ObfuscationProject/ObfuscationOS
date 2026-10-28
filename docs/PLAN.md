@@ -69,8 +69,41 @@ Scaffold (merged to main from `feat/musl-primary`):
   pinned from `tools/musl_source.py`; dash and toybox stay `planned` until the
   licence decision record selects the shell and utility set.
 - `tools/ports.py` (validate, order) and `tests/tools/test_ports.py`.
-Next: `xmake port-build --name=musl --arch=...` driving the descriptor with the
-`<arch>-linux-musl` toolchain family; rootfs profiles `ext4`, `simplefs`, `release`.
+
+Status (`feat/musl-primary`, notes in `docs/qualification/MUSL_USERLAND.md`,
+receipts in ObfuscationEvidence `receipts/ObfuscationOS@213d2e4/feat/musl-primary/`):
+- Decision 0004 selects BusyBox 1.37.0 for `sh` and the utility set (toybox's
+  suite needs bash); the dash and toybox descriptors are removed; the musl
+  descriptor pin is corrected to the ledger archive hash.
+- `xmake port-build` builds musl and BusyBox on all ten profiles through the
+  freestanding-GCC fallback driver `tools/musl_cc.py`. ppc needs a `nof`
+  soft-float multilib `powerpc-eabi` GCC (the SysToolchain 0.1.0 archive has
+  none) and the pinned clang; mips64 needs the binary128 supplement.
+- Rootfs profiles `full` (`rootfs-ext4`), `rescue` (`rootfs-simplefs` and the
+  boot archive, okcrt only) and `release` (`rootfs-release`,
+  `qemu-distro --fs=release`). With `--userland_build` BusyBox is the default
+  `/bin` and the root is mounted with maintained timestamps (Linux `stat`
+  needs them), using the provisional last-write clock where no RTC exists.
+- Guest gate (`scripts/test_musl_shell.py --suite-plan
+  ports/busybox/testsuite-gate.txt`): on i386, x86_64, aarch64, arm32, rv64,
+  rv32, loongarch64 and ppc all 35 sh checks pass and the BusyBox suite for 13
+  applets (151 cases) passes except its 9 reviewed failures. mips and mips64
+  pass the native boot gate with BusyBox as `/bin`, but the kernel stops the
+  guest (`private MIPS/n64 handler resume unverified`) when ash's SIGCHLD
+  handler is due. Release mode passes on the four primary profiles.
+Exit gate still open. MIPS signal-handler delivery must stop halting the guest,
+and the complete BusyBox suite cannot run until the kernel lifts the limits in
+the qualification note: `execve` copies at most 16 argv/envp strings under 256
+bytes and returns EINVAL instead of ENOEXEC for scripts; the ext4 writer caches
+at most 128 inodes per mount; path components are limited to 31 bytes; there
+are no device nodes; `link`, `symlink`, `utimensat`, `uname`, `sysinfo`,
+`statfs`, `mknodat`, `fchownat` and `CLONE_VFORK` are not routed; ppc ELF
+admission reads only a 512 KiB prefix, which keeps `bc`, `dc` and the `bzip2`
+compressor out of `/bin`; MIPS admission reads the ABI flags record from the
+first 128 KiB.
+Next: a paired kernel worktree for those limits, then the whole suite per
+profile; flip the default image to the musl `/bin` and add the port builds to
+CI; switch to the `<arch>-linux-musl` family when SysToolchain 0.2.0 ships.
 
 ### WT1.6 `chore/sdk75-consumer` (S)
 

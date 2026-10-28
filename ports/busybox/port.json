@@ -8,8 +8,17 @@
   "depends": [
     "musl"
   ],
-  "profiles": [],
-  "state": "planned",
+  "profiles": [
+    "i386",
+    "x86_64",
+    "aarch64",
+    "arm32",
+    "rv64",
+    "rv32",
+    "loongarch64",
+    "ppc"
+  ],
+  "state": "executes",
   "build": {
     "system": "kconfig",
     "config": "busybox.config",
