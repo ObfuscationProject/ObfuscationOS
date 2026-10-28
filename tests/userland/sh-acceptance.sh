@@ -126,6 +126,10 @@ else
     check chown "refused" "$(chown 7:8 linked 2>/dev/null || echo refused)"
 fi
 
+# Applets whose images put ELF metadata past the former admission prefix.
+check bc "18446744073709551616:5" "$(echo '2^64' | bc):$(echo '2 3 + p' | dc)"
+check bzip2 "round" "$(echo round | bzip2 | bunzip2)"
+
 cd / && rm -rf "$work"
 if [ -n "$failed" ]; then
     echo "OK_MUSL_SH_FAIL checks=$failed"

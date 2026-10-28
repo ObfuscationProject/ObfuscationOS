@@ -53,8 +53,8 @@ ET_EXEC with `ports/musl/static-exec.ld` (the probe layout from
 `tests/musl/bootstrap.ld`, `USER_BASE` 0x10000000 on Arm, 0x40000000 elsewhere),
 and marks `EI_OSABI` as Linux. It refuses shared, PIE and relocatable links.
 `<arch>-linux-musl-gcc` in the toolchain directory is refused until the recipe
-selects it. Ports compile with `-Dvfork=fork`: the Linux personality returns
-ENOSYS for `CLONE_VM|CLONE_VFORK`.
+selects it. The Linux personality runs `vfork` and `CLONE_VM|CLONE_VFORK` as a
+copy-on-write fork, so ports keep upstream's `vfork` calls.
 
 Per-profile inputs:
 
