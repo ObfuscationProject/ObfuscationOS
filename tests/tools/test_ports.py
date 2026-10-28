@@ -57,10 +57,10 @@ class PortsFrameworkTests(unittest.TestCase):
         self.assertIn("CONFIG_ASH", names)
         self.assertIn("CONFIG_STATIC", names)
         # Decision 0001 keeps sync on okcrt; the others need unrouted syscalls.
-        for held in ("SYNC", "TOUCH", "DF", "MKFIFO", "PS", "ASH_JOB_CONTROL"):
+        for held in ("SYNC", "DF", "MKFIFO", "PS", "ASH_JOB_CONTROL"):
             self.assertNotIn("CONFIG_" + held, names)
-        # The kernel routes link, symlink, uname, sysinfo and fchownat.
-        for routed in ("LN", "UNAME", "UPTIME", "CHOWN", "CHGRP", "HOSTNAME"):
+        # The kernel routes link, symlink, uname, sysinfo, fchownat and utimensat.
+        for routed in ("LN", "UNAME", "UPTIME", "CHOWN", "CHGRP", "HOSTNAME", "TOUCH"):
             self.assertIn("CONFIG_" + routed, names)
 
     def test_cli_validate(self):

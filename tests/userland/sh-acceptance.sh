@@ -135,6 +135,10 @@ mkdir listed && i=0 && while [ $i -lt 66 ] && : > "listed/f$i"; do i=$((i + 1));
 check listing "66:66" "$i:$(ls listed | wc -l | tr -d ' ')"
 check listing_glob "66" "$(set -- listed/*; echo $#)"
 
+# utimensat: an explicit time and the current time.
+touch -t 202001020304.05 dated && touch fresh
+check touch "1577934245:yes" "$(stat -c %Y dated):$([ "$(stat -c %Y fresh)" -gt 1577934245 ] && echo yes)"
+
 cd / && rm -rf "$work"
 if [ -n "$failed" ]; then
     echo "OK_MUSL_SH_FAIL checks=$failed"
