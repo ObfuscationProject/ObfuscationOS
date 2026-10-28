@@ -62,15 +62,22 @@ xmake -y -b sysroot
 xmake -y -b apps
 xmake -y -b rootfs-simplefs
 xmake -y -b rootfs-ext4
+xmake -y -b rootfs-release
 xmake -y -b linux-driver-compat
 ```
+
+The three images are rootfs profiles: `rootfs-ext4` stages every program and
+test (`build/<arch>/<mode>/rootfs`), `rootfs-simplefs` packs the okcrt-only
+rescue tree and `rootfs-release` omits the acceptance programs. With
+`--userland_build` the static musl BusyBox port is the default `/bin`
+(`ports/README.md`, decision 0004).
 
 Outputs are isolated by architecture and mode under `build/<arch>/<mode>/`:
 
 - `sysroot/include` and `sysroot/lib/libokcrt.a`
 - `apps/*.elf`
 - `lib/liblinux-driver-compat.a`
-- `rootfs.simplefs.img` and `rootfs.ext4.img`
+- `rootfs.simplefs.img`, `rootfs.ext4.img` and `rootfs.release.img`
 - `distro/kernel.elf` and `distro/kernel.bin`
 
 Validation:

@@ -44,14 +44,14 @@ class DistroMarkerTests(unittest.TestCase):
             self.assertEqual(result["disk_sha256"], hashlib.sha256(b"guest mutation").hexdigest())
             self.assertEqual(result["exit_code"], 124)
 
-    def run_guest_output(self, lines, native=False, storage=False, journalled=False):
+    def run_guest_output(self, lines, native=False, storage=False, journalled=False, release=False):
         # The script deliberately uses real pipes/process exit, including the
         # case where a core marker is followed by an extension failure.
         code = "import os\n"
         code += "\n".join(f"os.write(1, {line.encode()!r})" for line in lines)
         with contextlib.redirect_stdout(io.StringIO()):
             return distro.run_until_marker([sys.executable, "-u", "-c", code], 1.0,
-                                           native, storage, journalled)
+                                           native, storage, journalled, release)
 
     def test_native_run_requires_actual_userland_and_preemption(self):
         gui = "OK_SYSTEM_GUI boot=complete\n"
@@ -104,6 +104,14 @@ class DistroMarkerTests(unittest.TestCase):
         self.assertEqual(self.run_guest_output([gui, mounted], storage=True), 124)
         self.assertEqual(self.run_guest_output([gui, mounted, file_private], storage=True), 0)
         self.assertEqual(self.run_guest_output([gui, "OK_STORAGE source=archive reason=non-ext4-media\n"], storage=True), 1)
+
+    def test_release_image_requires_the_mount_without_acceptance_markers(self):
+        gui = "OK_SYSTEM_GUI boot=complete\n"
+        mounted = "OK_STORAGE scope=hardware source=virtio filesystem=ext4 mode=rw journal=none\n"
+        self.assertEqual(self.run_guest_output([gui], storage=True, release=True), 124)
+        self.assertEqual(self.run_guest_output([gui, mounted], storage=True, release=True), 0)
+        self.assertEqual(self.run_guest_output([gui, "OK_STORAGE source=archive reason=non-ext4-media\n"],
+                                               storage=True, release=True), 1)
 
     def test_journalled_profile_requires_its_exact_mount_marker(self):
         gui = "OK_SYSTEM_GUI boot=complete\n"

@@ -134,6 +134,21 @@ ok::Status mount_runtime_directory(ok::fs::VirtualFileSystem &vfs)
     return {};
 }
 
+// A no-RTC machine can use the validated volume's last write time as a
+// provisional metadata clock. Login/security services must still wait for a
+// trusted time source; this anchor carries no accuracy guarantee.
+bool realtime_for_root(ok::u32 last_write_seconds)
+{
+    if (auto status = ok::arch::initialize_clock(); !status) return false;
+    static_cast<void>(ok::arch::initialize_realtime());
+    if (ok::arch::realtime_sample()) return true;
+    if (last_write_seconds < 1577836800u || last_write_seconds > 0x7fffffffu) return false;
+    auto point = ok::arch::monotonic_sample();
+    if (!point || !ok::arch::set_realtime({last_write_seconds, 0}, point.value())) return false;
+    report("OK_STORAGE_CLOCK source=ext4-last-write provisional=1\n");
+    return true;
+}
+
 ok::Status mount_journalled_root(ok::driver::BlockDevice &disk, ok::fs::VirtualFileSystem &vfs,
                                   ok::u32 last_write_seconds)
 {
@@ -159,22 +174,7 @@ ok::Status mount_journalled_root(ok::driver::BlockDevice &disk, ok::fs::VirtualF
     journal_geometry = geometry;
     journal_registration = key.value();
     vfs.set_mode(ok::fs::FileSystemMode::ext4_journaled);
-    // A no-RTC machine can use the validated volume's last write time as a
-    // provisional metadata clock. Login/security services must still wait for
-    // a trusted time source; this anchor carries no accuracy guarantee.
-    if (last_write_seconds >= 1577836800u && last_write_seconds <= 0x7fffffffu)
-    {
-        if (auto status = ok::arch::initialize_clock(); status)
-        {
-            static_cast<void>(ok::arch::initialize_realtime());
-            if (!ok::arch::realtime_sample())
-            {
-                auto point = ok::arch::monotonic_sample();
-                if (point && ok::arch::set_realtime({last_write_seconds, 0}, point.value()))
-                    report("OK_STORAGE_CLOCK source=ext4-last-write provisional=1\n");
-            }
-        }
-    }
+    static_cast<void>(realtime_for_root(last_write_seconds));
     report("OK_STORAGE scope=hardware source=virtio filesystem=ext4 mode=rw journal=ordered-data\n");
     auto runtime = mount_runtime_directory(vfs);
     if (runtime) journal_boot_complete = true;
@@ -233,20 +233,33 @@ extern "C" ok::Status ok_boot_filesystem(ok::fs::VirtualFileSystem &vfs)
             report("OK_STORAGE source=archive reason=unrecognized-media\n");
         return mount_runtime_directory(vfs);
     }
+    const ok::u32 last_write_seconds = std::to_integer<ok::u32>(super[48]) |
+        (std::to_integer<ok::u32>(super[49]) << 8) |
+        (std::to_integer<ok::u32>(super[50]) << 16) |
+        (std::to_integer<ok::u32>(super[51]) << 24);
     // The journal bit selects an independently validated mount. Never pass a
     // journalled disk to the legacy writer or fall back after mount failure.
     if ((std::to_integer<ok::u8>(super[92]) & 0x04u) != 0)
-    {
-        const ok::u32 last_write_seconds = std::to_integer<ok::u32>(super[48]) |
-            (std::to_integer<ok::u32>(super[49]) << 8) |
-            (std::to_integer<ok::u32>(super[50]) << 16) |
-            (std::to_integer<ok::u32>(super[51]) << 24);
         return mount_journalled_root(*disk.value(), vfs, last_write_seconds);
-    }
-    if (auto status = root_filesystem.mount(*disk.value(), true); !status.ok()) return status;
+    // The kernel answers Linux stat only for ext4 metadata whose timestamps it
+    // maintains, so an image with the musl userland needs a maintained root.
+    // That policy needs an active realtime sample, physical or provisional;
+    // without either the unqualified writer remains and says so. okcrt-only
+    // images keep the unqualified root. Neither falls back after failure.
+#ifdef OK_MAINTAINED_ROOT
+    const bool maintained = realtime_for_root(last_write_seconds);
+#else
+    constexpr bool maintained = false;
+#endif
+    const ok::fs::Ext4MountOptions options{true, maintained ? ok::fs::Ext4TimestampPolicy::maintained
+                                                            : ok::fs::Ext4TimestampPolicy::unqualified};
+    if (auto status = root_filesystem.mount(*disk.value(), options); !status.ok()) return status;
     if (auto status = vfs.mount("/", *root_filesystem.root()); !status.ok()) return status;
     vfs.set_mode(ok::fs::FileSystemMode::ext4_read_write);
     report("OK_STORAGE scope=hardware source=virtio filesystem=ext4 mode=rw journal=none\n");
+#ifdef OK_MAINTAINED_ROOT
+    report(maintained ? "OK_ROOT_TIMESTAMPS policy=maintained\n" : "OK_ROOT_TIMESTAMPS policy=unqualified reason=no-clock\n");
+#endif
     return mount_runtime_directory(vfs);
 }
 

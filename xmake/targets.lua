@@ -370,13 +370,33 @@ target("libc-test")
     end)
 target_end()
 
-local function stage_rootfs(batchcmds)
+-- Rootfs profiles: full (build/rootfs: every program, the musl userland and its
+-- tests), rescue (build/rootfs-rescue: okcrt only, packed into SimpleFS) and
+-- release (build/rootfs-release: no acceptance programs or test suites).
+local function stage_rootfs(batchcmds, profile, out)
     local project = os.projectdir()
     local args = {
         "--apps-dir", path.join(build, "apps"),
-        "--out", path.join(build, "rootfs"),
+        "--out", path.join(build, out),
+        "--profile", profile,
     }
     if get_config("native_console_login") then table.insert(args, "--console-login") end
+    if get_config("native_init_acceptance") or get_config("native_vm_acceptance") or get_config("native_udp_probe") then
+        table.insert(args, "--acceptance")
+    end
+    local userland = get_config("userland_build")
+    local userland_pin = get_config("userland_manifest_sha256")
+    if (userland ~= nil) ~= (userland_pin ~= nil) then
+        raise("userland_build and userland_manifest_sha256 must be supplied together")
+    end
+    if userland and profile ~= "rescue" then
+        table.insert(args, "--userland-build")
+        table.insert(args, path.absolute(userland))
+        table.insert(args, "--userland-manifest-sha256")
+        table.insert(args, userland_pin)
+        table.insert(args, "--arch")
+        table.insert(args, arch)
+    end
     local managed = get_config("managed_init_build")
     local pin = get_config("managed_init_manifest_sha256")
     if (managed ~= nil) ~= (pin ~= nil) then
@@ -413,38 +433,60 @@ target("rootfs-stage")
     set_policy("build.fence", true)
     add_deps("apps")
     on_buildcmd(function (target, batchcmds)
-        stage_rootfs(batchcmds)
+        stage_rootfs(batchcmds, "full", "rootfs")
+    end)
+target_end()
+
+target("rootfs-rescue-stage")
+    set_kind("phony")
+    set_default(false)
+    set_policy("build.fence", true)
+    add_deps("apps")
+    on_buildcmd(function (target, batchcmds)
+        stage_rootfs(batchcmds, "rescue", "rootfs-rescue")
+    end)
+target_end()
+
+target("rootfs-release-stage")
+    set_kind("phony")
+    set_default(false)
+    set_policy("build.fence", true)
+    add_deps("apps")
+    on_buildcmd(function (target, batchcmds)
+        stage_rootfs(batchcmds, "release", "rootfs-release")
     end)
 target_end()
 
 -- SimpleFS is the fixed 32-entry rescue/test image; its on-disk format is kept
--- unchanged. The full staged root exceeds that cap, so the supervised service
--- programs (started only from ext4 roots through services*.conf) are omitted
--- here. The archive unit tests still require an unfiltered 33+-entry root to
+-- unchanged. It packs the okcrt-only rescue tree, which still exceeds that cap,
+-- so the supervised service programs (started only from ext4 roots through
+-- services*.conf) are omitted here. The archive unit tests still require an unfiltered 33+-entry root to
 -- be rejected.
 local simplefs_omit = "logd,logger,timed,timectl,resolved,resolvectl,mountctl,service-ctl"
 
 target("rootfs-simplefs")
     set_kind("phony")
     set_default(false)
-    add_deps("rootfs-stage")
+    add_deps("rootfs-rescue-stage")
     on_buildcmd(function (target, batchcmds)
         local project = os.projectdir()
-        local root = path.join(build, "rootfs")
+        local root = path.join(build, "rootfs-rescue")
         local image = path.join(build, "rootfs.simplefs.img")
         run_python(batchcmds, "mksimplefs.py", {"pack", "--root", root, "--out", image, "--omit", simplefs_omit})
         run_python(batchcmds, "mksimplefs.py", {"verify", image, "--root", root, "--omit", simplefs_omit})
     end)
 target_end()
 
+-- The embedded fallback root is the okcrt rescue tree: the archive format holds
+-- regular files and directories only, never the musl userland's links.
 target("boot-archive")
     set_policy("build.fence", true)
     set_kind("phony")
     set_default(false)
-    add_deps("rootfs-stage")
+    add_deps("rootfs-rescue-stage")
     on_buildcmd(function (target, batchcmds)
         run_python(batchcmds, "mkarchive.py", {
-            "--root", path.join(build, "rootfs"),
+            "--root", path.join(build, "rootfs-rescue"),
             "--out", path.join(build, "boot.okar"),
         })
     end)
@@ -459,6 +501,18 @@ target("rootfs-ext4")
         run_python(batchcmds, "mkext4.py", {
             "--root", path.join(build, "rootfs"),
             "--out", path.join(build, "rootfs.ext4.img"),
+        })
+    end)
+target_end()
+
+target("rootfs-release")
+    set_kind("phony")
+    set_default(false)
+    add_deps("rootfs-release-stage")
+    on_buildcmd(function (target, batchcmds)
+        run_python(batchcmds, "mkext4.py", {
+            "--root", path.join(build, "rootfs-release"),
+            "--out", path.join(build, "rootfs.release.img"),
         })
     end)
 target_end()
@@ -535,6 +589,9 @@ target("distro_image")
               path.join(project, "modules/boot/storage.cpp"), path.join(project, "drivers/virtio/block.cpp"),
               path.join(project, "modules/boot/entropy.cpp"), path.join(project, "drivers/virtio/rng.cpp"))
     add_defines('OK_BOOT_ARCHIVE_INCLUDE="' .. path.join(build, "boot.okar.inc") .. '"')
+    -- musl programs need Linux stat, which the kernel answers only for a root
+    -- with maintained timestamps (modules/boot/storage.cpp).
+    if get_config("userland_build") then add_defines("OK_MAINTAINED_ROOT=1") end
     set_kind("binary")
     set_default(false)
     set_languages("c++23")

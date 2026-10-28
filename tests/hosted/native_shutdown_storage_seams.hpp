@@ -67,9 +67,16 @@ class VirtualFileSystem {
     Result<VfsMountHandle> mount_owned(const char *, int) { return VfsMountHandle{1}; }
     Status mount(const char *, int &) { return {}; }
 };
+enum class Ext4TimestampPolicy : u8 { unqualified, maintained };
+struct Ext4MountOptions
+{
+    bool writable{true};
+    Ext4TimestampPolicy timestamps{Ext4TimestampPolicy::unqualified};
+};
 class Ext4FileSystem {
   public:
     Status mount(driver::BlockDevice &, bool) { return {}; }
+    Status mount(driver::BlockDevice &, Ext4MountOptions) { return {}; }
     int *root() { return &root_; }
   private:
     int root_{};
