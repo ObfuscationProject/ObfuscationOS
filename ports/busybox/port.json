@@ -19,7 +19,10 @@
       "patches/0003-runtest-link-only-the-applets-under-test.patch"
     ],
     "program": "busybox",
-    "testsuite": "testsuite"
+    "testsuite": "testsuite",
+    "clang_cflags": [
+      "-DBB_GLOBAL_CONST="
+    ]
   },
-  "notes": "POSIX sh (ash) and utility set for /bin (decision 0004). Applets whose syscalls the Linux personality does not route yet stay on okcrt; busybox.config lists them."
+  "notes": "POSIX sh (ash) and utility set for /bin (decision 0004). Applets whose syscalls the Linux personality does not route yet stay on okcrt; busybox.config lists them. clang_cflags apply with the ppc clang frontend: clang caches BusyBox's const global pointers across their initialization, and upstream's libbb.h prescribes -DBB_GLOBAL_CONST= for such toolchains."
 }

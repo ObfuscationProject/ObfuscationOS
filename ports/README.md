@@ -16,7 +16,7 @@ Descriptor fields:
 | `depends` | Ports that must be built first |
 | `profiles` | Architecture profiles the port is qualified for; `[]` until the first guest run |
 | `state` | `planned`, `builds`, `executes` (hosted vs guest execution are recorded separately in the ledger) |
-| `build` | `system` selects the recipe; `kconfig` ports also name `config`, `program` and `testsuite` |
+| `build` | `system` selects the recipe; `kconfig` ports also name `config`, `program`, `testsuite`, optional `patches` (applied in order) and `clang_cflags` (added only when the ppc clang frontend compiles) |
 
 A port's `state` is never advanced by a successful build alone; `executes` needs
 guest execution evidence in ObfuscationEvidence.

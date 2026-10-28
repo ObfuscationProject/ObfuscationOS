@@ -328,7 +328,9 @@ def build_kconfig(port: dict, args) -> dict:
     fragment = PORTS / port["name"] / port["build"]["config"]
     patches = [PORTS / port["name"] / patch for patch in port["build"].get("patches", [])]
     requested = config_lines(fragment.read_text()) + (["CONFIG_DEBUG=y"] if args.mode == "debug" else [])
-    requested.append(f'CONFIG_EXTRA_CFLAGS="{" ".join(PORT_CFLAGS)}"')
+    # clang_cflags apply only where the Linux clang frontend compiles the port.
+    cflags = PORT_CFLAGS + (port["build"].get("clang_cflags", []) if frontend else [])
+    requested.append(f'CONFIG_EXTRA_CFLAGS="{" ".join(cflags)}"')
     output = args.out.resolve()
     if output.exists() or output.is_symlink():
         raise ValueError(f"output already exists; choose a new --out directory: {output}")
@@ -345,7 +347,7 @@ def build_kconfig(port: dict, args) -> dict:
                 "musl_manifest_sha256": digest(musl / "manifest.json"), "musl_build": str(musl),
                 "compiler_runtime_supplement": softfp, "config_fragment_sha256": digest(fragment),
                 "patches": {patch.relative_to(PORTS).as_posix(): digest(patch) for patch in patches},
-                "requested_config": requested, "port_cflags": PORT_CFLAGS,
+                "requested_config": requested, "port_cflags": cflags,
                 "linker_script_sha256": digest(LINKER_SCRIPT), "driver_sha256": digest(Path(musl_cc.__file__)),
                 "host_compiler": {"path": host_cc, "sha256": digest(Path(host_cc))},
                 "personality": {"elf_osabi": 3, "name": "linux"}, "qualification": "cross-build-only",
