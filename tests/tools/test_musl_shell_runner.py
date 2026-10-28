@@ -20,6 +20,11 @@ class SuiteJudgementTests(unittest.TestCase):
             "cat-prints-a-file": "PASS", "touch-creates-file": "FAIL", "tar (not built)": "SKIPPED",
             "cpio-extracts-zero-length-hardlinks": "UNTESTED", "sed s///g": "PASS"})
 
+    def test_kernel_failure_line(self):
+        serial = b"oksh> \r\nOK_TEST_FAIL native-runtime=private MIPS handler resume unverified\r\nmore\n"
+        self.assertEqual(runner.kernel_failure(serial), "OK_TEST_FAIL native-runtime=private MIPS handler resume unverified")
+        self.assertIsNone(runner.kernel_failure(b"OK_TEST_PASS arch=mips\n"))
+
     def test_unlisted_failure_fails_the_gate(self):
         verdict = runner.judge_suite(runner.suite_results(self.SERIAL), {})
         self.assertEqual(verdict["status"], "fail")

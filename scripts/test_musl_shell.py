@@ -32,6 +32,12 @@ def digest(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
+def kernel_failure(serial: bytes) -> str | None:
+    """The kernel's own test-failure line; the guest stops after printing it."""
+    match = re.search(rb"^OK_TEST_FAIL [^\r\n]*", serial, re.M)
+    return match.group(0).decode(errors="replace") if match else None
+
+
 def suite_results(serial: bytes) -> dict[str, str]:
     """Map test name to its last reported outcome."""
     results = {}
@@ -114,6 +120,8 @@ def main() -> int:
                 if not chunk:
                     raise RuntimeError("QEMU exited")
                 serial.extend(chunk)
+                if failure := kernel_failure(serial):
+                    raise RuntimeError("kernel stopped the guest: " + failure)
 
     def run(line: bytes, budget: float) -> bytes:
         start = len(serial)
