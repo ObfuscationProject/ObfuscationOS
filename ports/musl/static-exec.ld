@@ -1,5 +1,7 @@
 /* Static Linux-personality ET_EXEC layout for musl ports (tools/musl_cc.py).
-   Same segments as tests/musl/bootstrap.ld; USER_BASE is supplied by the driver. */
+   Same segments as tests/musl/bootstrap.ld; USER_BASE is supplied by the driver.
+   The MIPS ABI flags record comes first: kernel MIPS ELF admission reads it from
+   the file's first 128 KiB, and orphan placement would put it after the text. */
 ENTRY(_start)
 PHDRS
 {
@@ -11,6 +13,7 @@ PHDRS
 SECTIONS
 {
     . = USER_BASE + SIZEOF_HEADERS;
+    .MIPS.abiflags : { *(.MIPS.abiflags) } :image
     .text : { *(.text .text.*) KEEP(*(.init)) KEEP(*(.fini)) } :image
     .rodata : { *(.rodata .rodata.* .srodata .srodata.*) } :image
     .eh_frame : { *(.eh_frame .eh_frame_hdr) } :image

@@ -132,6 +132,25 @@ class KconfigRecipeTests(unittest.TestCase):
         self.assertEqual(ports.section_table_end(bytes(header64)), 0x2000 + 192)
         self.assertEqual(ports.SECTION_TABLE_BOUND, {"ppc": 512 * 1024})
 
+    def test_abi_flags_end(self):
+        def elf32(rows):
+            data = bytearray(52 + 32 * len(rows))
+            data[:6] = b"\x7fELF\x01\x02"
+            struct.pack_into(">I", data, 28, 52)
+            struct.pack_into(">HH", data, 42, 32, len(rows))
+            for i, (kind, offset, size) in enumerate(rows):
+                struct.pack_into(">IIIII", data, 52 + 32 * i, kind, offset, 0x40000000 + offset, 0x40000000 + offset, size)
+            return bytes(data)
+        self.assertEqual(ports.abi_flags_end(elf32([(1, 0, 0x9000), (0x70000003, 0x88, 0x18)])), 0xa0)
+        self.assertIsNone(ports.abi_flags_end(elf32([(1, 0, 0x9000)])))
+        data = bytearray(64 + 56)
+        data[:6] = b"\x7fELF\x02\x02"
+        struct.pack_into(">Q", data, 32, 64)
+        struct.pack_into(">HH", data, 54, 56, 1)
+        struct.pack_into(">IIQQQQ", data, 64, 0x70000003, 0, 0x87510, 0x40087510, 0x40087510, 0x18)
+        self.assertEqual(ports.abi_flags_end(bytes(data)), 0x87528)
+        self.assertEqual(ports.ABI_FLAGS_BOUND, {"mips": 128 * 1024, "mips64": 128 * 1024})
+
     def test_applet_names(self):
         self.assertEqual(ports.applet_names("/bin/sh\n/usr/bin/[\n/usr/bin/[[\n/sbin/x\n"), ["[", "[[", "sh", "x"])
         for bad in ("/bin/sh\n/bin/sh\n", "bin/sh\n", "/etc/sh\n", "/bin/busybox\n", "/bin/a b\n", ""):

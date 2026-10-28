@@ -44,6 +44,8 @@ RECIPE_SYMBOLS = {"CONFIG_EXTRA_CFLAGS", "CONFIG_EXTRA_LDFLAGS", "CONFIG_EXTRA_L
 # The ppc kernel admits a Linux ELF only when its section table (and the
 # .gnu.attributes soft-float proof it locates) lies in this file prefix.
 SECTION_TABLE_BOUND = {"ppc": 512 * 1024}
+# MIPS admission reads the PT_MIPS_ABIFLAGS record from this file prefix.
+ABI_FLAGS_BOUND = {"mips": 128 * 1024, "mips64": 128 * 1024}
 APPLET = re.compile(r"\[\[?|[a-z0-9][a-z0-9_.+-]*")
 
 
@@ -200,6 +202,21 @@ def section_table_end(data: bytes) -> int:
     else:
         offset, size, count = struct.unpack_from((">" if data[5] == 2 else "<") + "Q10xHH", data, 40)
     return offset + size * count
+
+
+def abi_flags_end(data: bytes) -> int | None:
+    """File offset just past the PT_MIPS_ABIFLAGS segment, or None without one."""
+    endian = ">" if data[5] == 2 else "<"
+    if data[4] == 1:
+        table, = struct.unpack_from(endian + "I", data, 28)
+        size, count = struct.unpack_from(endian + "HH", data, 42)
+        rows = [struct.unpack_from(endian + "II8xI", data, table + i * size) for i in range(count)]
+    else:
+        table, = struct.unpack_from(endian + "Q", data, 32)
+        size, count = struct.unpack_from(endian + "HH", data, 54)
+        rows = [struct.unpack_from(endian + "I4xQ16xQ", data, table + i * size) for i in range(count)]
+    ends = [offset + length for kind, offset, length in rows if kind == 0x70000003]
+    return ends[0] if ends else None
 
 
 def admit_archive(path: Path, port: dict) -> str:
@@ -396,6 +413,9 @@ def build_kconfig(port: dict, args) -> dict:
         bound = SECTION_TABLE_BOUND.get(args.arch)
         if bound and section_table_end(program.read_bytes()) > bound:
             raise ValueError(f"{args.arch} program section table ends past the kernel's {bound}-byte admission prefix")
+        bound = ABI_FLAGS_BOUND.get(args.arch)
+        if bound and not (abi_flags_end(program.read_bytes()) or bound + 1) <= bound:
+            raise ValueError(f"{args.arch} program lacks PT_MIPS_ABIFLAGS within the kernel's {bound}-byte admission prefix")
         applets = applet_names((build / links).read_text())
         stage = work / "stage"
         (stage / "bin").mkdir(parents=True)
