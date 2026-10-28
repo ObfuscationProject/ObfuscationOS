@@ -139,6 +139,9 @@ check listing_glob "66" "$(set -- listed/*; echo $#)"
 touch -t 202001020304.05 dated && touch fresh
 check touch "1577934245:yes" "$(stat -c %Y dated):$([ "$(stat -c %Y fresh)" -gt 1577934245 ] && echo yes)"
 
+# statfs of the ext4 root.
+check statfs "ef53:yes" "$(stat -f -c %t /):$([ "$(stat -f -c %b /)" -gt "$(stat -f -c %f /)" ] && echo yes)"
+
 cd / && rm -rf "$work"
 if [ -n "$failed" ]; then
     echo "OK_MUSL_SH_FAIL checks=$failed"
