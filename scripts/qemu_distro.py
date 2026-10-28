@@ -162,7 +162,8 @@ def command_for(qemu: Path, arch: str, kernel: Path, rootfs: Path, display: str,
 
 
 def run_until_marker(command: list[str], timeout: float, require_native: bool = False,
-                     require_storage: bool = False, require_journalled: bool = False) -> int:
+                     require_storage: bool = False, require_journalled: bool = False,
+                     release: bool = False) -> int:
     process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
     assert process.stdout is not None
     deadline = time.monotonic() + timeout
@@ -213,7 +214,8 @@ def run_until_marker(command: list[str], timeout: float, require_native: bool = 
             observed.add("file-private-vm")
         required = {"gui", "userland", "preemption", "paths", "vm", "paged-vm", "shared-vm", "vm-quota", "fork-copy", "time", "sole-sleeper", "poll"} if require_native else {"gui"}
         if require_storage:
-            required.update(("storage", "file-private-vm"))
+            # The release image omits posix-check, which proves file mappings.
+            required.update(("storage",) if release else ("storage", "file-private-vm"))
         if require_journalled:
             required.add("journalled-storage")
         if required <= observed:
@@ -276,7 +278,8 @@ def main() -> int:
     parser.add_argument("--arch", required=True)
     parser.add_argument("--kernel", required=True, type=Path)
     parser.add_argument("--rootfs", required=True, type=Path)
-    parser.add_argument("--fs", choices=("simplefs", "ext4", "ext4-journalled"), required=True)
+    parser.add_argument("--fs", choices=("simplefs", "ext4", "ext4-journalled", "release"), required=True,
+                        help="release: the ext4 release-profile image, which carries no acceptance programs")
     parser.add_argument("--require-native", action="store_true", help="Require actual userland acceptance and timer preemption")
     parser.add_argument("--native-profile", action="store_true", help="Select the qualified native PPC CPU profile")
     parser.add_argument("--entropy", choices=("virtio", "none"), default="virtio",
@@ -287,8 +290,10 @@ def main() -> int:
     parser.add_argument("--persist", action="store_true", help="Use the supplied ext4 image directly; preserve guest writes")
     parser.add_argument("--failure-dir", type=Path, help="Preserve a failed run's actual scratch disk in a new directory")
     args = parser.parse_args()
-    if args.persist and args.fs not in ("ext4", "ext4-journalled"):
+    if args.persist and args.fs not in ("ext4", "ext4-journalled", "release"):
         raise SystemExit("--persist requires an ext4 filesystem")
+    if args.require_native and args.fs == "release":
+        raise SystemExit("the release image omits the acceptance programs that --require-native runs")
 
     arch = normalize_arch(args.arch)
     qemu = args.qemu.resolve()
@@ -312,7 +317,8 @@ def main() -> int:
             print(f"[qemu-distro] display={args.display} interactive=1")
             return run_interactive(command)
         code = run_until_marker(command, args.timeout, args.require_native,
-                                args.fs in ("ext4", "ext4-journalled"), args.fs == "ext4-journalled")
+                                args.fs in ("ext4", "ext4-journalled", "release"), args.fs == "ext4-journalled",
+                                args.fs == "release")
         if code and args.failure_dir:
             failed = args.failure_dir.resolve()
             failed.mkdir(parents=True, exist_ok=False)

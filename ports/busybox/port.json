@@ -1,0 +1,37 @@
+{
+  "name": "busybox",
+  "version": "1.37.0",
+  "archive": "busybox-1.37.0.tar.bz2",
+  "url": "https://busybox.net/downloads/busybox-1.37.0.tar.bz2",
+  "sha256": "3311dff32e746499f4df0d5df04d7eb396382d7e108bb9250e7b519b837043a4",
+  "license": "GPL-2.0-only",
+  "depends": [
+    "musl"
+  ],
+  "profiles": [
+    "i386",
+    "x86_64",
+    "aarch64",
+    "arm32",
+    "rv64",
+    "rv32",
+    "loongarch64",
+    "ppc"
+  ],
+  "state": "executes",
+  "build": {
+    "system": "kconfig",
+    "config": "busybox.config",
+    "patches": [
+      "patches/0001-runtest-run-tests-through-sh.patch",
+      "patches/0002-testsuite-fit-the-execve-limits.patch",
+      "patches/0003-runtest-link-only-the-applets-under-test.patch"
+    ],
+    "program": "busybox",
+    "testsuite": "testsuite",
+    "clang_cflags": [
+      "-DBB_GLOBAL_CONST="
+    ]
+  },
+  "notes": "POSIX sh (ash) and utility set for /bin (decision 0004). Applets whose syscalls the Linux personality does not route yet stay on okcrt; busybox.config lists them. clang_cflags apply with the ppc clang frontend: clang caches BusyBox's const global pointers across their initialization, and upstream's libbb.h prescribes -DBB_GLOBAL_CONST= for such toolchains."
+}

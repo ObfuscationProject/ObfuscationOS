@@ -2,11 +2,25 @@
   "name": "musl",
   "version": "1.2.5",
   "archive": "musl-1.2.5.tar.gz",
-  "sha256": "8ef402d453d1ba4902e4ee0f0f847f6cfa01400c95aa43c24e97818b9c0e3f45",
+  "url": "https://musl.libc.org/releases/musl-1.2.5.tar.gz",
+  "sha256": "a9a118bbe84d8764da0ea0d28b3ab3fae8477fc7e4085d90102b8596fc7c75e4",
   "license": "MIT",
   "depends": [],
-  "profiles": [],
-  "state": "builds",
-  "build": {"system": "configure", "configure_args": ["--disable-shared", "--target=${LINUX_TARGET}"]},
-  "notes": "Static libc for all ten profiles already builds through tools/build_musl_probe.py; shared libc and ld.so belong to feat/shared-musl-loader."
+  "profiles": [
+    "i386",
+    "x86_64",
+    "aarch64",
+    "arm32",
+    "rv64",
+    "rv32",
+    "loongarch64",
+    "mips",
+    "mips64",
+    "ppc"
+  ],
+  "state": "executes",
+  "build": {
+    "system": "musl"
+  },
+  "notes": "Static libc and startup objects for all ten profiles through tools/musl_source.py; the archive pin is the ledger musl reference. Shared libc and ld.so belong to feat/shared-musl-loader."
 }

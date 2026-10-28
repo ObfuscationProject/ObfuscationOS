@@ -1,0 +1,14 @@
+# Guest gate for the BusyBox testsuite (scripts/test_musl_shell.py --suite-plan).
+# One boot runs testsuite/runtest for these applets. Every failure must be
+# listed below with its cause; a listed test that passes fails the gate too.
+applets echo printf expr seq basename dirname tr wc head tail sort uniq cut
+# test name<TAB>cause
+echo-does-not-print-newline	old-style output file name exceeds the 31-byte kernel path component limit (ENAMETOOLONG)
+echo-prints-arguments	old-style output file name exceeds the 31-byte kernel path component limit (ENAMETOOLONG)
+cut-cuts-a-closed-range	old-style output file name exceeds the 31-byte kernel path component limit (ENAMETOOLONG)
+cut-cuts-an-open-range	old-style output file name exceeds the 31-byte kernel path component limit (ENAMETOOLONG)
+cut-cuts-an-unclosed-range	old-style output file name exceeds the 31-byte kernel path component limit (ENAMETOOLONG)
+tr-rejects-wrong-class	old-style output file name exceeds the 31-byte kernel path component limit (ENAMETOOLONG)
+wc-prints-longest-line-length	old-style output file name exceeds the 31-byte kernel path component limit (ENAMETOOLONG)
+*	basename/ and dirname/ hold test names of 32+ bytes, so listing them fails and the glob stays literal
+tail: -c +N with largish N	reads /dev/zero; the image has no device nodes (no devfs, mknodat not routed)

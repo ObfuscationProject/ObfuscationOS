@@ -53,6 +53,13 @@ local function task_configure_args(config, mode, arch)
             table.insert(args, "--" .. name .. "=" .. path.absolute(config.get(name)))
         end
     end
+    -- A userland port build belongs to one profile; keep it only when
+    -- reconfiguring that same architecture and mode.
+    if config.get("userland_build") and arch == task_normalize_arch(config.get("arch")) and
+            mode == (config.get("mode") or "release") then
+        table.insert(args, "--userland_build=" .. path.absolute(config.get("userland_build")))
+        table.insert(args, "--userland_manifest_sha256=" .. (config.get("userland_manifest_sha256") or ""))
+    end
     for _, name in ipairs({"native_init_acceptance", "native_vm_acceptance", "native_udp_probe"}) do
         table.insert(args, "--" .. name .. "=" .. (config.get(name) and "y" or "n"))
     end
@@ -187,10 +194,10 @@ task_end()
 
 task("qemu-distro")
     set_menu {
-        usage = "xmake qemu-distro --fs=<simplefs|ext4|ext4-journalled>",
+        usage = "xmake qemu-distro --fs=<simplefs|ext4|ext4-journalled|release>",
         description = "Run the external kernel with an ObfuscationOS rootfs image",
         options = {
-            {"f", "fs", "kv", "simplefs", "Root filesystem image: simplefs, ext4 or ext4-journalled"},
+            {"f", "fs", "kv", "simplefs", "Root filesystem image: simplefs, ext4, ext4-journalled or release (ext4)"},
             {"k", "kernel", "kv", nil, "Explicit kernel image override (otherwise build distro_image from the selected SDK)"},
             {nil, "qemu", "kv", nil, "Explicit QEMU executable override"},
             {nil, "timeout", "kv", "20", "QEMU timeout in seconds"},
@@ -209,6 +216,9 @@ task("qemu-distro")
         if login and option.get("require-native") then
             raise("native_console_login cannot run startup acceptance before authentication")
         end
+        if option.get("fs") == "release" and option.get("require-native") then
+            raise("the release image omits the acceptance programs that --require-native runs")
+        end
         if option.get("require-native") and not (config.get("native_init_acceptance") or
                 config.get("native_vm_acceptance") or config.get("native_udp_probe")) then
             -- Re-pass the saved toolchain/SDK options: a partial `xmake f` evaluates
@@ -224,7 +234,7 @@ task("qemu-distro")
             config.load()
         end
         local fs = option.get("fs") or "simplefs"
-        if fs ~= "simplefs" and fs ~= "ext4" and fs ~= "ext4-journalled" then
+        if fs ~= "simplefs" and fs ~= "ext4" and fs ~= "ext4-journalled" and fs ~= "release" then
             raise("unsupported fs: %s", fs)
         end
         if login and (fs ~= "ext4-journalled" or not option.get("interactive")) then
@@ -234,6 +244,7 @@ task("qemu-distro")
             simplefs = {"rootfs-simplefs", "rootfs.simplefs.img"},
             ext4 = {"rootfs-ext4", "rootfs.ext4.img"},
             ["ext4-journalled"] = {"rootfs-ext4-journalled", "rootfs.ext4-journalled.img"},
+            release = {"rootfs-release", "rootfs.release.img"},
         }
         local image_target = images[fs][1]
         if login then images[fs][2] = "rootfs.login.ext4-journalled.img" end

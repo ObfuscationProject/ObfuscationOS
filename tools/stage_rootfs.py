@@ -45,6 +45,17 @@ APPS = (
 )
 
 
+# Programs that only qualify an image; the release profile omits them and
+# refuses startup acceptance, which runs them.
+ACCEPTANCE_APPS = ("hello", "posix-check", "udp-probe")
+# Decision 0001 keeps these on okcrt even when the musl userland has the name.
+OKCRT_RESERVED = ("init", "oksh", "login", "posix-check", "sync")
+# musl name lookups (id, ls -l, whoami). No password hashes are ever staged.
+PASSWD = "root:x:0:0:root:/root:/bin/sh\n"
+GROUP = "root:x:0:\n"
+USERLAND_TESTS = "usr/share/userland-tests"
+USERLAND_SCRIPTS = ("sh-acceptance.sh", "busybox-suite.sh")
+
 OS_RELEASE = """NAME=ObfuscationOS
 ID=obfuscationos
 VERSION_ID=0.1.0-userland
@@ -115,6 +126,50 @@ def inspect_managed_init_elf(payload: bytes, arch: str) -> dict:
             "byte_order": "little" if byte_order == 1 else "big",
             "machine": machine, "type": "ET_EXEC", "interpreter": None, "executed": False}
 
+def copy_tree(source: Path, destination: Path) -> None:
+    """Copy a retained build tree with guest modes derived from executable bits."""
+    for path in sorted(source.rglob("*")):
+        target = destination / path.relative_to(source)
+        if path.is_symlink() or not (path.is_dir() or path.is_file()):
+            raise SystemExit(f"userland tree holds a non-regular entry: {path}")
+        if path.is_dir():
+            target.mkdir()
+            target.chmod(0o755)
+        else:
+            shutil.copyfile(path, target)
+            target.chmod(0o755 if path.stat().st_mode & 0o111 else 0o644)
+
+
+def stage_userland(out: Path, build: Path, manifest: dict, *, tests: bool, project: Path) -> None:
+    """Install the admitted musl multicall program as the default /bin contents."""
+    name = manifest["name"]
+    program = out / "bin" / name
+    shutil.copyfile(build / "stage/bin" / name, program)
+    program.chmod(0o755)
+    for applet in manifest["applets"]:
+        (out / "bin" / applet).symlink_to(name)
+    for relative, text in (("etc/passwd", PASSWD), ("etc/group", GROUP)):
+        (out / relative).write_text(text, encoding="ascii")
+        (out / relative).chmod(0o644)
+    licenses = out / "usr/share/licenses" / name
+    licenses.mkdir()
+    licenses.chmod(0o755)
+    copy_tree(build / "stage/share/licenses" / name, licenses)
+    if not tests:
+        return
+    # The upstream suite runs from <bindir>/testsuite with <bindir>/busybox and
+    # <bindir>/.config (testsuite/runtest); <bindir> is writable on the root.
+    share = out / "usr/share" / name
+    share.mkdir()
+    share.chmod(0o755)
+    copy_tree(build / "stage/share" / name, share)
+    (share / name).symlink_to("/bin/" + name)
+    for script in USERLAND_SCRIPTS:
+        target = out / USERLAND_TESTS / script
+        shutil.copyfile(project / "tests/userland" / script, target)
+        target.chmod(0o644)
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--apps-dir", required=True)
@@ -125,7 +180,19 @@ def main() -> int:
     parser.add_argument("--service-graph-manifest-sha256")
     parser.add_argument("--arch")
     parser.add_argument("--console-login", action="store_true")
+    parser.add_argument("--profile", choices=("full", "rescue", "release"), default="full",
+                        help="full: every program and test; rescue: okcrt only (SimpleFS); release: no acceptance programs")
+    parser.add_argument("--userland-build", type=Path, help="Explicit static musl userland port build (ports/busybox)")
+    parser.add_argument("--userland-manifest-sha256")
+    parser.add_argument("--acceptance", action="store_true", help="The image boots native startup acceptance")
     args = parser.parse_args()
+
+    if bool(args.userland_build) != bool(args.userland_manifest_sha256):
+        raise SystemExit("userland build and exact manifest hash must be supplied together")
+    if args.profile == "rescue" and args.userland_build:
+        raise SystemExit("the rescue profile carries okcrt programs only")
+    if args.profile == "release" and args.acceptance:
+        raise SystemExit("the release profile omits the acceptance programs that startup acceptance runs")
 
     if bool(args.managed_init_build) != bool(args.managed_init_manifest_sha256):
         raise SystemExit("managed init build and exact manifest hash must be supplied together")
@@ -142,6 +209,20 @@ def main() -> int:
         raise SystemExit("native console login requires the exact selected service configuration")
     hosts = hosts_snapshot(project / "config/hosts")
     apps = APPS + ("login",) if args.console_login else APPS
+    if args.profile == "release":
+        apps = tuple(app for app in apps if app not in ACCEPTANCE_APPS)
+    userland = None
+    if args.userland_build:
+        from ports import admit as admit_port
+        if not args.arch:
+            raise SystemExit("userland requires an explicit architecture")
+        try:
+            userland = admit_port(args.userland_build, args.userland_manifest_sha256, args.arch)
+        except ValueError as error:
+            raise SystemExit(str(error)) from error
+        reserved = sorted(set(userland["applets"]) & set(OKCRT_RESERVED))
+        if reserved:
+            raise SystemExit("userland applets would displace okcrt programs kept by decision 0001: " + ", ".join(reserved))
     managed_elf = None
     if args.managed_init_build:
         if not args.arch:
@@ -206,16 +287,25 @@ def main() -> int:
     out.mkdir(parents=True)
     out.chmod(0o755)
     # Host umask and SGID ancestry must not choose guest directory permissions.
-    for relative in ("bin", "etc", "boot", "boot/modules", "home", "root", "run", "dev", "tmp", "var", "var/log"):
+    directories = ["bin", "etc", "boot", "boot/modules", "home", "root", "run", "dev", "tmp", "var", "var/log"]
+    if userland:
+        directories += ["rescue", "usr", "usr/share", "usr/share/licenses"]
+        if args.profile == "full":
+            directories.append(USERLAND_TESTS)
+    for relative in directories:
         directory = out / relative
         directory.mkdir()
         directory.chmod(0o1777 if relative == "tmp" else 0o700 if relative in ("root", "var/log") else 0o755)
 
+    applets = set(userland["applets"]) if userland else set()
     for app in apps:
         src = apps_dir / f"{app}.elf"
-        dst = out / "init" if app == "init" else bin_dir / app
+        # An okcrt tool whose name a musl applet takes stays reachable as rescue.
+        dst = out / "init" if app == "init" else out / "rescue" / app if app in applets else bin_dir / app
         shutil.copy2(src, dst)
         dst.chmod(0o755)
+    if userland:
+        stage_userland(out, args.userland_build.resolve(), userland, tests=args.profile == "full", project=project)
 
     if managed_elf:
         shutil.copy2(managed_elf, out / "init")
@@ -234,7 +324,7 @@ def main() -> int:
         (out / "var/log/system.log").chmod(0o600)
     shutil.copy2(system_gui_module, modules_dir / "system-gui.okmod")
     (modules_dir / "system-gui.okmod").chmod(0o644)
-    print(f"[rootfs] staged {out}")
+    print(f"[rootfs] staged {args.profile} profile{' with musl userland' if userland else ''}: {out}")
     return 0
 
 

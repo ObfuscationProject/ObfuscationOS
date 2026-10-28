@@ -8,6 +8,7 @@ Files included from the repository `xmake.lua`, in order:
 | `targets.lua` | Product targets: `okcrt`, `apps`, `sysroot`, `kernel-sdk-check`, rootfs images, `distro_image`, drivers, compat, tests |
 | `tasks.lua` | `arch-matrix`, `distro-test`, `qemu-distro`, `qemu-distro-window` |
 | `contracts.lua` | Ledger, musl and qualification tasks that do not claim guest execution |
+| `ports.lua` | `port-build`: one pinned third-party port (`ports/`) for one profile |
 | `zero_truncate_fixture.lua`, `musl_udp*_fixture.lua`, `native_tcp_fixture.lua` | Fixture targets/tasks for specific qualification campaigns |
 
 Standalone fixture projects, **not** included from `xmake.lua`. Tools copy or pin
