@@ -19,6 +19,7 @@ import json
 import os
 import re
 import shutil
+import struct
 import subprocess
 import sys
 import tarfile
@@ -40,6 +41,9 @@ LINKER_SCRIPT = PORTS / "musl/static-exec.ld"
 # The kconfig recipe sets these; a fragment may not.
 RECIPE_SYMBOLS = {"CONFIG_EXTRA_CFLAGS", "CONFIG_EXTRA_LDFLAGS", "CONFIG_EXTRA_LDLIBS", "CONFIG_DEBUG",
                   "CONFIG_CROSS_COMPILER_PREFIX", "CONFIG_SYSROOT"}
+# The ppc kernel admits a Linux ELF only when its section table (and the
+# .gnu.attributes soft-float proof it locates) lies in this file prefix.
+SECTION_TABLE_BOUND = {"ppc": 512 * 1024}
 APPLET = re.compile(r"\[\[?|[a-z0-9][a-z0-9_.+-]*")
 
 
@@ -187,6 +191,15 @@ def applet_names(links: str) -> list[str]:
     if not names or len(set(names)) != len(names):
         raise ValueError("applet list is empty or names an applet twice")
     return sorted(names)
+
+
+def section_table_end(data: bytes) -> int:
+    """File offset just past the ELF section header table."""
+    if data[4] == 1:
+        offset, size, count = struct.unpack_from((">" if data[5] == 2 else "<") + "I10xHH", data, 32)
+    else:
+        offset, size, count = struct.unpack_from((">" if data[5] == 2 else "<") + "Q10xHH", data, 40)
+    return offset + size * count
 
 
 def admit_archive(path: Path, port: dict) -> str:
@@ -378,6 +391,9 @@ def build_kconfig(port: dict, args) -> dict:
         program = build / port["build"]["program"]
         musl_cc.mark_linux(program, profile)
         manifest["elf"] = inspect_elf(program, args.arch)
+        bound = SECTION_TABLE_BOUND.get(args.arch)
+        if bound and section_table_end(program.read_bytes()) > bound:
+            raise ValueError(f"{args.arch} program section table ends past the kernel's {bound}-byte admission prefix")
         applets = applet_names((build / links).read_text())
         stage = work / "stage"
         (stage / "bin").mkdir(parents=True)

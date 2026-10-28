@@ -1,6 +1,7 @@
 import hashlib
 import io
 import json
+import struct
 import subprocess
 import sys
 import tarfile
@@ -117,6 +118,19 @@ class KconfigRecipeTests(unittest.TestCase):
                          "CONFIG_A=y\nCONFIG_B=y\nCONFIG_C=4\n")
         self.assertEqual(ports.disable_unrequested("CONFIG_A=y\nCONFIG_B=y\nCONFIG_N=3\n", ["CONFIG_A=y"]),
                          "CONFIG_A=y\n# CONFIG_B is not set\nCONFIG_N=3\n")
+
+    def test_section_table_end(self):
+        header32 = bytearray(52)
+        header32[:6] = b"\x7fELF\x01\x02"
+        struct.pack_into(">I", header32, 32, 0x1000)
+        struct.pack_into(">HH", header32, 46, 40, 9)
+        self.assertEqual(ports.section_table_end(bytes(header32)), 0x1000 + 360)
+        header64 = bytearray(64)
+        header64[:6] = b"\x7fELF\x02\x01"
+        struct.pack_into("<Q", header64, 40, 0x2000)
+        struct.pack_into("<HH", header64, 58, 64, 3)
+        self.assertEqual(ports.section_table_end(bytes(header64)), 0x2000 + 192)
+        self.assertEqual(ports.SECTION_TABLE_BOUND, {"ppc": 512 * 1024})
 
     def test_applet_names(self):
         self.assertEqual(ports.applet_names("/bin/sh\n/usr/bin/[\n/usr/bin/[[\n/sbin/x\n"), ["[", "[[", "sh", "x"])
