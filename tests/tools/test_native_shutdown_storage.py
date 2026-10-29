@@ -22,7 +22,7 @@ class NativeShutdownStorageTests(unittest.TestCase):
             include = temporary / 'include/ok/fs'
             include.mkdir(parents=True)
             seam = ROOT / 'tests/hosted/native_shutdown_storage_seams.hpp'
-            for header in ('ext4/layout.hpp', 'ext4_mounted_common_profile.hpp', 'fat_fs.hpp'):
+            for header in ('ext4/layout.hpp', 'ext4_mounted_common_profile.hpp', 'fat_fs.hpp', 'devfs.hpp'):
                 (include / header).parent.mkdir(parents=True, exist_ok=True)
                 (include / header).write_text(f'#include "{seam}"\n')
             driver = temporary / 'include/ok/driver'
