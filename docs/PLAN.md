@@ -91,18 +91,17 @@ receipts in ObfuscationEvidence `receipts/ObfuscationOS@213d2e4/feat/musl-primar
   pass the native boot gate with BusyBox as `/bin`, but the kernel stops the
   guest (`private MIPS/n64 handler resume unverified`) when ash's SIGCHLD
   handler is due. Release mode passes on the four primary profiles.
-Exit gate still open. MIPS signal-handler delivery must stop halting the guest,
-and the complete BusyBox suite cannot run until the kernel lifts the limits in
-the qualification note: `execve` copies at most 16 argv/envp strings under 256
-bytes and returns EINVAL instead of ENOEXEC for scripts; the ext4 writer caches
-at most 128 inodes per mount; path components are limited to 31 bytes; there
-are no device nodes; `link`, `symlink`, `utimensat`, `uname`, `sysinfo`,
-`statfs`, `mknodat`, `fchownat` and `CLONE_VFORK` are not routed; ppc ELF
-admission reads only a 512 KiB prefix, which keeps `bc`, `dc` and the `bzip2`
-compressor out of `/bin`; MIPS admission reads the ABI flags record from the
-first 128 KiB.
-Next: a paired kernel worktree for those limits, then the whole suite per
-profile; flip the default image to the musl `/bin` and add the port builds to
+Kernel worktrees `fix/mips-signal-resume` (#8), `fix/ext4-node-cache` (#7) and
+`feat/linux-personality` (#6) lift most of those limits
+([LINUX_PERSONALITY_GATE](qualification/LINUX_PERSONALITY_GATE.md)): on all ten
+profiles all 54 sh checks pass and the 13-applet suite passes except 8 reviewed
+failures, without patches 0001/0002 or `-Dvfork=fork`, with `ln`, `touch`,
+`uname`, `hostname`, `uptime`, `chown`, `chgrp`, `bc`, `dc` and `bzip2` in `/bin`.
+Exit gate still open: path components are limited to 31 bytes, and `mknodat`
+(FIFOs) and `/proc` are not routed, so `mkfifo`, `mknod`, `ps`, `top`, `free`
+and `df` stay held back.
+Next: kernel 255-byte path components, FIFOs and `/proc`, then the whole suite
+per profile; flip the default image to the musl `/bin` and add the port builds to
 CI; switch to the `<arch>-linux-musl` family when SysToolchain 0.2.0 ships.
 
 ### WT1.6 `chore/sdk75-consumer` (S)
