@@ -28,11 +28,11 @@ kernel-limit table this updates.
 
 ## Results
 
-Integration trees: Kernel `fix/mips-signal-resume`, `fix/ext4-node-cache`,
-`feat/linux-personality` and `chore/hosted-runners` merged on `main`; OS
-`fix/ext4-node-cache` and `feat/linux-personality` merged on `main`.
-SysToolchain 0.1.0 (GCC 14.2.0, QEMU 10.2.0), debug SDKs, BusyBox 1.37.0 on
-musl 1.2.5 rebuilt with this branch's configuration and patches.
+Kernel `feat/linux-personality` at `6968183`: `fix/mips-signal-resume`,
+`fix/ext4-node-cache` and `chore/hosted-runners` merged in, module ABI 77. This
+branch at `8cb051a` (tip `9d9bae5` adds only a hosted test seam). Exact git
+archives, SysToolchain 0.1.0 (GCC 14.2.0, QEMU 10.2.0), debug ABI 77 SDKs,
+BusyBox 1.37.0 on musl 1.2.5 built with this branch's configuration and patches.
 
 | Check | Profiles | Result |
 | --- | --- | --- |
@@ -41,6 +41,12 @@ musl 1.2.5 rebuilt with this branch's configuration and patches.
 | `qemu-distro --fs=ext4 --require-native` | all ten | pass |
 | `sh-acceptance.sh`, 54 checks | all ten | pass |
 | BusyBox `testsuite/runtest`, 13 applets, 151 cases | all ten | 134 pass, the 8 reviewed failures (31-byte path components), 9 untested |
+| `kernel-sdk-check`, `uapi-test`, `libc-test`, `linux-driver-compat`, SimpleFS native boot | x86_64, arm32, ppc | pass |
+| `compat-test`, ext4 two-boot persistence, cross-tests, 1321 artifact tests (at `9d9bae5`) | x86_64 | pass |
 
 The WT1.5 exit gate (the complete suite) still waits for 255-byte path
 components, FIFOs and `/proc`.
+
+Receipts: ObfuscationEvidence
+`receipts/ObfuscationOS@9d9bae5/feat/linux-personality/{port-builds,userland-gate}` and
+`receipts/ObfuscationKernel@6968183/feat/linux-personality/{kernel-ten-profile,sdk-contracts,os-consumer}`.
