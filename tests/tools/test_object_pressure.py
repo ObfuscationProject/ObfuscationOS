@@ -262,7 +262,7 @@ class AdmissionTests(unittest.TestCase):
         return admit_sdk(**parameters)
 
     def test_complete_sdk_and_exact_copy(self):
-        self.assertEqual(self.admit()['abi_version'], 76)
+        self.assertEqual(self.admit()['abi_version'], 77)
         copied = self.root / 'copied'
         copy_inventory(self.sdk, copied, self.manifest['files'])
         self.assertEqual({name: sha(copied / name) for name in self.manifest['files']}, self.manifest['files'])
@@ -276,7 +276,7 @@ class AdmissionTests(unittest.TestCase):
                              ('abi_version', 48), ('abi_version', 49), ('abi_version', 50), ('abi_version', 51),
                              ('abi_version', 52), ('abi_version', 53), ('abi_version', 54),
                              ('abi_version', 55), ('abi_version', 56), ('abi_version', 73),
-                             ('abi_version', 75), ('abi_version', 77), ('abi_version', True), ('abi_version', 76.0),
+                             ('abi_version', 76), ('abi_version', 78), ('abi_version', True), ('abi_version', 77.0),
                              ('ext4_ordered_data_profile', 'disabled'),
                              ('ext4_directory_rename_profile', 'bounded-mounted-dirty-same-dir-absent-fit-v1'),
                              ('ext4_directory_rename_profile', 'bounded-mounted-dirty-same-dir-absent-fit-ordered-home-v1'),

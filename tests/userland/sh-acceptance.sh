@@ -18,6 +18,14 @@ check() {
 work=/tmp/musl-sh.$$
 rm -rf "$work" && mkdir "$work" && cd "$work" || { echo "OK_MUSL_SH_FAIL setup"; exit 1; }
 
+# One boot creates and stats far more files on the ext4 root than the
+# writer's former 128-node bound allowed (40 per directory: listings hold 64).
+i=0
+while [ $i -lt 320 ] && mkdir -p "many/d$((i / 40))" && : > "many/d$((i / 40))/f$i"; do i=$((i + 1)); done
+seen=0
+for file in many/d*/f*; do [ -f "$file" ] && seen=$((seen + 1)); done
+check many_files "320:320" "$i:$seen"
+
 # Parameter, arithmetic, command and field expansion.
 word="musl shell"
 set -- first "second arg" third
@@ -97,6 +105,50 @@ check trap "trapped" "$(trap 'echo trapped' EXIT; true)"
 check exit_status "3" "$(sh -c 'exit 3'; echo $?)"
 check command_v "path" "$(case $(command -v cat) in /*/cat) echo path ;; esac)"
 check eval "6" "$(eval 'echo $((1 + 2 + 3))')"
+
+# execve: long argument and environment lists, #! scripts and the ENOEXEC
+# fallback of a plain executable text file.
+set -- $(seq 1 400)
+check exec_args "400:400" "$(sh -c 'echo $#:${400}' sh "$@")"
+long=$(printf '%010000d' 0)
+check exec_env "10000" "$(LONG=$long sh -c 'echo ${#LONG}')"
+printf '#!/bin/sh\necho "script:$1"\n' > script.sh && chmod +x script.sh
+check exec_script "script:arg" "$(./script.sh arg)"
+printf 'echo plain:$1\n' > plain.sh && chmod +x plain.sh
+check exec_enoexec "plain:arg" "$(./plain.sh arg)"
+
+# Kernel character devices on /dev.
+check dev_null "0:yes" "$(echo discarded > /dev/null; wc -c < /dev/null | tr -d ' '):$([ -c /dev/null ] && echo yes)"
+check dev_zero "512" "$(head -c 512 /dev/zero | wc -c | tr -d ' ')"
+check dev_full "fails" "$(echo x 2>/dev/null > /dev/full || echo fails)"
+
+# Linux uname, sysinfo, link, symlink and chown.
+check uname "Linux" "$(uname -s)"
+check uptime "up" "$(uptime | sed -n 's/.* \(up\) .*/\1/p')"
+check hostname "named" "$([ -n "$(hostname)" ] && echo named)"
+echo a > linked && ln linked hard && echo b >> hard && ln -s hard soft
+check links "a b:symlink" "$(cat linked | tr '\n' ' ' | sed 's/ $//'):$([ -L soft ] && echo symlink)"
+if [ "$(id -u)" = 0 ]; then
+    check chown "7:8" "$(chown 7:8 linked && ls -n linked | awk '{print $3":"$4}')"
+else
+    check chown "refused" "$(chown 7:8 linked 2>/dev/null || echo refused)"
+fi
+
+# Applets whose images put ELF metadata past the former admission prefix.
+check bc "18446744073709551616:5" "$(echo '2^64' | bc):$(echo '2 3 + p' | dc)"
+check bzip2 "round" "$(echo round | bzip2 | bunzip2)"
+
+# A directory listing spans more than one 64-entry provider page.
+mkdir listed && i=0 && while [ $i -lt 66 ] && : > "listed/f$i"; do i=$((i + 1)); done
+check listing "66:66" "$i:$(ls listed | wc -l | tr -d ' ')"
+check listing_glob "66" "$(set -- listed/*; echo $#)"
+
+# utimensat: an explicit time and the current time.
+touch -t 202001020304.05 dated && touch fresh
+check touch "1577934245:yes" "$(stat -c %Y dated):$([ "$(stat -c %Y fresh)" -gt 1577934245 ] && echo yes)"
+
+# statfs of the ext4 root.
+check statfs "ef53:yes" "$(stat -f -c %t /):$([ "$(stat -f -c %b /)" -gt "$(stat -f -c %f /)" ] && echo yes)"
 
 cd / && rm -rf "$work"
 if [ -n "$failed" ]; then

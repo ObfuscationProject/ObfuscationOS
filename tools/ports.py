@@ -34,18 +34,13 @@ REQUIRED = {"name", "version", "archive", "sha256", "license", "depends", "profi
 SYSTEMS = {"musl", "kconfig", "configure", "make", "xmake"}
 RECIPES = {"musl", "kconfig"}
 DEFINES = ["-D__linux__=1", "-D__linux=1", "-D__unix__=1", "-D__unix=1"]
-# CLONE_VM|CLONE_VFORK is not routed by the Linux personality (it returns
-# ENOSYS), so ports call fork where upstream calls vfork.
-PORT_CFLAGS = ["-Dvfork=fork"]
+# The Linux personality runs vfork and CLONE_VM|CLONE_VFORK as a
+# copy-on-write fork, so ports keep upstream's vfork calls.
+PORT_CFLAGS: list[str] = []
 LINKER_SCRIPT = PORTS / "musl/static-exec.ld"
 # The kconfig recipe sets these; a fragment may not.
 RECIPE_SYMBOLS = {"CONFIG_EXTRA_CFLAGS", "CONFIG_EXTRA_LDFLAGS", "CONFIG_EXTRA_LDLIBS", "CONFIG_DEBUG",
                   "CONFIG_CROSS_COMPILER_PREFIX", "CONFIG_SYSROOT"}
-# The ppc kernel admits a Linux ELF only when its section table (and the
-# .gnu.attributes soft-float proof it locates) lies in this file prefix.
-SECTION_TABLE_BOUND = {"ppc": 512 * 1024}
-# MIPS admission reads the PT_MIPS_ABIFLAGS record from this file prefix.
-ABI_FLAGS_BOUND = {"mips": 128 * 1024, "mips64": 128 * 1024}
 APPLET = re.compile(r"\[\[?|[a-z0-9][a-z0-9_.+-]*")
 
 
@@ -193,30 +188,6 @@ def applet_names(links: str) -> list[str]:
     if not names or len(set(names)) != len(names):
         raise ValueError("applet list is empty or names an applet twice")
     return sorted(names)
-
-
-def section_table_end(data: bytes) -> int:
-    """File offset just past the ELF section header table."""
-    if data[4] == 1:
-        offset, size, count = struct.unpack_from((">" if data[5] == 2 else "<") + "I10xHH", data, 32)
-    else:
-        offset, size, count = struct.unpack_from((">" if data[5] == 2 else "<") + "Q10xHH", data, 40)
-    return offset + size * count
-
-
-def abi_flags_end(data: bytes) -> int | None:
-    """File offset just past the PT_MIPS_ABIFLAGS segment, or None without one."""
-    endian = ">" if data[5] == 2 else "<"
-    if data[4] == 1:
-        table, = struct.unpack_from(endian + "I", data, 28)
-        size, count = struct.unpack_from(endian + "HH", data, 42)
-        rows = [struct.unpack_from(endian + "II8xI", data, table + i * size) for i in range(count)]
-    else:
-        table, = struct.unpack_from(endian + "Q", data, 32)
-        size, count = struct.unpack_from(endian + "HH", data, 54)
-        rows = [struct.unpack_from(endian + "I4xQ16xQ", data, table + i * size) for i in range(count)]
-    ends = [offset + length for kind, offset, length in rows if kind == 0x70000003]
-    return ends[0] if ends else None
 
 
 def admit_archive(path: Path, port: dict) -> str:
@@ -410,12 +381,6 @@ def build_kconfig(port: dict, args) -> dict:
         program = build / port["build"]["program"]
         musl_cc.mark_linux(program, profile)
         manifest["elf"] = inspect_elf(program, args.arch)
-        bound = SECTION_TABLE_BOUND.get(args.arch)
-        if bound and section_table_end(program.read_bytes()) > bound:
-            raise ValueError(f"{args.arch} program section table ends past the kernel's {bound}-byte admission prefix")
-        bound = ABI_FLAGS_BOUND.get(args.arch)
-        if bound and not (abi_flags_end(program.read_bytes()) or bound + 1) <= bound:
-            raise ValueError(f"{args.arch} program lacks PT_MIPS_ABIFLAGS within the kernel's {bound}-byte admission prefix")
         applets = applet_names((build / links).read_text())
         stage = work / "stage"
         (stage / "bin").mkdir(parents=True)

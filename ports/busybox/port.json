@@ -23,8 +23,6 @@
     "system": "kconfig",
     "config": "busybox.config",
     "patches": [
-      "patches/0001-runtest-run-tests-through-sh.patch",
-      "patches/0002-testsuite-fit-the-execve-limits.patch",
       "patches/0003-runtest-link-only-the-applets-under-test.patch"
     ],
     "program": "busybox",

@@ -3,6 +3,7 @@
 #include <ok/arch/realtime.hpp>
 #include <ok/arch/terminal_power.hpp>
 #include <ok/core/shutdown_storage.hpp>
+#include <ok/fs/devfs.hpp>
 #include <ok/fs/ext4/layout.hpp>
 #include <ok/fs/fat_fs.hpp>
 #include <ok/fs/ext4_mounted_common_profile.hpp>
@@ -16,6 +17,7 @@ void report(const char *text)
     while (*text) ok_platform_console_write_char(*text++);
 }
 ok::fs::Ext4FileSystem root_filesystem;
+ok::fs::DeviceFileSystem device_filesystem;
 ok::fs::FatFileSystem media_filesystem;
 using JournalRoot = ok::fs::Ext4MountedMetadata<1>;
 JournalRoot::Registry journal_registry;
@@ -131,6 +133,15 @@ ok::Status mount_runtime_directory(ok::fs::VirtualFileSystem &vfs)
     if (auto status = vfs.create(context, "/run/user", ok::fs::NodeType::directory, 0755, 0, 0); !status) return status;
     if (auto status = vfs.create(context, "/run/user/1000", ok::fs::NodeType::directory, 0700, 1000, 1000); !status) return status;
     report("OK_RUN source=ram mode=volatile pathname_sockets=bounded\n");
+    // The kernel's null, zero and full character devices, over the image's /dev.
+    if (auto status = vfs.mount("/dev", device_filesystem.root()); !status)
+    {
+        char text[96]{}; const auto message = status.message();
+        for (ok::usize i = 0; i < message.size() && i + 1 < sizeof(text); ++i) text[i] = message[i];
+        report("OK_DEV_FAIL "); report(text); report("\n");
+        return status;
+    }
+    report("OK_DEV source=kernel devices=null,zero,full\n");
     return {};
 }
 

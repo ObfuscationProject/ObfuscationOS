@@ -16,6 +16,7 @@ separate ObfuscationEvidence repository.
 | [KERNEL_SDK65_DRAFT.md](KERNEL_SDK65_DRAFT.md) | Private Kernel SDK ABI65 source contract draft |
 | [LINUX_STAT.md](LINUX_STAT.md) | Linux stat user qualification |
 | [MIPS64_COMPILER_RUNTIME.md](MIPS64_COMPILER_RUNTIME.md) | MIPS64 binary128 user compiler runtime |
+| [LINUX_PERSONALITY_GATE.md](LINUX_PERSONALITY_GATE.md) | musl/BusyBox gate on the lifted kernel limits |
 | [MUSL_USERLAND.md](MUSL_USERLAND.md) | Static musl userland ports, driver and rootfs profiles |
 | [NATIVE_CHILD_EXIT_GUEST.md](NATIVE_CHILD_EXIT_GUEST.md) | Private child-exit userland probe |
 | [NATIVE_CHILD_EXIT_LINEAGE_GUEST.md](NATIVE_CHILD_EXIT_LINEAGE_GUEST.md) | Private child-exit lineage probe |

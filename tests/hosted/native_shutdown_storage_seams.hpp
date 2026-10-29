@@ -81,6 +81,12 @@ class Ext4FileSystem {
   private:
     int root_{};
 };
+class DeviceFileSystem {
+  public:
+    int &root() { return root_; }
+  private:
+    int root_{};
+};
 enum class FatVariant { fat32, exfat };
 struct FatMountInfo { FatVariant variant{FatVariant::fat32}; };
 class FatVolume {

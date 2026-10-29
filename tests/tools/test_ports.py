@@ -57,8 +57,11 @@ class PortsFrameworkTests(unittest.TestCase):
         self.assertIn("CONFIG_ASH", names)
         self.assertIn("CONFIG_STATIC", names)
         # Decision 0001 keeps sync on okcrt; the others need unrouted syscalls.
-        for held in ("SYNC", "LN", "TOUCH", "UNAME", "UPTIME", "DF", "MKFIFO", "CHOWN", "PS", "ASH_JOB_CONTROL"):
+        for held in ("SYNC", "DF", "MKFIFO", "PS", "ASH_JOB_CONTROL"):
             self.assertNotIn("CONFIG_" + held, names)
+        # The kernel routes link, symlink, uname, sysinfo, fchownat and utimensat.
+        for routed in ("LN", "UNAME", "UPTIME", "CHOWN", "CHGRP", "HOSTNAME", "TOUCH"):
+            self.assertIn("CONFIG_" + routed, names)
 
     def test_cli_validate(self):
         result = subprocess.run([sys.executable, "-B", str(ROOT / "tools/ports.py"), "validate"],
@@ -118,38 +121,6 @@ class KconfigRecipeTests(unittest.TestCase):
                          "CONFIG_A=y\nCONFIG_B=y\nCONFIG_C=4\n")
         self.assertEqual(ports.disable_unrequested("CONFIG_A=y\nCONFIG_B=y\nCONFIG_N=3\n", ["CONFIG_A=y"]),
                          "CONFIG_A=y\n# CONFIG_B is not set\nCONFIG_N=3\n")
-
-    def test_section_table_end(self):
-        header32 = bytearray(52)
-        header32[:6] = b"\x7fELF\x01\x02"
-        struct.pack_into(">I", header32, 32, 0x1000)
-        struct.pack_into(">HH", header32, 46, 40, 9)
-        self.assertEqual(ports.section_table_end(bytes(header32)), 0x1000 + 360)
-        header64 = bytearray(64)
-        header64[:6] = b"\x7fELF\x02\x01"
-        struct.pack_into("<Q", header64, 40, 0x2000)
-        struct.pack_into("<HH", header64, 58, 64, 3)
-        self.assertEqual(ports.section_table_end(bytes(header64)), 0x2000 + 192)
-        self.assertEqual(ports.SECTION_TABLE_BOUND, {"ppc": 512 * 1024})
-
-    def test_abi_flags_end(self):
-        def elf32(rows):
-            data = bytearray(52 + 32 * len(rows))
-            data[:6] = b"\x7fELF\x01\x02"
-            struct.pack_into(">I", data, 28, 52)
-            struct.pack_into(">HH", data, 42, 32, len(rows))
-            for i, (kind, offset, size) in enumerate(rows):
-                struct.pack_into(">IIIII", data, 52 + 32 * i, kind, offset, 0x40000000 + offset, 0x40000000 + offset, size)
-            return bytes(data)
-        self.assertEqual(ports.abi_flags_end(elf32([(1, 0, 0x9000), (0x70000003, 0x88, 0x18)])), 0xa0)
-        self.assertIsNone(ports.abi_flags_end(elf32([(1, 0, 0x9000)])))
-        data = bytearray(64 + 56)
-        data[:6] = b"\x7fELF\x02\x02"
-        struct.pack_into(">Q", data, 32, 64)
-        struct.pack_into(">HH", data, 54, 56, 1)
-        struct.pack_into(">IIQQQQ", data, 64, 0x70000003, 0, 0x87510, 0x40087510, 0x40087510, 0x18)
-        self.assertEqual(ports.abi_flags_end(bytes(data)), 0x87528)
-        self.assertEqual(ports.ABI_FLAGS_BOUND, {"mips": 128 * 1024, "mips64": 128 * 1024})
 
     def test_applet_names(self):
         self.assertEqual(ports.applet_names("/bin/sh\n/usr/bin/[\n/usr/bin/[[\n/sbin/x\n"), ["[", "[[", "sh", "x"])
