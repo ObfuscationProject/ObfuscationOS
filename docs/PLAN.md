@@ -97,6 +97,8 @@ Kernel worktrees `fix/mips-signal-resume` (#8), `fix/ext4-node-cache` (#7) and
 profiles all 54 sh checks pass and the 13-applet suite passes except 8 reviewed
 failures, without patches 0001/0002 or `-Dvfork=fork`, with `ln`, `touch`,
 `uname`, `hostname`, `uptime`, `chown`, `chgrp`, `bc`, `dc` and `bzip2` in `/bin`.
+The kernel branches merge with one module ABI bump to 77; admission and the
+SDK suites here require ABI 77 and refuse 76/78, and land right after the kernel.
 Exit gate still open: path components are limited to 31 bytes, and `mknodat`
 (FIFOs) and `/proc` are not routed, so `mkfifo`, `mknod`, `ps`, `top`, `free`
 and `df` stay held back.

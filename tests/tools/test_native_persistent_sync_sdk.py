@@ -50,7 +50,7 @@ class PersistentSyncSdkTests(unittest.TestCase):
         manifest = validate_sdk(self.sdk, 'x86_64', 'debug')
         self.assertEqual(manifest['native_persistent_sync_profile'],
                          'retained-linked-mounted-ordered-journal-device-flush-v1')
-        self.assertEqual(manifest['abi_version'], 76)
+        self.assertEqual(manifest['abi_version'], 77)
 
     def test_manifest_and_required_header_admission(self):
         for value in (None, '', 'ordinary-fsync-v1', 1, True):
