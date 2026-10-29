@@ -18,6 +18,14 @@ check() {
 work=/tmp/musl-sh.$$
 rm -rf "$work" && mkdir "$work" && cd "$work" || { echo "OK_MUSL_SH_FAIL setup"; exit 1; }
 
+# One boot creates and stats far more files on the ext4 root than the
+# writer's former 128-node bound allowed (40 per directory: listings hold 64).
+i=0
+while [ $i -lt 320 ] && mkdir -p "many/d$((i / 40))" && : > "many/d$((i / 40))/f$i"; do i=$((i + 1)); done
+seen=0
+for file in many/d*/f*; do [ -f "$file" ] && seen=$((seen + 1)); done
+check many_files "320:320" "$i:$seen"
+
 # Parameter, arithmetic, command and field expansion.
 word="musl shell"
 set -- first "second arg" third
