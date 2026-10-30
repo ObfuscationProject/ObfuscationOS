@@ -3,6 +3,7 @@
 
 #include <ok/arch/clock.hpp>
 #include <ok/interrupt/platform.hpp>
+#include <utility>
 
 #include <array>
 #include <cstddef>
@@ -481,18 +482,17 @@ class VirtioRng final : public driver::EntropySource
                 return little(*reinterpret_cast<volatile u16 *>(&queue_.used.index)) != used_;
             };
             const auto clock = [] { return arch::monotonic_nanoseconds(); };
-            auto waited = interrupt_bound_ ? detail::wait_until(ready, clock, started.value(), io_timeout_ns, [] {
-                if (!interrupt::wait_for_interrupt()) return false;
-                static_cast<void>(interrupt::drain_platform_irqs());
-                return true;
-            }) : detail::poll_until(ready, clock, started.value(), io_timeout_ns);
+            const auto signalled = [&] { return std::exchange(signalled_, false); };
+            auto waited = interrupt_bound_ ? detail::wait_until(ready, signalled, clock, started.value(), io_timeout_ns,
+                                                                detail::wait_for_device_interrupt)
+                                           : detail::poll_until(ready, clock, started.value(), io_timeout_ns);
             barrier();
             if (!waited) { busy_ = false; return fail(waited.message()); }
             const u16 observed = little(*reinterpret_cast<volatile u16 *>(&queue_.used.index));
             const UsedElement raw = queue_.used.ring[used_ % queue_size];
             const UsedElement element{little(raw.id), little(raw.length)};
             ++used_;
-            transport_.acknowledge();
+            if (!interrupt_bound_) transport_.acknowledge(); // Bound: the bottom half reads the ISR.
             if (observed != used_ || element.id != 0 || element.length == 0 || element.length > remaining)
             {
                 busy_ = false;
@@ -548,8 +548,9 @@ class VirtioRng final : public driver::EntropySource
     }
     NativeTransport transport_{};
     // Once the kernel's interrupt service runs, completions arrive on the
-    // device's line and the bottom half acknowledges the device; until then,
-    // or when no line can be bound, requests are polled.
+    // device's line and the bottom half acknowledges the device and signals
+    // the waiting request; until then, or when no line can be bound, requests
+    // are polled.
     void attach_interrupt()
     {
         interrupt_attempted_ = true;
@@ -564,11 +565,13 @@ class VirtioRng final : public driver::EntropySource
     }
     static void serve_interrupt(void *context, interrupt::IrqLine)
     {
-        static_cast<VirtioRng *>(context)->transport_.acknowledge();
+        auto &device = *static_cast<VirtioRng *>(context);
+        device.transport_.acknowledge();
+        device.signalled_ = true;
     }
     Queue &queue_;
     u16 available_{}, used_{};
-    bool interrupt_attempted_{}, interrupt_bound_{};
+    bool interrupt_attempted_{}, interrupt_bound_{}, signalled_{};
     bool ready_{}, busy_{}, shutdown_started_{}, shutdown_finished_{};
     Status shutdown_status_{};
 };

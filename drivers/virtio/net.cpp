@@ -4,6 +4,7 @@
 #include "poll.hpp"
 #include <ok/arch/clock.hpp>
 #include <ok/interrupt/platform.hpp>
+#include <utility>
 
 namespace os::drivers
 {
@@ -426,10 +427,16 @@ alignas(4096) Queue rx{}, tx{};
 ReceivedPackets received{};
 VirtioNetDevice *owner{};
 // Once the kernel's interrupt service runs, RX and TX completions raise the
-// device's line: its bottom half acknowledges the device, which also ends an
-// idle wait so the kernel's network poll sees a received frame at once.
-bool interrupt_attempted{}, interrupt_bound{};
-void serve_interrupt(void *, interrupt::IrqLine) { transport.acknowledge(); }
+// device's line: its bottom half acknowledges the device, signals a waiting
+// transmit and posts the kernel's network event source, whose loop then
+// serves the TX ledger and RX queue; it no longer polls them.
+bool interrupt_attempted{}, interrupt_bound{}, signalled{};
+void serve_interrupt(void *, interrupt::IrqLine)
+{
+    transport.acknowledge();
+    signalled = true;
+    interrupt::post_event(interrupt::EventSource::network);
+}
 
 u16 used_index(Queue &queue)
 {
@@ -579,7 +586,7 @@ Result<usize> VirtioNetDevice::poll_transmit(usize budget)
         { active_ = false; retired_ = true; return completed.status(); }
         ++reaped;
     }
-    if (reaped) transport.acknowledge();
+    if (reaped && !interrupt_bound) transport.acknowledge(); // Bound: the bottom half reads the ISR.
     return reaped;
 }
 
@@ -595,6 +602,7 @@ void VirtioNetDevice::attach_interrupt()
     tx.ring.available.flags = 0;
     barrier();
     interrupt_bound = true;
+    interrupt::drive_events(interrupt::EventSource::network);
 }
 
 Status VirtioNetDevice::transmit(std::span<const std::byte> frame)
@@ -617,11 +625,10 @@ Status VirtioNetDevice::transmit(std::span<const std::byte> frame)
         return !tx.ownership.owns(id);
     };
     const auto clock = [] { return arch::monotonic_nanoseconds(); };
-    auto status = interrupt_bound ? detail::wait_until(ready, clock, started.value(), timeout_ns, [] {
-        if (!interrupt::wait_for_interrupt()) return false;
-        static_cast<void>(interrupt::drain_platform_irqs());
-        return true;
-    }) : detail::poll_until(ready, clock, started.value(), timeout_ns);
+    const auto signalled_now = [] { return std::exchange(signalled, false); };
+    auto status = interrupt_bound ? detail::wait_until(ready, signalled_now, clock, started.value(), timeout_ns,
+                                                       detail::wait_for_device_interrupt)
+                                  : detail::poll_until(ready, clock, started.value(), timeout_ns);
     if (!completion_status) return completion_status;
     if (!status) { active_ = false; retired_ = true; }
     return status;
@@ -668,7 +675,7 @@ Result<usize> VirtioNetDevice::poll_receive(usize budget)
         if (!completed) { active_ = false; retired_ = true; return completed.status(); }
         ++adopted;
     }
-    if (adopted) transport.acknowledge();
+    if (adopted && !interrupt_bound) transport.acknowledge();
     return adopted;
 }
 

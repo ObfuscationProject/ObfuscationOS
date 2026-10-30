@@ -2,6 +2,7 @@
 #include "poll.hpp"
 #include "ok/arch/clock.hpp"
 #include "ok/interrupt/platform.hpp"
+#include <utility>
 
 #include <array>
 #include <new>
@@ -693,14 +694,10 @@ template <typename Transport> class VirtioBlock final : public driver::BlockDevi
             return little(*reinterpret_cast<volatile u16 *>(&queue_.used.index)) != used_;
         };
         const auto clock = [] { return arch::monotonic_nanoseconds(); };
-        const auto completed =
-            interrupt_bound_ ? detail::wait_until(ready, clock, started.value(), io_timeout_ns, [] {
-                if (!interrupt::wait_for_interrupt())
-                    return false;
-                static_cast<void>(interrupt::drain_platform_irqs());
-                return true;
-            })
-                             : detail::poll_until(ready, clock, started.value(), io_timeout_ns);
+        const auto signalled = [&] { return std::exchange(signalled_, false); };
+        const auto completed = interrupt_bound_ ? detail::wait_until(ready, signalled, clock, started.value(),
+                                                                     io_timeout_ns, detail::wait_for_device_interrupt)
+                                                : detail::poll_until(ready, clock, started.value(), io_timeout_ns);
         barrier();
         busy_ = false;
         // A failed wait retires this device. Queue memory remains static and
@@ -710,7 +707,11 @@ template <typename Transport> class VirtioBlock final : public driver::BlockDevi
         const auto observed = little(*reinterpret_cast<volatile u16 *>(&queue_.used.index));
         const auto element = queue_.used.ring[used_ % queue_size];
         ++used_;
-        transport_.acknowledge();
+        // With the line bound only the bottom half reads the ISR: a read here
+        // drops INTx under an interrupt the CPU has not taken yet, and the
+        // 8259 then delivers it as spurious.
+        if (!interrupt_bound_)
+            transport_.acknowledge();
         const auto length = little(element.length);
         const auto expected = type == 0 ? size + 1 : 1;
         if (observed != used_ || little(element.id) != 0 || length == 0 || length > expected)
@@ -727,8 +728,9 @@ template <typename Transport> class VirtioBlock final : public driver::BlockDevi
         return Status::success();
     }
     // Once the kernel's interrupt service runs, completions arrive on the
-    // device's line and the bottom half acknowledges the device; until then,
-    // or when no line can be bound, requests are polled.
+    // device's line and the bottom half acknowledges the device and signals
+    // the waiting request; until then, or when no line can be bound, requests
+    // are polled.
     void attach_interrupt()
     {
         interrupt_attempted_ = true;
@@ -744,11 +746,13 @@ template <typename Transport> class VirtioBlock final : public driver::BlockDevi
     }
     static void serve_interrupt(void *context, interrupt::IrqLine)
     {
-        static_cast<VirtioBlock *>(context)->transport_.acknowledge();
+        auto &device = *static_cast<VirtioBlock *>(context);
+        device.transport_.acknowledge();
+        device.signalled_ = true;
     }
     Transport transport_{};
     Queue &queue_;
-    bool interrupt_attempted_{}, interrupt_bound_{};
+    bool interrupt_attempted_{}, interrupt_bound_{}, signalled_{};
     u16 available_{}, used_{};
     u64 capacity_{};
     bool writable_{}, flush_{}, ready_{}, busy_{}, shutdown_started_{}, shutdown_finished_{};
