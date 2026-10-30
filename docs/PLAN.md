@@ -146,8 +146,12 @@ drivers complete through their device's interrupt line once the kernel's
 interrupt service runs. They look the line up with the kernel's board routing
 (`virtio_mmio_line`, `pci_intx_line`), clear `VIRTQ_AVAIL_F_NO_INTERRUPT` and
 the PCI INTx disable bit, and let the bottom half acknowledge the device.
-Requests sleep in `wait_for_interrupt()` instead of spinning; before the
-service starts (the root mount) or without a line they are polled as before.
+Requests sleep in `wait_for_interrupt()` instead of spinning and recheck the
+used ring only after their own line fired; with the line bound only the
+bottom half reads the ISR. The NIC's bottom half posts the kernel's network
+event source, so the kernel's network poll touches the device only after an
+interrupt. Before the service starts (the root mount) or without a line they
+are polled as before.
 On ten profiles the ext4 native boot and the shell gate pass with the disk
 and the RNG completing through their lines; `test_native_udp_socket.py`
 passes on x86_64 with the NIC bound. Lands with the kernel merge and its ABI

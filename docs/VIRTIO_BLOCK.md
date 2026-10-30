@@ -48,10 +48,15 @@ A malformed completion or bounded polling timeout marks the device failed;
 subsequent requests cannot reuse its queue. A device is writable only when it
 also supports FLUSH. The driver does not format a disk.
 
-The current implementation polls one queue on the boot CPU. It relies on the
-coherent DMA model and identity/direct mappings of these QEMU profiles. Physical
-board discovery, IOMMU mappings, noncoherent cache maintenance, interrupt-driven
-I/O, hardware SMP synchronization and multiple disks are not claimed.
+The driver runs one queue on the boot CPU. Once the kernel's interrupt service
+runs, the first request binds the device's line and later requests sleep in
+the kernel's idle wait. The bottom half reads the ISR and signals the request,
+which rechecks the used ring only after its own line fired, not on ticks or
+other lines. Requests before that (the root mount) or without a line are
+polled. It relies on the coherent DMA model and identity/direct mappings of
+these QEMU profiles. Physical board discovery, IOMMU mappings, noncoherent
+cache maintenance, hardware SMP synchronization and multiple disks are not
+claimed.
 
 ## SDK consumer hardware tests
 
