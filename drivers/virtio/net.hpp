@@ -48,6 +48,7 @@ class VirtioNetDevice final
     VirtioNetDevice() = default;
     ~VirtioNetDevice() = default;
     ok::Result<ok::u16> submit_transmit(std::span<const std::byte> frame);
+    void attach_interrupt();
     std::array<ok::u8, 6> mac_{};
     bool active_{}, retired_{};
 };

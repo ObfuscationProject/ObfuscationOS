@@ -3,6 +3,7 @@
 #include "net_receive.hpp"
 #include "poll.hpp"
 #include <ok/arch/clock.hpp>
+#include <ok/interrupt/platform.hpp>
 
 namespace os::drivers
 {
@@ -80,6 +81,7 @@ class MmioTransport
             if (read<u32>(candidate + 4) != 2)
                 return Status::unsupported("legacy Virtio net MMIO is not qualified");
             base_ = candidate;
+            slot_ = i;
             return Status::success();
         }
         return Status::not_found("no Virtio MMIO net device");
@@ -114,8 +116,11 @@ class MmioTransport
     }
     void notify(u16 number) { write<u32>(base_ + 0x50, number); }
     void acknowledge() { write<u32>(base_ + 0x64, read<u32>(base_ + 0x60)); }
+    Result<interrupt::PlatformLine> interrupt_line() const { return interrupt::virtio_mmio_line(slot_); }
+    void enable_interrupts() {}
   private:
     uptr base_{};
+    usize slot_{};
 };
 
 class PciTransport
@@ -183,6 +188,12 @@ class PciTransport
     }
     void notify(u16 number) { write<u16>(queue_notify_[number], number); }
     void acknowledge() { static_cast<void>(read<u8>(isr_)); }
+    Result<interrupt::PlatformLine> interrupt_line() const
+    {
+        return interrupt::pci_intx_line(slot_, config8(0x3d), config8(0x3c));
+    }
+    // Clears the command register's INTx disable bit set at discovery.
+    void enable_interrupts() { config16(4, static_cast<u16>(config32(4)) & ~u16{0x400}); }
   private:
     u32 config32(u16 offset) const
     {
@@ -414,6 +425,11 @@ struct Queue
 alignas(4096) Queue rx{}, tx{};
 ReceivedPackets received{};
 VirtioNetDevice *owner{};
+// Once the kernel's interrupt service runs, RX and TX completions raise the
+// device's line: its bottom half acknowledges the device, which also ends an
+// idle wait so the kernel's network poll sees a received frame at once.
+bool interrupt_attempted{}, interrupt_bound{};
+void serve_interrupt(void *, interrupt::IrqLine) { transport.acknowledge(); }
 
 u16 used_index(Queue &queue)
 {
@@ -567,6 +583,20 @@ Result<usize> VirtioNetDevice::poll_transmit(usize budget)
     return reaped;
 }
 
+void VirtioNetDevice::attach_interrupt()
+{
+    if (interrupt_attempted || !interrupt::platform_irqs_started()) return;
+    interrupt_attempted = true;
+    auto line = transport.interrupt_line();
+    if (!line) return;
+    if (!interrupt::bind_platform_irq(line.value().line, line.value().trigger, serve_interrupt, nullptr)) return;
+    transport.enable_interrupts();
+    rx.ring.available.flags = 0;
+    tx.ring.available.flags = 0;
+    barrier();
+    interrupt_bound = true;
+}
+
 Status VirtioNetDevice::transmit(std::span<const std::byte> frame)
 {
     if (!active_ || owner != this) return Status::not_initialized("Virtio net is not active");
@@ -576,15 +606,22 @@ Status VirtioNetDevice::transmit(std::span<const std::byte> frame)
         return Status::invalid_argument("invalid untagged Ethernet frame size");
     const auto started = arch::monotonic_nanoseconds();
     if (!started) return started.status();
+    attach_interrupt();
     const auto submitted = submit_transmit(frame);
     if (!submitted) return submitted.status();
     const auto id = submitted.value();
     Status completion_status{};
-    auto status = detail::poll_until([&] {
+    const auto ready = [&] {
         const auto completed = poll_transmit();
         if (!completed) { completion_status = completed.status(); return true; }
         return !tx.ownership.owns(id);
-    }, [] { return arch::monotonic_nanoseconds(); }, started.value(), timeout_ns);
+    };
+    const auto clock = [] { return arch::monotonic_nanoseconds(); };
+    auto status = interrupt_bound ? detail::wait_until(ready, clock, started.value(), timeout_ns, [] {
+        if (!interrupt::wait_for_interrupt()) return false;
+        static_cast<void>(interrupt::drain_platform_irqs());
+        return true;
+    }) : detail::poll_until(ready, clock, started.value(), timeout_ns);
     if (!completion_status) return completion_status;
     if (!status) { active_ = false; retired_ = true; }
     return status;
@@ -605,6 +642,7 @@ Result<usize> VirtioNetDevice::poll_receive(usize budget)
     if (!budget || budget > queue_size)
         return Status::invalid_argument("Virtio net RX poll budget must be between one and eight");
     if (!active_ || owner != this) return Status::not_initialized("Virtio net is not active");
+    attach_interrupt();
     if (transport.status() != 15)
     { active_ = false; retired_ = true; return Status::fault("Virtio net device needs reset"); }
     if (!received.credit()) return Status::would_block("Virtio net copied RX queue is full");

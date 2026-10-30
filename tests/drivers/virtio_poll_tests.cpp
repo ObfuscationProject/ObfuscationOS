@@ -28,5 +28,19 @@ int main()
         return count / 1000;
     };
     assert(os::drivers::detail::poll_until([&] { return count == 5000; }, slow, 0, 10));
-    puts("VIRTIO_POLL_PASS scope=model elapsed=pass deadline_tie=pass clock_error=pass overflow=pass");
+    // wait_until: readiness wins before any wait; each wait is one interrupt;
+    // a waiter that cannot sleep falls back to polling the same deadline.
+    count = 0;
+    u64 waits = 0;
+    auto sleeper = [&] { ++waits; return true; };
+    assert(os::drivers::detail::wait_until([] { return true; }, healthy, 0, 10, sleeper) && waits == 0);
+    assert(os::drivers::detail::wait_until([&] { return waits == 3; }, healthy, 0, 10, sleeper) && waits == 3);
+    waits = 0;
+    count = 0;
+    assert(!os::drivers::detail::wait_until([] { return false; }, healthy, 0, 10, sleeper) && waits == 9);
+    count = 0;
+    auto awake = [] { return false; };
+    assert(os::drivers::detail::wait_until([&] { return count == 6; }, healthy, 0, 10, awake));
+    assert(os::drivers::detail::wait_until([] { return false; }, bad, 0, 10, sleeper).code() == StatusCode::io_error);
+    puts("VIRTIO_POLL_PASS scope=model elapsed=pass deadline_tie=pass clock_error=pass overflow=pass interrupt_wait=pass");
 }
