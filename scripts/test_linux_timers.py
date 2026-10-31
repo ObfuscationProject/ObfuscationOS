@@ -99,14 +99,20 @@ def main():
         process.stdin.flush()
         began = time.monotonic()
 
+        # The probe's exit prints the kernel's report; wait for it as well.
         def finished():
             match = RESULT.search(serial, start)
-            return match is not None and PROMPT in serial[match.end():]
+            if match is None or PROMPT not in serial[match.end():]:
+                return False
+            return match.group(1) != b'PASS' or re.search(rb'OK_TIMERS scope=hardware[^\r\n]*\r?\n',
+                                                         serial[match.end():]) is not None
         receive(process, serial, finished, time.monotonic() + args.timeout)
         record['probe_seconds'] = round(time.monotonic() - began, 2)
         result = RESULT.search(serial, start)
         record['result'] = result.group(0).decode()
-        timers = re.findall(rb'OK_TIMERS scope=hardware[^\r\n]*', serial[start:])
+        # The report the probe's own exit prints; its fork and exec children
+        # and the SIGEV_THREAD helper print earlier ones.
+        timers = re.findall(rb'OK_TIMERS scope=hardware[^\r\n]*', serial[result.end():])
         record['kernel_timers'] = timers[-1].decode() if timers else None
         if result.group(1) != b'PASS' or result.group(2).decode() != args.arch:
             raise RuntimeError('timer probe failed: ' + record['result'])

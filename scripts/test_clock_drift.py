@@ -184,11 +184,13 @@ def main():
         done = len(serial)
         process.stdin.write(b'q\n')
         process.stdin.flush()
-        receive(process, serial, lambda: b'CLOCK_DONE' in serial[done:] and PROMPT in serial[done:],
+        receive(process, serial, lambda: b'CLOCK_DONE' in serial[done:] and PROMPT in serial[done:] and
+                re.search(rb'OK_TIMER_LATENCY scope=hardware[^\r\n]*\r?\n', serial[done:]) is not None,
                 time.monotonic() + 60)
         record['samples'] = samples
         record['result'] = analyse(samples)
-        latency = re.findall(rb'OK_TIMER_LATENCY scope=hardware[^\r\n]*', serial)
+        # The report the probe's exit prints, after its busy phase.
+        latency = re.findall(rb'OK_TIMER_LATENCY scope=hardware[^\r\n]*', serial[done:])
         record['kernel_timer_latency'] = latency[-1].decode() if latency else None
         low, high = record['result']['monotonic_drift_bound_ppm']
         if abs(record['result']['monotonic_drift_ppm']) > args.limit_ppm or low > args.limit_ppm or \
