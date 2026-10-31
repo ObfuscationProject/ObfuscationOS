@@ -538,8 +538,9 @@ Status VirtioNetDevice::start()
     attach_interrupt();
     if (interrupt_bound)
     {
-        // A start after stop() reset the device, which set the INTx disable bit
-        // and the rings' no-interrupt flags again; the line stays bound.
+        // On a start after stop(), discover() set the INTx disable bit again and
+        // the queue setup above set the rings' no-interrupt flags, while the
+        // line stays bound, so attach_interrupt() returned early: clear them.
         transport.enable_interrupts();
         rx.ring.available.flags = 0;
         tx.ring.available.flags = 0;

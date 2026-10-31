@@ -16,7 +16,8 @@ transports require VERSION_1 and a stable MAC, negotiate no checksum or
 segmentation offloads, and use two eight-entry split rings. Once the kernel's
 interrupt service runs, starting the link binds the device's line
 (`virtio_mmio_line`, `pci_intx_line`), clears `VIRTQ_AVAIL_F_NO_INTERRUPT`
-and the PCI INTx disable bit (again after a restart, whose reset set them),
+and the PCI INTx disable bit (again after a restart, whose rediscovery sets
+the INTx disable bit and whose queue setup sets the no-interrupt flags),
 and posts the kernel's network event source once for frames used before. The
 bottom half then reads the ISR and, when the device had raised its interrupt,
 signals a waiting transmit and posts the source, so the kernel reads the RX
