@@ -207,9 +207,13 @@ class MmioTransport
     {
         write<u32>(base_ + 0x50, 0);
     }
-    void acknowledge()
+    // True when the device had raised its interrupt.
+    bool acknowledge()
     {
-        write<u32>(base_ + 0x64, read<u32>(base_ + 0x60));
+        const auto status = read<u32>(base_ + 0x60);
+        if (status)
+            write<u32>(base_ + 0x64, status);
+        return status != 0;
     }
     Result<interrupt::PlatformLine> interrupt_line() const
     {
@@ -315,10 +319,11 @@ class PciTransport
     {
         config16(4, static_cast<u16>(config32(4)) & ~u16{0x400});
     }
-    void acknowledge()
+    // True when the device had raised its interrupt; reading the ISR deasserts
+    // INTx, and on a shared line another device may have raised it.
+    bool acknowledge()
     {
-        if (isr_)
-            static_cast<void>(read<u8>(isr_));
+        return isr_ && read<u8>(isr_) != 0;
     }
 
   private:
@@ -750,8 +755,8 @@ template <typename Transport> class VirtioBlock final : public driver::BlockDevi
     static void serve_interrupt(void *context, interrupt::IrqLine)
     {
         auto &device = *static_cast<VirtioBlock *>(context);
-        device.transport_.acknowledge();
-        device.signalled_ = true;
+        if (device.transport_.acknowledge())
+            device.signalled_ = true;
     }
     Transport transport_{};
     Queue &queue_;

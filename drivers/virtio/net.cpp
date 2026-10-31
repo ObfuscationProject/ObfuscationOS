@@ -116,7 +116,13 @@ class MmioTransport
                                              : Status::fault("Virtio net queue activation failed");
     }
     void notify(u16 number) { write<u32>(base_ + 0x50, number); }
-    void acknowledge() { write<u32>(base_ + 0x64, read<u32>(base_ + 0x60)); }
+    // True when the device had raised its interrupt (a PCI INTx line is shared).
+    bool acknowledge()
+    {
+        const auto status = read<u32>(base_ + 0x60);
+        if (status) write<u32>(base_ + 0x64, status);
+        return status != 0;
+    }
     Result<interrupt::PlatformLine> interrupt_line() const { return interrupt::virtio_mmio_line(slot_); }
     void enable_interrupts() {}
   private:
@@ -188,7 +194,9 @@ class PciTransport
                                              : Status::fault("Virtio PCI net queue activation failed");
     }
     void notify(u16 number) { write<u16>(queue_notify_[number], number); }
-    void acknowledge() { static_cast<void>(read<u8>(isr_)); }
+    // True when the device had raised its interrupt; reading the ISR deasserts
+    // INTx, and on a shared line another device may have raised it.
+    bool acknowledge() { return read<u8>(isr_) != 0; }
     Result<interrupt::PlatformLine> interrupt_line() const
     {
         return interrupt::pci_intx_line(slot_, config8(0x3d), config8(0x3c));
@@ -429,11 +437,12 @@ VirtioNetDevice *owner{};
 // Once the kernel's interrupt service runs, RX and TX completions raise the
 // device's line: its bottom half acknowledges the device, signals a waiting
 // transmit and posts the kernel's network event source, whose loop then
-// serves the TX ledger and RX queue; it no longer polls them.
+// serves the TX ledger and RX queue; it no longer polls them. An interrupt
+// another device raised on a shared line does neither.
 bool interrupt_attempted{}, interrupt_bound{}, signalled{};
 void serve_interrupt(void *, interrupt::IrqLine)
 {
-    transport.acknowledge();
+    if (!transport.acknowledge()) return;
     signalled = true;
     interrupt::post_event(interrupt::EventSource::network);
 }
@@ -528,7 +537,15 @@ Status VirtioNetDevice::start()
     // frames the device used while its rings still suppressed interrupts.
     attach_interrupt();
     if (interrupt_bound)
+    {
+        // A start after stop() reset the device, which set the INTx disable bit
+        // and the rings' no-interrupt flags again; the line stays bound.
+        transport.enable_interrupts();
+        rx.ring.available.flags = 0;
+        tx.ring.available.flags = 0;
+        barrier();
         interrupt::post_event(interrupt::EventSource::network);
+    }
     return Status::success();
 }
 

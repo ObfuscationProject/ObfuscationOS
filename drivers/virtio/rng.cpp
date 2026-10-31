@@ -142,7 +142,13 @@ class MmioTransport
                                              : Status::fault("Virtio RNG queue activation failed");
     }
     void notify(u16 number) { write<u32>(base_ + 0x50, number); }
-    void acknowledge() { write<u32>(base_ + 0x64, read<u32>(base_ + 0x60)); }
+    // True when the device had raised its interrupt (a PCI INTx line is shared).
+    bool acknowledge()
+    {
+        const auto status = read<u32>(base_ + 0x60);
+        if (status) write<u32>(base_ + 0x64, status);
+        return status != 0;
+    }
     Result<interrupt::PlatformLine> interrupt_line() const { return interrupt::virtio_mmio_line(slot_); }
     void enable_interrupts() {}
   private:
@@ -210,7 +216,9 @@ class PciTransport
                                              : Status::fault("Virtio PCI RNG queue activation failed");
     }
     void notify(u16 number) { write<u16>(queue_notify_[number], number); }
-    void acknowledge() { static_cast<void>(read<u8>(isr_)); }
+    // True when the device had raised its interrupt; reading the ISR deasserts
+    // INTx, and on a shared line another device may have raised it.
+    bool acknowledge() { return read<u8>(isr_) != 0; }
     Result<interrupt::PlatformLine> interrupt_line() const
     {
         return interrupt::pci_intx_line(slot_, static_cast<u8>(config32(0x3c) >> 8), static_cast<u8>(config32(0x3c)));
@@ -569,8 +577,8 @@ class VirtioRng final : public driver::EntropySource
     static void serve_interrupt(void *context, interrupt::IrqLine)
     {
         auto &device = *static_cast<VirtioRng *>(context);
-        device.transport_.acknowledge();
-        device.signalled_ = true;
+        if (device.transport_.acknowledge())
+            device.signalled_ = true;
     }
     Queue &queue_;
     u16 available_{}, used_{};
