@@ -21,6 +21,8 @@ class SystemGuiRuntime final : public KernelExtension
     Status shutdown_preflight(Kernel &kernel) override;
     Status shutdown_stop_producers(Kernel &kernel) override;
     Result<net::NativeUdpLink> network_link(Kernel &kernel) override;
+    Result<net::InterfaceConfig> network_interface(Kernel &kernel) override;
+    Result<net::ProbePlan> network_probe(Kernel &kernel) override;
     Result<usize> network_receive(Kernel &kernel, std::span<std::byte> frame) override;
     Status network_transmit(Kernel &kernel, std::span<const std::byte> frame) override;
     Status network_try_transmit(Kernel &kernel, std::span<const std::byte> frame) override;

@@ -59,6 +59,12 @@ option("native_udp_probe")
     set_description("Run the native UDP user socket probe from init")
 option_end()
 
+option("net_probe")
+    set_default(false)
+    set_showmenu(true)
+    set_description("Configure the NIC as a routed interface and run the kernel link probe against QEMU user networking")
+option_end()
+
 option("virtio_polling")
     set_default(false)
     set_showmenu(true)
