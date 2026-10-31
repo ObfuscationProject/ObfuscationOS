@@ -5,6 +5,15 @@
 
 namespace os::drivers::detail
 {
+// Polled completion is an explicit build choice (the virtio_polling option).
+// Otherwise a driver polls only before the kernel's interrupt service starts
+// or when its line cannot be bound, and the kernel counts every polled wait
+// (OK_IRQ_COMPLETIONS).
+#ifdef OS_VIRTIO_POLLING
+inline constexpr bool polling_selected = true;
+#else
+inline constexpr bool polling_selected = false;
+#endif
 // Serialized boot-CPU polling. Completion wins a deadline tie; a clock error
 // is explicit. Iteration count and CPU speed are not elapsed-time measures.
 template <typename Ready, typename Clock>

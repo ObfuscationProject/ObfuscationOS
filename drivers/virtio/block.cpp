@@ -704,6 +704,7 @@ template <typename Transport> class VirtioBlock final : public driver::BlockDevi
         // cannot be reused while a late DMA completion may still arrive.
         if (!completed)
             return fail(completed.message());
+        interrupt::count_device_wait(interrupt::DeviceWait::block, interrupt_bound_);
         const auto observed = little(*reinterpret_cast<volatile u16 *>(&queue_.used.index));
         const auto element = queue_.used.ring[used_ % queue_size];
         ++used_;
@@ -729,11 +730,13 @@ template <typename Transport> class VirtioBlock final : public driver::BlockDevi
     }
     // Once the kernel's interrupt service runs, completions arrive on the
     // device's line and the bottom half acknowledges the device and signals
-    // the waiting request; until then, or when no line can be bound, requests
-    // are polled.
+    // the waiting request; until then, when no line can be bound or when the
+    // build selects polling, requests are polled.
     void attach_interrupt()
     {
         interrupt_attempted_ = true;
+        if (detail::polling_selected)
+            return;
         auto line = transport_.interrupt_line();
         if (!line)
             return;

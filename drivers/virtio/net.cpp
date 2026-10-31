@@ -523,6 +523,12 @@ Status VirtioNetDevice::start()
     { (void)stop(); return Status::fault("Virtio net failed DRIVER_OK"); }
     active_ = true;
     transport.notify(0);
+    // The link binds its line as it starts, so the kernel loop serves the
+    // device only after an interrupt from its first pass on. One post covers
+    // frames the device used while its rings still suppressed interrupts.
+    attach_interrupt();
+    if (interrupt_bound)
+        interrupt::post_event(interrupt::EventSource::network);
     return Status::success();
 }
 
@@ -594,6 +600,7 @@ void VirtioNetDevice::attach_interrupt()
 {
     if (interrupt_attempted || !interrupt::platform_irqs_started()) return;
     interrupt_attempted = true;
+    if (detail::polling_selected) return;
     auto line = transport.interrupt_line();
     if (!line) return;
     if (!interrupt::bind_platform_irq(line.value().line, line.value().trigger, serve_interrupt, nullptr)) return;
@@ -631,6 +638,7 @@ Status VirtioNetDevice::transmit(std::span<const std::byte> frame)
                                   : detail::poll_until(ready, clock, started.value(), timeout_ns);
     if (!completion_status) return completion_status;
     if (!status) { active_ = false; retired_ = true; }
+    else interrupt::count_device_wait(interrupt::DeviceWait::transmit, interrupt_bound);
     return status;
 }
 

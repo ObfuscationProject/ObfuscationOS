@@ -488,6 +488,7 @@ class VirtioRng final : public driver::EntropySource
                                            : detail::poll_until(ready, clock, started.value(), io_timeout_ns);
             barrier();
             if (!waited) { busy_ = false; return fail(waited.message()); }
+            interrupt::count_device_wait(interrupt::DeviceWait::entropy, interrupt_bound_);
             const u16 observed = little(*reinterpret_cast<volatile u16 *>(&queue_.used.index));
             const UsedElement raw = queue_.used.ring[used_ % queue_size];
             const UsedElement element{little(raw.id), little(raw.length)};
@@ -549,11 +550,13 @@ class VirtioRng final : public driver::EntropySource
     NativeTransport transport_{};
     // Once the kernel's interrupt service runs, completions arrive on the
     // device's line and the bottom half acknowledges the device and signals
-    // the waiting request; until then, or when no line can be bound, requests
-    // are polled.
+    // the waiting request; until then, when no line can be bound or when the
+    // build selects polling, requests are polled.
     void attach_interrupt()
     {
         interrupt_attempted_ = true;
+        if (detail::polling_selected)
+            return;
         auto line = transport_.interrupt_line();
         if (!line) return;
         if (!interrupt::bind_platform_irq(line.value().line, line.value().trigger, &VirtioRng::serve_interrupt, this))
