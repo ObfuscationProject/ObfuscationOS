@@ -56,8 +56,9 @@ clock, which follows the host's, so the test measures the kernel's counter
 calibration and conversion, not a crystal.
 
 Result (QEMU 10.2.0, kernel and OS `feat/irq-wait-time`, ABI 77): the probe
-passes on all ten profiles. The monotonic drift is within ±6 ppm except
-mips64 at +21 ppm, and every strict bound lies within ±52 ppm. The
+passes on all ten profiles. The monotonic drift is within ±6 ppm on eight;
+mips and mips64, whose Count frequency comes from polling Malta's RTC, measure
++3 to +22 ppm across runs with strict bounds within ±60 ppm. The
 RTC-anchored wall clocks are 0.3–0.9 s behind the host's: QEMU starts both
 RTCs from a whole-second date. The first runs found the PC TSC calibration
 502 ppm (x86_64) and 686 ppm (i386) off; the per-profile figures and the
