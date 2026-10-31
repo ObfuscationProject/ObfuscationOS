@@ -162,8 +162,9 @@ passes on x86_64 with the NIC bound. `tests/musl/linux_timers.c` with
 the guest and passes on ten profiles
 ([LINUX_TIMERS](qualification/LINUX_TIMERS.md)). `tests/musl/clock_drift.c`
 with `scripts/test_clock_drift.py` measures the guest clocks against the
-host's ([CLOCK_DRIFT](qualification/CLOCK_DRIFT.md)). Lands with the kernel
-merge and its ABI bump.
+host's ([CLOCK_DRIFT](qualification/CLOCK_DRIFT.md)). The kernel branch
+merges with one module ABI bump to 78; admission and the SDK suites here
+require ABI 78 and refuse 77/79, and land right after the kernel.
 
 ## P2
 
