@@ -154,8 +154,11 @@ interrupt. Before the service starts (the root mount) or without a line they
 are polled as before.
 On ten profiles the ext4 native boot and the shell gate pass with the disk
 and the RNG completing through their lines; `test_native_udp_socket.py`
-passes on x86_64 with the NIC bound. Lands with the kernel merge and its ABI
-bump.
+passes on x86_64 with the NIC bound. `tests/musl/linux_timers.c` with
+`scripts/test_linux_timers.py` checks the kernel's Linux interval timers on
+the guest and passes on ten profiles
+([LINUX_TIMERS](qualification/LINUX_TIMERS.md)). Lands with the kernel merge
+and its ABI bump.
 
 ## P2
 
