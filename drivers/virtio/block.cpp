@@ -1,6 +1,8 @@
 #include "block.hpp"
 #include "poll.hpp"
 #include "ok/arch/clock.hpp"
+#include "ok/interrupt/platform.hpp"
+#include <utility>
 
 #include <array>
 #include <new>
@@ -135,6 +137,7 @@ class MmioTransport
             if (read<u32>(address) == 0x74726976 && read<u32>(address + 8) == 2)
             {
                 base_ = address;
+                slot_ = i;
                 const auto version = read<u32>(base_ + 4);
                 if (version != 1 && version != 2)
                     return Status::unsupported("unsupported Virtio MMIO version");
@@ -204,13 +207,25 @@ class MmioTransport
     {
         write<u32>(base_ + 0x50, 0);
     }
-    void acknowledge()
+    // True when the device had raised its interrupt.
+    bool acknowledge()
     {
-        write<u32>(base_ + 0x64, read<u32>(base_ + 0x60));
+        const auto status = read<u32>(base_ + 0x60);
+        if (status)
+            write<u32>(base_ + 0x64, status);
+        return status != 0;
+    }
+    Result<interrupt::PlatformLine> interrupt_line() const
+    {
+        return interrupt::virtio_mmio_line(slot_);
+    }
+    void enable_interrupts()
+    {
     }
 
   private:
     uptr base_{};
+    usize slot_{};
     bool legacy_{};
 };
 
@@ -295,10 +310,20 @@ class PciTransport
     {
         write<u16>(queue_notify_, 0);
     }
-    void acknowledge()
+    Result<interrupt::PlatformLine> interrupt_line() const
     {
-        if (isr_)
-            static_cast<void>(read<u8>(isr_));
+        return interrupt::pci_intx_line(slot_, config8(0x3d), config8(0x3c));
+    }
+    // Clears the command register's INTx disable bit set at discovery.
+    void enable_interrupts()
+    {
+        config16(4, static_cast<u16>(config32(4)) & ~u16{0x400});
+    }
+    // True when the device had raised its interrupt; reading the ISR deasserts
+    // INTx, and on a shared line another device may have raised it.
+    bool acknowledge()
+    {
+        return isr_ && read<u8>(isr_) != 0;
     }
 
   private:
@@ -649,6 +674,8 @@ template <typename Transport> class VirtioBlock final : public driver::BlockDevi
             return Status::not_initialized("Virtio block is not ready");
         if (busy_)
             return Status::busy("Virtio block request is already active");
+        if (!interrupt_attempted_ && interrupt::platform_irqs_started())
+            attach_interrupt();
         auto started = arch::monotonic_nanoseconds();
         if (!started)
             return started.status();
@@ -667,20 +694,30 @@ template <typename Transport> class VirtioBlock final : public driver::BlockDevi
         *reinterpret_cast<volatile u16 *>(&queue_.available.index) = little(++available_);
         barrier();
         transport_.notify();
-        const auto completed = detail::poll_until([&] {
+        const auto ready = [&] {
             barrier();
             return little(*reinterpret_cast<volatile u16 *>(&queue_.used.index)) != used_;
-        }, [] { return arch::monotonic_nanoseconds(); }, started.value(), io_timeout_ns);
+        };
+        const auto clock = [] { return arch::monotonic_nanoseconds(); };
+        const auto signalled = [&] { return std::exchange(signalled_, false); };
+        const auto completed = interrupt_bound_ ? detail::wait_until(ready, signalled, clock, started.value(),
+                                                                     io_timeout_ns, detail::wait_for_device_interrupt)
+                                                : detail::poll_until(ready, clock, started.value(), io_timeout_ns);
         barrier();
         busy_ = false;
         // A failed wait retires this device. Queue memory remains static and
         // cannot be reused while a late DMA completion may still arrive.
         if (!completed)
             return fail(completed.message());
+        interrupt::count_device_wait(interrupt::DeviceWait::block, interrupt_bound_);
         const auto observed = little(*reinterpret_cast<volatile u16 *>(&queue_.used.index));
         const auto element = queue_.used.ring[used_ % queue_size];
         ++used_;
-        transport_.acknowledge();
+        // With the line bound only the bottom half reads the ISR: a read here
+        // drops INTx under an interrupt the CPU has not taken yet, and the
+        // 8259 then delivers it as spurious.
+        if (!interrupt_bound_)
+            transport_.acknowledge();
         const auto length = little(element.length);
         const auto expected = type == 0 ? size + 1 : 1;
         if (observed != used_ || little(element.id) != 0 || length == 0 || length > expected)
@@ -696,8 +733,34 @@ template <typename Transport> class VirtioBlock final : public driver::BlockDevi
             return fail("invalid Virtio block success status or length");
         return Status::success();
     }
+    // Once the kernel's interrupt service runs, completions arrive on the
+    // device's line and the bottom half acknowledges the device and signals
+    // the waiting request; until then, when no line can be bound or when the
+    // build selects polling, requests are polled.
+    void attach_interrupt()
+    {
+        interrupt_attempted_ = true;
+        if (detail::polling_selected)
+            return;
+        auto line = transport_.interrupt_line();
+        if (!line)
+            return;
+        if (!interrupt::bind_platform_irq(line.value().line, line.value().trigger, &VirtioBlock::serve_interrupt, this))
+            return;
+        transport_.enable_interrupts();
+        queue_.available.flags = 0;
+        barrier();
+        interrupt_bound_ = true;
+    }
+    static void serve_interrupt(void *context, interrupt::IrqLine)
+    {
+        auto &device = *static_cast<VirtioBlock *>(context);
+        if (device.transport_.acknowledge())
+            device.signalled_ = true;
+    }
     Transport transport_{};
     Queue &queue_;
+    bool interrupt_attempted_{}, interrupt_bound_{}, signalled_{};
     u16 available_{}, used_{};
     u64 capacity_{};
     bool writable_{}, flush_{}, ready_{}, busy_{}, shutdown_started_{}, shutdown_finished_{};

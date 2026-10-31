@@ -48,10 +48,18 @@ A malformed completion or bounded polling timeout marks the device failed;
 subsequent requests cannot reuse its queue. A device is writable only when it
 also supports FLUSH. The driver does not format a disk.
 
-The current implementation polls one queue on the boot CPU. It relies on the
-coherent DMA model and identity/direct mappings of these QEMU profiles. Physical
-board discovery, IOMMU mappings, noncoherent cache maintenance, interrupt-driven
-I/O, hardware SMP synchronization and multiple disks are not claimed.
+The driver runs one queue on the boot CPU. The kernel starts its interrupt
+service before it mounts the root, so the first request, which reads the
+superblock, binds the device's line, and every request sleeps in the kernel's
+idle wait. The bottom half reads the ISR and, when the device had raised its
+interrupt (a PCI INTx line is shared), signals the request, which rechecks
+the used ring only after its own line fired, not on ticks or other lines.
+Without the service or a line, or with the `virtio_polling` build option,
+requests are polled; the kernel counts every wait by how it waited
+(`OK_IRQ_COMPLETIONS`). It relies on the coherent DMA model and identity/direct mappings of
+these QEMU profiles. Physical board discovery, IOMMU mappings, noncoherent
+cache maintenance, hardware SMP synchronization and multiple disks are not
+claimed.
 
 ## SDK consumer hardware tests
 

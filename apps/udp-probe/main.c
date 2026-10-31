@@ -111,8 +111,9 @@ int main(void)
     if (child == 0)
     {
         check(close((int)parent) == 0, "child-close-inherited");
-        long socket = ok_syscall3(OK_SYS_SOCKET, OK_AF_INET,
-                                  OK_SOCK_DGRAM | OK_SOCK_NONBLOCK, 0);
+        // A blocking socket: the peer answers the ready marker, so the receive
+        // normally sleeps until the datagram's interrupt wakes it.
+        long socket = ok_syscall3(OK_SYS_SOCKET, OK_AF_INET, OK_SOCK_DGRAM, 0);
         check(socket >= 3, "child-socket");
         check(ok_syscall3(OK_SYS_BIND, socket, (long)&child_address,
                           sizeof(child_address)) == 0, "child-bind");
@@ -120,7 +121,7 @@ int main(void)
         char byte = 0;
         struct ok_sockaddr_in source = {0};
         unsigned int source_length = sizeof(source);
-        check(await_receive((int)socket, &byte, 1, &source, &source_length) == 1 &&
+        check(receive((int)socket, &byte, 1, &source, &source_length) == 1 &&
               byte == 'C', "child-receive");
         check_source(&source, source_length);
         check(close((int)socket) == 0, "child-close");

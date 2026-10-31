@@ -592,6 +592,7 @@ target("distro_image")
     -- musl programs need Linux stat, which the kernel answers only for a root
     -- with maintained timestamps (modules/boot/storage.cpp).
     if get_config("userland_build") then add_defines("OK_MAINTAINED_ROOT=1") end
+    if get_config("virtio_polling") then add_defines("OS_VIRTIO_POLLING=1") end
     set_kind("binary")
     set_default(false)
     set_languages("c++23")

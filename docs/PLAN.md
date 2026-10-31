@@ -139,6 +139,33 @@ SDK profile marker headers keep their paths. Exit: `kernel-sdk-check`,
 against the kernel worktree SDK. Admission and the SDK suites require ABI 76 and
 refuse 75/77; lands right after the kernel merge.
 
+### WT1.8 `feat/irq-wait-time` (M)
+
+Paired with kernel WT1.2 (Kernel issue #4). The virtio block, net and RNG
+drivers complete through their device's interrupt line once the kernel's
+interrupt service runs. They look the line up with the kernel's board routing
+(`virtio_mmio_line`, `pci_intx_line`), clear `VIRTQ_AVAIL_F_NO_INTERRUPT` and
+the PCI INTx disable bit, and let the bottom half acknowledge the device.
+Requests sleep in `wait_for_interrupt()` instead of spinning and recheck the
+used ring only after their own line fired; with the line bound only the
+bottom half reads the ISR. The NIC's bottom half posts the kernel's network
+event source, so the kernel's network poll touches the device only after an
+interrupt. The kernel starts its interrupt service before it mounts the root,
+so the root's disk and the entropy source complete through their lines from
+the first request, and the NIC binds its line as the link starts. A driver
+polls only without the service, without a line, or when the build selects
+`virtio_polling`; the kernel counts every polled wait (`OK_IRQ_COMPLETIONS`).
+On ten profiles the ext4 native boot and the shell gate pass with the disk
+and the RNG completing through their lines; `test_native_udp_socket.py`
+passes on x86_64 with the NIC bound. `tests/musl/linux_timers.c` with
+`scripts/test_linux_timers.py` checks the kernel's Linux interval timers on
+the guest and passes on ten profiles
+([LINUX_TIMERS](qualification/LINUX_TIMERS.md)). `tests/musl/clock_drift.c`
+with `scripts/test_clock_drift.py` measures the guest clocks against the
+host's ([CLOCK_DRIFT](qualification/CLOCK_DRIFT.md)). The kernel branch
+merges with one module ABI bump to 78; admission and the SDK suites here
+require ABI 78 and refuse 77/79, and land right after the kernel.
+
 ## P2
 
 ### WT2.2 `feat/getty-login` (M)

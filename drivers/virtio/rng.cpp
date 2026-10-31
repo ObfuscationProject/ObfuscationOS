@@ -2,6 +2,8 @@
 #include "poll.hpp"
 
 #include <ok/arch/clock.hpp>
+#include <ok/interrupt/platform.hpp>
+#include <utility>
 
 #include <array>
 #include <cstddef>
@@ -108,6 +110,7 @@ class MmioTransport
             if (read<u32>(candidate + 4) != 2)
                 return Status::unsupported("legacy Virtio RNG MMIO is not qualified");
             base_ = candidate;
+            slot_ = i;
             return Status::success();
         }
         return Status::not_found("no Virtio MMIO net device");
@@ -139,9 +142,18 @@ class MmioTransport
                                              : Status::fault("Virtio RNG queue activation failed");
     }
     void notify(u16 number) { write<u32>(base_ + 0x50, number); }
-    void acknowledge() { write<u32>(base_ + 0x64, read<u32>(base_ + 0x60)); }
+    // True when the device had raised its interrupt (a PCI INTx line is shared).
+    bool acknowledge()
+    {
+        const auto status = read<u32>(base_ + 0x60);
+        if (status) write<u32>(base_ + 0x64, status);
+        return status != 0;
+    }
+    Result<interrupt::PlatformLine> interrupt_line() const { return interrupt::virtio_mmio_line(slot_); }
+    void enable_interrupts() {}
   private:
     uptr base_{};
+    usize slot_{};
 };
 
 class PciTransport
@@ -204,7 +216,15 @@ class PciTransport
                                              : Status::fault("Virtio PCI RNG queue activation failed");
     }
     void notify(u16 number) { write<u16>(queue_notify_[number], number); }
-    void acknowledge() { static_cast<void>(read<u8>(isr_)); }
+    // True when the device had raised its interrupt; reading the ISR deasserts
+    // INTx, and on a shared line another device may have raised it.
+    bool acknowledge() { return read<u8>(isr_) != 0; }
+    Result<interrupt::PlatformLine> interrupt_line() const
+    {
+        return interrupt::pci_intx_line(slot_, static_cast<u8>(config32(0x3c) >> 8), static_cast<u8>(config32(0x3c)));
+    }
+    // Clears the command register's INTx disable bit set at discovery.
+    void enable_interrupts() { config16(4, static_cast<u16>(config32(4)) & ~u16{0x400}); }
   private:
     u32 config32(u16 offset) const
     {
@@ -449,6 +469,7 @@ class VirtioRng final : public driver::EntropySource
             return Status::invalid_argument("Virtio RNG request exceeds staging buffer");
         if (out.empty()) return Status::success();
         if (busy_) return Status::would_block("Virtio RNG request is already active");
+        if (!interrupt_attempted_ && interrupt::platform_irqs_started()) attach_interrupt();
         std::array<std::byte, request_bytes> staging{};
         usize complete = 0;
         busy_ = true;
@@ -464,17 +485,23 @@ class VirtioRng final : public driver::EntropySource
             *reinterpret_cast<volatile u16 *>(&queue_.available.index) = little(++available_);
             barrier();
             transport_.notify(0);
-            auto waited = detail::poll_until([&] {
+            const auto ready = [&] {
                 barrier();
                 return little(*reinterpret_cast<volatile u16 *>(&queue_.used.index)) != used_;
-            }, [] { return arch::monotonic_nanoseconds(); }, started.value(), io_timeout_ns);
+            };
+            const auto clock = [] { return arch::monotonic_nanoseconds(); };
+            const auto signalled = [&] { return std::exchange(signalled_, false); };
+            auto waited = interrupt_bound_ ? detail::wait_until(ready, signalled, clock, started.value(), io_timeout_ns,
+                                                                detail::wait_for_device_interrupt)
+                                           : detail::poll_until(ready, clock, started.value(), io_timeout_ns);
             barrier();
             if (!waited) { busy_ = false; return fail(waited.message()); }
+            interrupt::count_device_wait(interrupt::DeviceWait::entropy, interrupt_bound_);
             const u16 observed = little(*reinterpret_cast<volatile u16 *>(&queue_.used.index));
             const UsedElement raw = queue_.used.ring[used_ % queue_size];
             const UsedElement element{little(raw.id), little(raw.length)};
             ++used_;
-            transport_.acknowledge();
+            if (!interrupt_bound_) transport_.acknowledge(); // Bound: the bottom half reads the ISR.
             if (observed != used_ || element.id != 0 || element.length == 0 || element.length > remaining)
             {
                 busy_ = false;
@@ -529,8 +556,33 @@ class VirtioRng final : public driver::EntropySource
         return Status::would_block(reason);
     }
     NativeTransport transport_{};
+    // Once the kernel's interrupt service runs, completions arrive on the
+    // device's line and the bottom half acknowledges the device and signals
+    // the waiting request; until then, when no line can be bound or when the
+    // build selects polling, requests are polled.
+    void attach_interrupt()
+    {
+        interrupt_attempted_ = true;
+        if (detail::polling_selected)
+            return;
+        auto line = transport_.interrupt_line();
+        if (!line) return;
+        if (!interrupt::bind_platform_irq(line.value().line, line.value().trigger, &VirtioRng::serve_interrupt, this))
+            return;
+        transport_.enable_interrupts();
+        queue_.available.flags = 0;
+        barrier();
+        interrupt_bound_ = true;
+    }
+    static void serve_interrupt(void *context, interrupt::IrqLine)
+    {
+        auto &device = *static_cast<VirtioRng *>(context);
+        if (device.transport_.acknowledge())
+            device.signalled_ = true;
+    }
     Queue &queue_;
     u16 available_{}, used_{};
+    bool interrupt_attempted_{}, interrupt_bound_{}, signalled_{};
     bool ready_{}, busy_{}, shutdown_started_{}, shutdown_finished_{};
     Status shutdown_status_{};
 };

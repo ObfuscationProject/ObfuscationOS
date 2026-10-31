@@ -59,6 +59,12 @@ option("native_udp_probe")
     set_description("Run the native UDP user socket probe from init")
 option_end()
 
+option("virtio_polling")
+    set_default(false)
+    set_showmenu(true)
+    set_description("Poll the distribution image's virtio block, RNG and net completions instead of taking their interrupts")
+option_end()
+
 option("service_graph_build")
     set_showmenu(true)
     set_description("Explicit sealed static-musl production service graph build directory")
