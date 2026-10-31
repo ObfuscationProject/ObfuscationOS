@@ -150,15 +150,20 @@ Requests sleep in `wait_for_interrupt()` instead of spinning and recheck the
 used ring only after their own line fired; with the line bound only the
 bottom half reads the ISR. The NIC's bottom half posts the kernel's network
 event source, so the kernel's network poll touches the device only after an
-interrupt. Before the service starts (the root mount) or without a line they
-are polled as before.
+interrupt. The kernel starts its interrupt service before it mounts the root,
+so the root's disk and the entropy source complete through their lines from
+the first request, and the NIC binds its line as the link starts. A driver
+polls only without the service, without a line, or when the build selects
+`virtio_polling`; the kernel counts every polled wait (`OK_IRQ_COMPLETIONS`).
 On ten profiles the ext4 native boot and the shell gate pass with the disk
 and the RNG completing through their lines; `test_native_udp_socket.py`
 passes on x86_64 with the NIC bound. `tests/musl/linux_timers.c` with
 `scripts/test_linux_timers.py` checks the kernel's Linux interval timers on
 the guest and passes on ten profiles
-([LINUX_TIMERS](qualification/LINUX_TIMERS.md)). Lands with the kernel merge
-and its ABI bump.
+([LINUX_TIMERS](qualification/LINUX_TIMERS.md)). `tests/musl/clock_drift.c`
+with `scripts/test_clock_drift.py` measures the guest clocks against the
+host's ([CLOCK_DRIFT](qualification/CLOCK_DRIFT.md)). Lands with the kernel
+merge and its ABI bump.
 
 ## P2
 
