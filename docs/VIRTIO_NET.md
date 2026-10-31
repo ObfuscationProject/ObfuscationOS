@@ -14,12 +14,15 @@ nonoverlapping modern common, notify, ISR and net-device capabilities, and a
 bounded queue notification offset. It rejects legacy-only devices. Both
 transports require VERSION_1 and a stable MAC, negotiate no checksum or
 segmentation offloads, and use two eight-entry split rings. Once the kernel's
-interrupt service runs, the first receive or transmit binds the device's line
-(`virtio_mmio_line`, `pci_intx_line`) and clears `VIRTQ_AVAIL_F_NO_INTERRUPT`
-and the PCI INTx disable bit. The bottom half then reads the ISR, signals a
-waiting transmit and posts the kernel's network event source, so the kernel
-reads the RX queue and the TX ledger only after the device interrupted.
-Before that, or without a line, the boot CPU polls. A reset must acknowledge
+interrupt service runs, starting the link binds the device's line
+(`virtio_mmio_line`, `pci_intx_line`), clears `VIRTQ_AVAIL_F_NO_INTERRUPT`
+and the PCI INTx disable bit (again after a restart, whose reset set them),
+and posts the kernel's network event source once for frames used before. The
+bottom half then reads the ISR and, when the device had raised its interrupt,
+signals a waiting transmit and posts the source, so the kernel reads the RX
+queue and the TX ledger only after the device interrupted. Without the
+service or a line, or with the `virtio_polling` build option, the boot CPU
+polls. A reset must acknowledge
 DMA quiescence before static queue storage is reused.
 
 `xmake virtio-net-test` invokes the SDK-only probe for any of the ten retained
