@@ -154,11 +154,17 @@ class WireObserver:
 
 
 class FrameCapture:
-    """Retain every transport byte, including partial headers and payloads."""
+    """Retain every transport byte, including partial headers and payloads.
+
+    IPv6 frames are the kernel interface's link control (duplicate address
+    detection, router solicitation) and are kept apart from the IPv4/ARP
+    frames the fixtures order and compare.
+    """
     def __init__(self) -> None:
         self.raw = bytearray()
         self.pending = bytearray()
         self.frames: list[bytes] = []
+        self.link_control: list[bytes] = []
 
     def feed(self, data: bytes) -> None:
         self.raw.extend(data)
@@ -169,7 +175,8 @@ class FrameCapture:
                 raise ValueError("QEMU Ethernet transport frame length is invalid")
             if len(self.pending) < 4 + length:
                 return
-            self.frames.append(bytes(self.pending[4:4 + length]))
+            frame = bytes(self.pending[4:4 + length])
+            (self.link_control if frame[12:14] == b"\x86\xdd" else self.frames).append(frame)
             del self.pending[:4 + length]
 
     def finish(self) -> None:
