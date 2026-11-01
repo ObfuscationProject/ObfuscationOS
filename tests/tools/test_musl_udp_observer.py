@@ -180,6 +180,16 @@ class TransportTests(unittest.TestCase):
             self.assertEqual(capture.raw, records)
             self.assertEqual(capture.frames, [peer.arp_reply(), frame(0), frame(1)])
 
+    def test_ipv6_link_control_is_set_apart(self):
+        ipv4 = peer.arp_reply()
+        ipv6 = bytes.fromhex("333300000001021122334455") + b"\x86\xdd" + bytes(46)
+        capture = FrameCapture()
+        stream = b"".join(struct.pack("!I", len(frame)) + frame for frame in (ipv6, ipv4, ipv6))
+        capture.feed(stream)
+        self.assertEqual(capture.frames, [ipv4])
+        self.assertEqual(capture.link_control, [ipv6, ipv6])
+        self.assertEqual(bytes(capture.raw), stream)
+
     def test_every_partial_split_is_retained_and_refused(self):
         record = struct.pack("!I", 60) + peer.arp_reply()
         for offset in range(1, len(record)):

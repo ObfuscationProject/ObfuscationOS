@@ -271,6 +271,32 @@ Result<net::NativeUdpLink> SystemGuiRuntime::network_link(Kernel &)
 #endif
 }
 
+// The probe build (net_probe) runs the link as a routed interface: the gateway
+// is resolved through ARP and IPv6 autoconfigures, as QEMU user networking on
+// 192.0.2.0/24 expects. Other builds keep the static peer link.
+Result<net::InterfaceConfig> SystemGuiRuntime::network_interface(Kernel &kernel)
+{
+#if defined(OS_NET_PROBE)
+    auto link = network_link(kernel);
+    if (!link) return link.status();
+    return net::InterfaceConfig{link.value().local_mac, 1500,
+                                net::Ipv4Configuration{link.value().local_ip, 24, link.value().peer_ip, {}}, true};
+#else
+    static_cast<void>(kernel);
+    return Status::unsupported("distribution keeps the static peer link");
+#endif
+}
+
+Result<net::ProbePlan> SystemGuiRuntime::network_probe(Kernel &)
+{
+#if defined(OS_NET_PROBE)
+    // QEMU forwards 192.0.2.100:7 to an echo command (guestfwd).
+    return net::ProbePlan{true, net::tcp::Endpoint{net::IpAddress{192, 0, 2, 100}, 7}, 8192, 60000};
+#else
+    return Status::unsupported("distribution requests no link probe");
+#endif
+}
+
 Result<usize> SystemGuiRuntime::network_receive(Kernel &, std::span<std::byte> frame)
 {
     if (shutdown_started_) return Status::busy("distribution shutdown closed ordinary admission");
