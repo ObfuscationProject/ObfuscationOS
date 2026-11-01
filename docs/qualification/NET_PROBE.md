@@ -35,4 +35,4 @@ resolves the gateway through ARP, pings it, autoconfigures
 link-local address and echoes 8192 TCP bytes in 10–53 ms. With ten percent
 TCP loss the dropped segment is recovered by the guest's retransmission
 timer (about one second). Receipts: ObfuscationEvidence
-`receipts/ObfuscationKernel@<sha>/feat/net-core/`.
+`receipts/ObfuscationKernel@956c7be/feat/net-core/device-probe-matrix`.
