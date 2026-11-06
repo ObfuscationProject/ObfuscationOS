@@ -202,6 +202,7 @@ task("qemu-distro")
             {nil, "qemu", "kv", nil, "Explicit QEMU executable override"},
             {nil, "timeout", "kv", "20", "QEMU timeout in seconds"},
             {nil, "display", "kv", "none", "QEMU display backend: none or sdl"},
+            {nil, "smp", "kv", "1", "QEMU vCPUs; above 1 requires the kernel's OK_SMP hardware report to fit them"},
             {nil, "persist", "k", nil, "Reuse the ext4 disk and preserve guest writes"},
             {nil, "require-native", "k", nil, "Select and require explicit native init/timer acceptance"},
             {nil, "interactive", "k", nil, "Keep QEMU running until the window/process exits"}
@@ -295,6 +296,11 @@ task("qemu-distro")
         end
         if persist then
             table.insert(args, "--persist")
+        end
+        local smp = option.get("smp") or "1"
+        if smp ~= "1" then
+            table.insert(args, "--smp")
+            table.insert(args, smp)
         end
         if option.get("require-native") then
             table.insert(args, "--require-native")

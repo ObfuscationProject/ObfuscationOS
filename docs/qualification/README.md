@@ -56,5 +56,6 @@ separate ObfuscationEvidence repository.
 | [NOTES_SAVE.md](NOTES_SAVE.md) | Default Notes save behavior |
 | [OBJECT_PRESSURE.md](OBJECT_PRESSURE.md) | Actual userland object-pressure qualification |
 | [SHARED_MUSL_BUILD.md](SHARED_MUSL_BUILD.md) | Shared musl build artifacts |
+| [SMP_STRESS.md](SMP_STRESS.md) | Concurrent stress on several vCPUs |
 | [STATIC_IPV4_UDP.md](STATIC_IPV4_UDP.md) | Static ARP/IPv4/UDP service |
 | [native-signal-production.md](native-signal-production.md) | Ordinary signal qualification |
