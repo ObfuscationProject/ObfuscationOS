@@ -16,7 +16,10 @@ rounds (default 40) of
   exits 0 only once it reads end of file after the last one;
 - a forked child that execs the probe again (even rounds) or exits directly
   (odd rounds) with a status computed from the worker and round, checked by
-  `waitpid`.
+  `waitpid`;
+- a thread that keeps writing and checking its own pages while the worker
+  maps, write-protects and unmaps other regions, so the address space changes
+  under a thread that may run on another CPU.
 
 Each worker writes one record to a pipe all workers share and exits 0 only if
 every check held. The parent reaps and checks every worker and prints one line:
@@ -69,19 +72,19 @@ PYTHONDONTWRITEBYTECODE=1 python3 -B scripts/test_smp_stress.py --arch ARCH --mo
 `OK_SMP` rule to the ordinary boot gates.
 
 Results (QEMU 10.2.0 TCG, kernel `feat/smp-bringup` debug SDK at kernel
-commit 4e93bc9): three runs per configuration, 6 workers x 40 rounds, every
-run `files=480 messages=960 forks=480` with user entries on every online CPU.
+commit c0f82db): three runs per configuration, 6 workers x 40 rounds, every
+run `files=480 messages=960 forks=480`, with user entries and TLB shootdowns
+waited for on every online CPU (the address-space phase).
 
 | Profile | vCPUs | Runs | Guest seconds |
 | --- | --- | --- | --- |
-| x86_64 | 2 | 3/3 | 49.4, 54.4, 49.9 |
-| x86_64 | 4 | 3/3 | 72.6, 92.8, 92.4 |
-| aarch64 | 2 | 3/3 | 50.6, 42.5, 34.0 |
-| aarch64 | 4 | 3/3 | 39.8, 37.3, 37.0 |
-| rv64 | 2 | 3/3 | 30.5, 31.7, 30.2 |
-| rv64 | 4 | 3/3 | 33.1, 32.2, 30.2 |
+| x86_64 | 2 | 3/3 | 35.6, 36.3, 36.7 |
+| x86_64 | 4 | 3/3 | 33.7, 33.8, 34.0 |
+| aarch64 | 2 | 3/3 | 50.9, 47.4, 45.8 |
+| aarch64 | 4 | 3/3 | 41.5, 41.4, 40.3 |
+| rv64 | 2 | 3/3 | 39.0, 43.3, 40.7 |
+| rv64 | 4 | 3/3 | 34.2, 33.6, 34.1 |
 
-With one vCPU the probe passes on x86_64 in 42.6 s. `qemu_distro.py --smp N`
-boots the native distro to `OK_USERLAND scope=hardware acceptance=pass` on the
-three profiles with N = 2 and 4. The workers are single-threaded processes, so
-the gate exercises no TLB shootdown; the kernel's execution probes do.
+With one vCPU the probe passes on x86_64. `qemu_distro.py --smp N` boots the
+native distro to `OK_USERLAND scope=hardware acceptance=pass` on the three
+profiles with N = 2 and 4.
