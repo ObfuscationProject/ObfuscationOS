@@ -11,7 +11,10 @@
  *   AF_UNIX stream socketpair, the child answering each with a transform the
  *   worker checks, then reaps the child;
  * - forks a child that execs this program (even rounds) or exits directly (odd
- *   rounds) with a status computed from the worker and round, and checks it.
+ *   rounds) with a status computed from the worker and round, and checks it;
+ * - starts a thread that keeps writing and checking its own pages while the
+ *   worker maps, write-protects and unmaps others, so the address space the
+ *   thread runs in on another CPU changes under it (TLB shootdown).
  *
  * Each worker sends its counts, or where its first check failed, through one
  * pipe all workers share and exits 0 only if every check held. The parent reaps and checks
@@ -27,10 +30,13 @@
  * OK_SMP_CPUS report, not this probe's. */
 #define _GNU_SOURCE
 #include <errno.h>
+#include <pthread.h>
+#include <sched.h>
 #include <fcntl.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <string.h>
+#include <sys/mman.h>
 #include <sys/socket.h>
 #include <sys/stat.h>
 #include <sys/wait.h>
@@ -363,6 +369,65 @@ static void fork_cycle(const char *self, unsigned worker, unsigned round)
     ++result.forks;
 }
 
+struct toucher
+{
+    unsigned char *pages;
+    size_t size;
+    unsigned seed;
+    int stop, bad;
+    unsigned long passes;
+};
+
+static void *touch(void *opaque)
+{
+    struct toucher *t = opaque;
+    while (!__atomic_load_n(&t->stop, __ATOMIC_ACQUIRE))
+    {
+        const unsigned long pass = __atomic_load_n(&t->passes, __ATOMIC_RELAXED);
+        for (size_t i = 0; i < t->size; i += 64)
+            t->pages[i] = pattern(t->seed + (unsigned)pass, i);
+        for (size_t i = 0; i < t->size; i += 64)
+            if (t->pages[i] != pattern(t->seed + (unsigned)pass, i))
+                __atomic_store_n(&t->bad, 1, __ATOMIC_RELEASE);
+        __atomic_store_n(&t->passes, pass + 1, __ATOMIC_RELEASE);
+    }
+    return 0;
+}
+
+static void wait_passes(struct toucher *t, unsigned long passes)
+{
+    while (__atomic_load_n(&t->passes, __ATOMIC_ACQUIRE) < passes)
+        sched_yield();
+}
+
+static void vm_cycle(unsigned seed)
+{
+    enum { PAGE = 4096, SIZE = 4 * PAGE, CHANGES = 6 };
+    unsigned char *own = mmap(0, SIZE, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+    CHECK(own != MAP_FAILED);
+    struct toucher t = {own, SIZE, seed, 0, 0, 0};
+    pthread_t thread;
+    CHECK(pthread_create(&thread, 0, touch, &t) == 0);
+    wait_passes(&t, 1);
+    for (unsigned change = 0; change < CHANGES; ++change)
+    {
+        unsigned char *other = mmap(0, SIZE, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+        CHECK(other != MAP_FAILED);
+        for (size_t i = 0; i < SIZE; i += PAGE)
+            other[i] = pattern(seed + change, i);
+        CHECK(mprotect(other, SIZE, PROT_READ) == 0);
+        for (size_t i = 0; i < SIZE; i += PAGE)
+            CHECK(other[i] == pattern(seed + change, i));
+        CHECK(munmap(other, SIZE) == 0);
+    }
+    /* The thread went on writing its pages across every change. */
+    wait_passes(&t, __atomic_load_n(&t.passes, __ATOMIC_ACQUIRE) + 1);
+    __atomic_store_n(&t.stop, 1, __ATOMIC_RELEASE);
+    CHECK(pthread_join(thread, 0) == 0);
+    CHECK(!__atomic_load_n(&t.bad, __ATOMIC_ACQUIRE));
+    CHECK(munmap(own, SIZE) == 0);
+}
+
 static __attribute__((noreturn)) void worker(const char *self, const char *base, unsigned index,
                                              unsigned rounds, int gate)
 {
@@ -394,6 +459,7 @@ static __attribute__((noreturn)) void worker(const char *self, const char *base,
 
         socket_cycle(seed);
         fork_cycle(self, index, round);
+        vm_cycle(seed);
         result.rounds = round + 1;
     }
     CHECK(rmdir(own) == 0);
