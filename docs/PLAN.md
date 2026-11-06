@@ -192,6 +192,19 @@ IRQ-driven virtio-net path, `netd` with a DHCP client, DNS resolver replacing th
 hosts-only `resolved`, `sntp`, an `ip`-style configuration tool. Exit:
 guest-to-host HTTP fetch under loss/reordering on ten profiles.
 
+Status (opened 2026-10-31, paired with kernel `feat/net-core`): the kernel
+pairing is done ([NET_PROBE](qualification/NET_PROBE.md)). Admission and the
+SDK suites require ABI 79 and refuse 78 and 80. The `net_probe` build gives
+the kernel a routed interface (192.0.2.2/24, gateway resolved through ARP,
+IPv6 autoconfiguration) and asks for the kernel link probe;
+`scripts/test_net_probe.py` runs it on a socket netdev against
+`tools/net_probe_peer.py` and passes on all ten profiles, also with ten
+percent TCP loss. The UDP fixture peers set the kernel's IPv6 link-control
+frames apart. The default image keeps the static link. Still open: `netd`
+with DHCP, DNS, `sntp`, the `ip` tool and the HTTP exit gate (the pinned
+QEMU has no user-mode networking, so a host-side peer or a TAP bridge has to
+stand in for it).
+
 ### WT2.4 `fix/mkfs-e2fsprogs` (M)
 
 Replace `tools/mkext4_journalled.py`'s pinned Linux kernel image with e2fsprogs

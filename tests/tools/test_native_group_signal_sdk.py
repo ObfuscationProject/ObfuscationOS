@@ -42,7 +42,7 @@ class NativeGroupSignalSdkTests(unittest.TestCase):
         self.assertEqual(consumer.NATIVE_GROUP_SIGNAL_HEADERS, producer.NATIVE_GROUP_SIGNAL_HEADERS)
         for validate in (producer.validate_native_group_signal_profile, consumer.validate_native_group_signal_profile):
             validate(self.sdk / 'include')
-        self.assertEqual(consumer.validate_sdk(self.sdk, 'x86_64', 'debug')['abi_version'], 78)
+        self.assertEqual(consumer.validate_sdk(self.sdk, 'x86_64', 'debug')['abi_version'], 79)
         self.fixture.test_all_ten_profile_contracts()
 
     def test_manifest_requires_explicit_bounded_profile(self):
@@ -72,9 +72,9 @@ class NativeGroupSignalSdkTests(unittest.TestCase):
         attacks = [self.good + self.good, '/*\n' + self.good + '*/\n',
                    '#if 0\n' + self.good + '#endif\n',
                    'const char *example = R"(\n' + self.good + ')";\n',
-                   '#define native_group_signal_module_abi 78\n' + self.good,
-                   self.good.replace('module_abi = 78', 'module_abi = 72'),
-                   self.good.replace('module_abi = 78', 'module_abi = 79'),
+                   '#define native_group_signal_module_abi 79\n' + self.good,
+                   self.good.replace('module_abi = 79', 'module_abi = 72'),
+                   self.good.replace('module_abi = 79', 'module_abi = 80'),
                    self.good.replace('native_group_signal_version = 2', 'native_group_signal_version = 1'),
                    self.good.replace('native_group_signal_version = 2', 'native_group_signal_version = 3'),
                    self.good.replace('pid_bits = 32', 'pid_bits = 64'),

@@ -42,12 +42,16 @@ def read_exact(stream: socket.socket, length: int) -> bytes:
 
 
 def receive_frame(stream: socket.socket, capture: bytearray) -> bytes:
-    length = struct.unpack("!I", read_exact(stream, 4))[0]
-    if not 14 <= length <= 1514:
-        raise RuntimeError(f"invalid QEMU Ethernet frame length {length}")
-    frame = read_exact(stream, length)
-    capture.extend(struct.pack("!I", length) + frame)
-    return frame
+    # IPv6 frames are the kernel interface's link control (duplicate address
+    # detection, router solicitation); they are captured but not compared.
+    while True:
+        length = struct.unpack("!I", read_exact(stream, 4))[0]
+        if not 14 <= length <= 1514:
+            raise RuntimeError(f"invalid QEMU Ethernet frame length {length}")
+        frame = read_exact(stream, length)
+        capture.extend(struct.pack("!I", length) + frame)
+        if frame[12:14] != b"\x86\xdd":
+            return frame
 
 
 def send_frame(stream: socket.socket, frame: bytes, capture: bytearray) -> None:
