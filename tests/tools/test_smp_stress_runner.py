@@ -33,6 +33,38 @@ class SmpStressRunnerTests(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, 'name CPUs'):
             runner.probe_entries(b'OK_SMP_CPUS scope=hardware online=2 cpu0=3:0:0:0:0 cpu2=3:0:0:0:0\n', None, 2)
 
+    def test_hotplug_cycles_judge_the_probe_report(self):
+        early = b'OK_SMP_HOTPLUG scope=hardware cycles=0 failures=0 cpu=3\r\n'
+        middle = b'OK_SMP_HOTPLUG scope=hardware cycles=4 failures=0 cpu=3\r\n'
+        final = b'OK_SMP_HOTPLUG scope=hardware cycles=9 failures=0 cpu=3\r\n'
+        serial = early + middle + final
+        match = list(runner.HOTPLUG.finditer(serial))[-1]
+        self.assertEqual(runner.hotplug_cycles(serial, match, 4), {'cycles': 9, 'failures': 0, 'cpu': 3})
+        rejected = (
+            (early, early),
+            (b'OK_SMP_HOTPLUG scope=hardware cycles=9 failures=1 cpu=3\n',) * 2,
+            (b'OK_SMP_HOTPLUG scope=hardware cycles=9 failures=0 cpu=0\n',) * 2,
+            (b'OK_SMP_HOTPLUG scope=hardware cycles=9 failures=0 cpu=4\n',) * 2,
+            (final + middle, middle),
+            (middle + b'OK_SMP_HOTPLUG scope=hardware cycles=9 failures=0 cpu=2\n',
+             b'OK_SMP_HOTPLUG scope=hardware cycles=9 failures=0 cpu=2\n'),
+        )
+        for serial, last in rejected:
+            with self.subTest(serial=serial):
+                with self.assertRaises(RuntimeError):
+                    runner.hotplug_cycles(serial, runner.HOTPLUG.fullmatch(last.rstrip(b'\r\n') + b'\n'), 4)
+
+    def test_hotplug_boot_line_must_pass(self):
+        self.assertIsNone(runner.hotplug_boot(b'OK_SMP scope=hardware cpus=2 online=2\n'))
+        good = b'OK_SMP_HOTPLUG_BOOT scope=hardware cpu=1 stop=pass parked_ipi=pass restart=pass ipi=pass\r\n'
+        self.assertEqual(runner.hotplug_boot(b'x\n' + good),
+                         'OK_SMP_HOTPLUG_BOOT scope=hardware cpu=1 stop=pass parked_ipi=pass restart=pass ipi=pass')
+        for bad in (good.replace(b'restart=pass', b'restart=fail'), good.replace(b'ipi=pass\r', b'ipi=fail\r'),
+                    good + good, good.replace(b' ipi=pass', b''), good.replace(b'cpu=1', b'cpu=2')):
+            with self.subTest(bad=bad):
+                with self.assertRaises(RuntimeError):
+                    runner.hotplug_boot(bad)
+
     def test_result_line_must_be_complete(self):
         self.assertIsNone(runner.RESULT.search(b'SMP_STRESS_PASS arch=x86_64 workers=6'))
         match = runner.RESULT.search(b'SMP_STRESS_PASS arch=rv64 workers=6 rounds=40\r\n')
