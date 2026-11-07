@@ -96,7 +96,8 @@ kernel sections without the big lock, routes device lines to any CPU, makes
 futex user words atomic, synchronizes x86 TSCs, tags user TLB entries and can
 stop and restart secondary CPUs. The gate grew with it:
 
-- With `--smp-sections on` (default) the probe's exit report must carry
+- With `--smp-sections on` (the default on x86_64, aarch64 and rv64, the only
+  profiles that build kernel sections) the probe's exit report must carry
   `OK_SMP_KERNEL`, `OK_SMP_KERNEL_FAMILIES` and `OK_SMP_KERNEL_DECLINES`: the
   section families cover the probe's file traffic (`fsync >= files`; `read`,
   `write`, `lseek >= 2 * files`); with two or more vCPUs sections run on two or
@@ -104,9 +105,10 @@ stop and restart secondary CPUs. The gate grew with it:
   `max_parallel >= 2`); `debug=` matches `--mode`; the assertion counters a
   release kernel keeps (`exclusive_asserts`, `section_asserts`,
   `cow_refused`, shadow mismatches) are 0, and on a debug kernel all of them.
-  `--smp-sections off` (a `smp_sections=n` kernel) requires no
-  `OK_SMP_KERNEL` line. The receipt records QEMU's TCG thread mode from its
-  host thread names (`-name ...,debug-threads=on`).
+  `--smp-sections off` (a `smp_sections=n` kernel, and the default on every
+  other profile, which refuses `on`) requires no `OK_SMP_KERNEL` line. The
+  receipt records QEMU's TCG thread mode from its host thread names
+  (`-name ...,debug-threads=on`).
 - `--require-hotplug` (a `smp_hotplug_test=y` kernel): `OK_SMP_HOTPLUG`
   counters never go back, and between the last line before the probe and the
   probe's exit report the cycles advance with `failures=0` on a secondary CPU;

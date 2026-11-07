@@ -9,9 +9,10 @@ probe's exit prints must show user code entered on every online CPU during the
 probe. --allow-up, for developing this tooling only, accepts a UP boot on those
 profiles and skips the per-CPU check; the receipt records it.
 
-Kernel sections (--smp-sections, default on): a kernel built with them prints
-OK_SMP_KERNEL, OK_SMP_KERNEL_FAMILIES and OK_SMP_KERNEL_DECLINES with the
-probe's exit report. The converted families must cover the probe's file
+Kernel sections (--smp-sections; by default on for x86_64, aarch64 and rv64,
+the only profiles that build them, and off elsewhere): a kernel built with
+them prints OK_SMP_KERNEL, OK_SMP_KERNEL_FAMILIES and OK_SMP_KERNEL_DECLINES
+with the probe's exit report. The converted families must cover the probe's file
 traffic (fsync >= files, write, read and lseek >= 2 * files); with two or more
 CPUs sections must run on at least two CPUs and overlap other kernel work
 (concurrent, witnessed, max_parallel >= 2). Its debug= field must match
@@ -45,7 +46,7 @@ import subprocess
 import sys
 import time
 
-from qemu_distro import SMP_MAX_CPUS, command_for, smp_fields, smp_problem
+from qemu_distro import SMP_MAX_CPUS, SMP_PROFILES, command_for, smp_fields, smp_problem
 TOOLS = Path(__file__).resolve().parents[1] / 'tools'
 sys.path.insert(0, str(TOOLS))
 from build_musl_probe import admit_musl_build
@@ -260,10 +261,15 @@ def main():
     parser.add_argument('--require-hotplug', action='store_true',
                         help='the kernel must report CPU hotplug cycles (built with smp_hotplug_test)')
     parser.add_argument('--timeout', type=float, default=600)
-    parser.add_argument('--smp-sections', choices=('on', 'off'), default='on',
+    parser.add_argument('--smp-sections', choices=('on', 'off'),
                         help='the kernel runs converted syscalls as kernel sections (on) or was built with '
-                             'smp_sections=n (off); default on')
+                             'smp_sections=n (off); default on for x86_64, aarch64 and rv64, off elsewhere')
     args = parser.parse_args()
+    # Only the SMP profiles build kernel sections; the others never print their report.
+    if args.smp_sections is None:
+        args.smp_sections = 'on' if args.arch in SMP_PROFILES else 'off'
+    elif args.smp_sections == 'on' and args.arch not in SMP_PROFILES:
+        raise SystemExit(f'--smp-sections on needs x86_64, aarch64 or rv64; {args.arch} builds no kernel sections')
     if not 1 <= args.smp <= SMP_MAX_CPUS:
         raise SystemExit(f'--smp must be from 1 to {SMP_MAX_CPUS}')
     if not 1 <= args.workers <= 6 or not 1 <= args.rounds <= 10000:

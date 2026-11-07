@@ -48,9 +48,11 @@ ok::Status poll_until(Ready ready, Clock clock, ok::u64 start, ok::u64 timeout)
 // been taken and its bottom halves have run, and returns false when the
 // platform cannot sleep: the rest of the deadline is then polled.
 //
-// SMP: the caller holds the kernel lock across the whole wait, on any CPU.
-// The device's line may be routed to another CPU, whose top half ends this
-// CPU's wait with an IPI; the bottom halves then run here, under the lock.
+// SMP: outside a kernel section the caller holds the kernel lock across the
+// whole wait, on any CPU. The device's line may be routed to another CPU,
+// whose top half ends this CPU's wait with an IPI; the bottom halves then run
+// here, under the lock. Inside a section (an ext4 regular-file call) wait()
+// refuses, and the rest of the deadline is polled without the kernel lock.
 template <typename Ready, typename Signalled, typename Clock, typename Wait>
     requires requires(Ready ready, Signalled signalled, Clock clock, Wait wait) {
         { ready() } -> std::same_as<bool>;
