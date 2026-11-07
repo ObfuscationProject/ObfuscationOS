@@ -95,6 +95,32 @@ def smp_problem(fields: dict[str, str], arch: str, cpus: int, *, allow_up: bool 
     return None
 
 
+def smp_irqs_problem(line: str) -> str | None:
+    """Why an OK_SMP_IRQS report does not show device lines served off CPU 0, or None.
+
+    The report is `cpuN=delivered:serviced:waits ...` per online CPU and then
+    `routes=line@cpu,...`. Bound device lines must be spread over more than
+    one CPU. Whether a secondary CPU ran a top half depends on which devices
+    the workload drives (rv64's acceptance raises almost none), so it is
+    reported, not required; the native probes prove top halves there.
+    """
+    fields = dict(token.split("=", 1) for token in line.split()[1:] if "=" in token)
+    try:
+        delivered = {int(key[3:]): int(value.split(":")[0]) for key, value in fields.items()
+                     if key.startswith("cpu")}
+        routes = [entry.split("@") for entry in fields.get("routes", "").split(",") if entry]
+        targets = {int(cpu) for _, cpu in routes}
+    except ValueError:
+        return "malformed OK_SMP_IRQS report"
+    if len(delivered) < 2 or 0 not in delivered:
+        return "OK_SMP_IRQS names fewer than two CPUs"
+    if len(targets) < 2:
+        return f"device lines are routed to CPUs {sorted(targets)} only"
+    if not targets <= delivered.keys():
+        return "a device line is routed to a CPU that is not online"
+    return None
+
+
 def command_for(qemu: Path, arch: str, kernel: Path, rootfs: Path, display: str,
                 *, native_profile: bool = False, entropy: str = "virtio", cpus: int = 1) -> list[str]:
     if arch not in {"i386", "x86_64", "aarch64", "arm32", "rv64", "rv32", "loongarch64", "mips", "mips64", "ppc"}:
@@ -247,6 +273,15 @@ def run_until_marker(command: list[str], timeout: float, require_native: bool = 
                 return 1
             print(f"[qemu-distro] smp={cpus}: {line.strip()}")
             observed.add("smp")
+        # Reported again at each probe exit; one that fits is enough.
+        if cpus > 1 and arch in SMP_PROFILES and line.startswith("OK_SMP_IRQS scope=hardware "):
+            irqs_problem = smp_irqs_problem(line)
+            if irqs_problem is None:
+                observed.add("smp-irqs")
+                print(f"[qemu-distro] smp={cpus}: device lines spread: {line.strip()}")
+            elif irqs_problem.startswith("malformed"):
+                print(f"[qemu-distro] smp={cpus}: {irqs_problem}", file=sys.stderr)
+                return 1
         if line.startswith("OK_USERLAND scope=hardware acceptance=pass shell_pipeline=pass"):
             observed.add("userland")
         if line.startswith("OK_NATIVE scope=hardware timer=preempted"):
@@ -279,6 +314,8 @@ def run_until_marker(command: list[str], timeout: float, require_native: bool = 
             required.add("journalled-storage")
         if cpus > 1:
             required.add("smp")
+        if cpus > 1 and require_native and arch in SMP_PROFILES:
+            required.add("smp-irqs")
         if required <= observed:
             return 0
         return None

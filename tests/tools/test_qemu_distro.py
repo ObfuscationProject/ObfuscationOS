@@ -263,6 +263,46 @@ class DistroMarkerTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "architecture"):
             distro.run_until_marker([sys.executable, "-c", "pass"], 1.0, cpus=2)
 
+    def test_smp_irq_reports_must_spread_device_lines(self):
+        problem = distro.smp_irqs_problem
+        self.assertIsNone(problem("OK_SMP_IRQS scope=hardware cpu0=0:3:175 cpu1=3:0:0 routes=1@1,4@0,11@1,12@0"))
+        self.assertIsNone(problem("OK_SMP_IRQS scope=hardware cpu0=0:3:9 cpu1=0:0:0 cpu2=0:0:0 cpu3=3:0:0 "
+                                  "routes=1@1,4@0,11@3,12@0"))
+        # rv64's acceptance drives almost no device line: none ran on CPU 1.
+        self.assertIsNone(problem("OK_SMP_IRQS scope=hardware cpu0=1:0:148 cpu1=0:1:0 routes=6@0,7@1,8@0,10@0"))
+        self.assertIn("not online", problem("OK_SMP_IRQS scope=hardware cpu0=4:3:9 cpu1=0:1:0 routes=1@2,4@0"))
+        self.assertIn("routed to CPUs [0]", problem("OK_SMP_IRQS scope=hardware cpu0=4:3:9 cpu1=2:0:0 routes=1@0,4@0"))
+        self.assertIn("fewer than two", problem("OK_SMP_IRQS scope=hardware cpu0=4:3:9 routes=1@0"))
+        self.assertEqual(problem("OK_SMP_IRQS scope=hardware cpu0=x:3:9 cpu1=1:0:0 routes=1@1"),
+                         "malformed OK_SMP_IRQS report")
+
+    def test_native_multi_cpu_run_requires_spread_device_lines(self):
+        smp = "OK_SMP scope=hardware cpus=2 online=2 ap_start=sipi ipi=pass\n"
+        none = "OK_SMP_IRQS scope=hardware cpu0=3:3:9 cpu1=0:0:0 routes=1@0,4@0\n"
+        served = "OK_SMP_IRQS scope=hardware cpu0=3:3:9 cpu1=0:0:0 routes=1@1,4@0\n"
+        markers = ["OK_SYSTEM_GUI boot=complete\n", "OK_USERLAND scope=hardware acceptance=pass shell_pipeline=pass\n",
+                   "OK_NATIVE scope=hardware timer=preempted\n",
+                   "OK_PATH scope=hardware relative_exec=pass symlink=pass\n",
+                   "OK_VM_NATIVE scope=hardware map=pass zero=pass protect=pass unmap=pass fork=pass pressure=pass\n",
+                   "OK_VM_PAGED scope=hardware pages=192 fork=pass none=pass remap=pass rollback=pass cleanup=pass\n",
+                   "OK_VM_SHARED scope=hardware fork=pass private_isolation=pass protect=pass none=pass "
+                   "partial_unmap=pass fixed=pass exec_exit=pass pressure=pass cleanup=pass\n",
+                   "OK_TIME_NATIVE scope=hardware monotonic=pass sleep=pass absolute=pass sibling=pass validation=pass\n",
+                   "OK_SLEEP_NATIVE scope=hardware sole_sleeper=pass\n",
+                   "OK_POLL_NATIVE scope=hardware nonblock=pass readiness=pass timeout=pass wake=pass peer_close=pass\n",
+                   "OK_VM_QUOTA scope=hardware resource=address-space refused=enomem restored=pass\n",
+                   "OK_VM_FORK_COPY scope=hardware parent_store=pass parent_kernel_copy=pass "
+                   "child_kernel_copy=pass child_store=pass\n"]
+
+        def run(lines, arch="x86_64"):
+            code = "import os\n" + "\n".join(f"os.write(1, {line.encode()!r})" for line in lines)
+            with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+                return distro.run_until_marker([sys.executable, "-u", "-c", code], 1.0, True, arch=arch, cpus=2)
+        self.assertEqual(run([smp, *markers]), 124)
+        self.assertEqual(run([smp, none, *markers]), 124)
+        self.assertEqual(run([smp, none, served, *markers]), 0)
+        self.assertEqual(run([smp, "OK_SMP_IRQS scope=hardware cpu0=x routes=\n", *markers]), 1)
+
     def test_cli_forwards_the_cpu_count(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

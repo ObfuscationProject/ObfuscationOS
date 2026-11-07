@@ -1,6 +1,7 @@
 #pragma once
 #include "ok/core/types.hpp"
 #include "ok/interrupt/platform.hpp"
+#include <atomic>
 #include <concepts>
 
 namespace os::drivers::detail
@@ -41,6 +42,10 @@ ok::Status poll_until(Ready ready, Clock clock, ok::u64 start, ok::u64 timeout)
 // other lines) only advance the deadline. wait() sleeps until an interrupt has
 // been taken and its bottom halves have run, and returns false when the
 // platform cannot sleep: the rest of the deadline is then polled.
+//
+// SMP: the caller holds the kernel lock across the whole wait, on any CPU.
+// The device's line may be routed to another CPU, whose top half ends this
+// CPU's wait with an IPI; the bottom halves then run here, under the lock.
 template <typename Ready, typename Signalled, typename Clock, typename Wait>
     requires requires(Ready ready, Signalled signalled, Clock clock, Wait wait) {
         { ready() } -> std::same_as<bool>;
@@ -65,7 +70,33 @@ ok::Status wait_until(Ready ready, Signalled signalled, Clock clock, ok::u64 sta
             return poll_until(ready, clock, start, timeout);
     }
 }
-// The kernel's idle wait followed by the bottom halves it made pending.
+// A bottom half's "the device's line fired" flag for a waiter. Bottom halves
+// run under the kernel lock today, like the waiter; the flag is atomic so that
+// it stays correct where a bottom half runs on another CPU. A load and a
+// store, no read-modify-write: not every profile has a byte exchange.
+class DeviceSignal final
+{
+  public:
+    void raise() noexcept
+    {
+        raised_.store(true, std::memory_order_release);
+    }
+    // Whether the line fired since the last take(); clears it.
+    [[nodiscard]] bool take() noexcept
+    {
+        if (!raised_.load(std::memory_order_acquire))
+            return false;
+        raised_.store(false, std::memory_order_relaxed);
+        return true;
+    }
+
+  private:
+    std::atomic<bool> raised_{false};
+};
+
+// The kernel's interrupt wait followed by the bottom halves it made pending.
+// On a secondary CPU it halts until its own line, an IPI or its local tick;
+// only an x86_64 boot left on the 8259 pair returns false there (polling).
 inline bool wait_for_device_interrupt()
 {
     if (!ok::interrupt::wait_for_interrupt())

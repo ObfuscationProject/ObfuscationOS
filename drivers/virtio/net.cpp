@@ -439,11 +439,12 @@ VirtioNetDevice *owner{};
 // transmit and posts the kernel's network event source, whose loop then
 // serves the TX ledger and RX queue; it no longer polls them. An interrupt
 // another device raised on a shared line does neither.
-bool interrupt_attempted{}, interrupt_bound{}, signalled{};
+bool interrupt_attempted{}, interrupt_bound{};
+constinit detail::DeviceSignal signalled{};
 void serve_interrupt(void *, interrupt::IrqLine)
 {
     if (!transport.acknowledge()) return;
-    signalled = true;
+    signalled.raise();
     interrupt::post_event(interrupt::EventSource::network);
 }
 
@@ -650,7 +651,7 @@ Status VirtioNetDevice::transmit(std::span<const std::byte> frame)
         return !tx.ownership.owns(id);
     };
     const auto clock = [] { return arch::monotonic_nanoseconds(); };
-    const auto signalled_now = [] { return std::exchange(signalled, false); };
+    const auto signalled_now = [] { return signalled.take(); };
     auto status = interrupt_bound ? detail::wait_until(ready, signalled_now, clock, started.value(), timeout_ns,
                                                        detail::wait_for_device_interrupt)
                                   : detail::poll_until(ready, clock, started.value(), timeout_ns);

@@ -490,7 +490,7 @@ class VirtioRng final : public driver::EntropySource
                 return little(*reinterpret_cast<volatile u16 *>(&queue_.used.index)) != used_;
             };
             const auto clock = [] { return arch::monotonic_nanoseconds(); };
-            const auto signalled = [&] { return std::exchange(signalled_, false); };
+            const auto signalled = [&] { return signalled_.take(); };
             auto waited = interrupt_bound_ ? detail::wait_until(ready, signalled, clock, started.value(), io_timeout_ns,
                                                                 detail::wait_for_device_interrupt)
                                            : detail::poll_until(ready, clock, started.value(), io_timeout_ns);
@@ -578,11 +578,12 @@ class VirtioRng final : public driver::EntropySource
     {
         auto &device = *static_cast<VirtioRng *>(context);
         if (device.transport_.acknowledge())
-            device.signalled_ = true;
+            device.signalled_.raise();
     }
     Queue &queue_;
     u16 available_{}, used_{};
-    bool interrupt_attempted_{}, interrupt_bound_{}, signalled_{};
+    bool interrupt_attempted_{}, interrupt_bound_{};
+    detail::DeviceSignal signalled_{};
     bool ready_{}, busy_{}, shutdown_started_{}, shutdown_finished_{};
     Status shutdown_status_{};
 };
