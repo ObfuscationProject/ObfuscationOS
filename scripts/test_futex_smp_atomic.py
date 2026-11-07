@@ -5,9 +5,16 @@ The probe races FUTEX_WAKE_OP updates of one word against user atomics on the
 same word from another thread, then checks a copy-on-write word after fork;
 it prints one FUTEX_SMP_ATOMIC_PASS line. With several vCPUs the kernel's boot
 OK_SMP line must show every vCPU online on the profiles that start secondaries
-(x86_64, aarch64, rv64), the probe must report interleaved updates (the two
-sides ran at the same time), and the OK_SMP_CPUS report its exit prints must
-show user code entered on every online CPU during the probe.
+(x86_64, aarch64, rv64), the probe must report alternated updates (the
+kernel's and the user's updates alternated on the word, so the lost-update
+checks raced something), and the OK_SMP_CPUS report its exit prints must show
+user code entered on every online CPU during the probe.
+
+None of this shows that the two racing threads ran at the same instant: one
+CPU time-sharing them also alternates their updates, and the per-CPU check
+does not tie the racing threads to different CPUs. The receipt records QEMU's
+TCG thread mode (only multi-threaded TCG runs vCPUs in parallel) but claims no
+measured overlap. This is QEMU evidence, not physical hardware.
 """
 from pathlib import Path
 import argparse
@@ -22,6 +29,7 @@ import sys
 import time
 
 from qemu_distro import SMP_MAX_CPUS, command_for, smp_fields, smp_problem
+from test_smp_stress import tcg_threads
 TOOLS = Path(__file__).resolve().parents[1] / 'tools'
 sys.path.insert(0, str(TOOLS))
 from build_musl_probe import admit_musl_build
@@ -128,9 +136,11 @@ def main():
     shutil.copy2(args.kernel.resolve(), kernel)
     # The native PPC profile is single-CPU; command_for refuses more vCPUs there.
     command = command_for(args.qemu.resolve(), args.arch, kernel, disk, 'none', native_profile=True, cpus=args.smp)
+    # Named host threads let the receipt record QEMU's TCG thread mode.
+    command += ['-name', 'futex-smp-atomic,debug-threads=on']
     record = dict(schema=1, architecture=args.arch, mode=args.mode, scope='actual-static-musl-qemu-futex-smp-atomic',
                   status='running', command=command, cpus=args.smp, smp=args.smp > 1, allow_up=args.allow_up,
-                  rounds=args.rounds,
+                  rounds=args.rounds, overlap_claim='none: alternation only, not simultaneity',
                   sdk_manifest_sha256=sha(args.kernel_sdk.resolve() / 'manifest.json'),
                   musl_manifest_sha256=sha(args.musl_build.resolve() / 'manifest.json'),
                   probe_manifest_sha256=sha(manifest_path), probe_sha256=sha(args.probe.resolve()),
@@ -143,6 +153,7 @@ def main():
         receive(process, serial, lambda: b'OK_SYSTEM_GUI boot=complete' in serial and PROMPT in serial,
                 time.monotonic() + args.timeout)
         record['boot_seconds'] = round(time.monotonic() - began, 2)
+        record['accelerator'], record['tcg_threads'] = tcg_threads(process.pid)
         start = len(serial)
         boot = SMP.findall(serial)
         if len(boot) != 1:
@@ -187,9 +198,10 @@ def main():
         counts = dict(token.split('=') for token in result.group(3).decode().split())
         if int(counts.get('rounds', -1)) != args.rounds:
             raise RuntimeError('probe rounds differ from the requested run: ' + record['result'])
-        record['interleaved'] = int(counts['interleaved'])
-        if online >= 2 and record['interleaved'] == 0:
-            raise RuntimeError('no interleaved user and kernel updates on an SMP boot: ' + record['result'])
+        # Alternation, not simultaneity: a time-shared CPU alternates too.
+        record['alternated'] = int(counts['alternated'])
+        if online >= 2 and record['alternated'] == 0:
+            raise RuntimeError('user and kernel updates never alternated on an SMP boot: ' + record['result'])
 
         # The report the probe's own exit prints; its thread's exit prints an earlier one.
         reports = list(re.finditer(CPUS, serial[result.end():]))
@@ -229,6 +241,7 @@ def main():
     print(record['kernel_smp'])
     if 'kernel_smp_cpus' in record:
         print(record['kernel_smp_cpus'])
+    print('accelerator=' + record['accelerator'])
 
 
 if __name__ == '__main__':

@@ -1,6 +1,7 @@
 #pragma once
 #include "ok/core/types.hpp"
 #include "ok/interrupt/platform.hpp"
+#include "ok/smp/kernel_section.hpp"
 #include <atomic>
 #include <concepts>
 
@@ -17,6 +18,9 @@ inline constexpr bool polling_selected = false;
 #endif
 // Serialized boot-CPU polling. Completion wins a deadline tie; a clock error
 // is explicit. Iteration count and CPU speed are not elapsed-time measures.
+// Inside a kernel section (interrupts masked, no kernel lock) every pass
+// serves this CPU's pending top halves, so a kernel-lock holder waiting for a
+// line routed here is not stalled behind the poll; elsewhere it is a no-op.
 template <typename Ready, typename Clock>
     requires requires(Ready ready, Clock clock) {
         { ready() } -> std::same_as<bool>;
@@ -28,6 +32,7 @@ ok::Status poll_until(Ready ready, Clock clock, ok::u64 start, ok::u64 timeout)
     {
         if (ready())
             return ok::Status::success();
+        ok::smp::serve_while_polling();
         auto now = clock();
         if (!now)
             return now.status();

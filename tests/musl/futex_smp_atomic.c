@@ -11,11 +11,13 @@
  * - cow: after fork the word's page is copy-on-write shared. FUTEX_WAKE_OP in
  *   the parent must update only the parent's copy; the child checks its own.
  *
- * `interleaved` counts user increments whose old value shows a kernel update
- * since the previous one: the two sides really ran at the same time. Prints
- * exactly one line:
+ * `alternated` counts user increments whose old value shows a kernel update
+ * since the previous one: the two sides' updates alternated on the word, so
+ * neither ran entirely before the other. It does not show that they ran at the
+ * same instant: one CPU time-sharing the two threads alternates them too.
+ * Prints exactly one line:
  *
- *   FUTEX_SMP_ATOMIC_PASS arch=<arch> rounds=R user=<n> flips=<n> interleaved=<n>
+ *   FUTEX_SMP_ATOMIC_PASS arch=<arch> rounds=R user=<n> flips=<n> alternated=<n>
  *   FUTEX_SMP_ATOMIC_FAIL arch=<arch> reason=<token> expected=<n> actual=<n>
  */
 #define _GNU_SOURCE
@@ -68,7 +70,7 @@ static uint32_t word __attribute__((aligned(64)));
 static uint32_t other __attribute__((aligned(64)));
 static unsigned rounds = 20000;
 static unsigned ready, done;
-static unsigned long user_count, flips, interleaved;
+static unsigned long user_count, flips, alternated;
 static int kernel_error;
 
 static void fail(const char *reason, unsigned long expected, unsigned long actual)
@@ -123,7 +125,7 @@ static void race(void *(*kernel_side)(void *), int add)
     while (!__atomic_load_n(&done, __ATOMIC_SEQ_CST)) {
         if (add) {
             const uint32_t old = __atomic_fetch_add(&word, 1, __ATOMIC_SEQ_CST);
-            interleaved += old != last;
+            alternated += old != last;
             last = old + 1;
             ++user_count;
         } else {
@@ -170,7 +172,7 @@ int main(int argc, char **argv)
         if (errno != EINTR) fail("cow-wait", 0, errno);
     if (!WIFEXITED(status) || WEXITSTATUS(status)) fail("cow-child", 0, (unsigned long)status);
 
-    printf("FUTEX_SMP_ATOMIC_PASS arch=" PROBE_ARCH " rounds=%u user=%lu flips=%lu interleaved=%lu\n", rounds,
-           user_count, flips, interleaved);
+    printf("FUTEX_SMP_ATOMIC_PASS arch=" PROBE_ARCH " rounds=%u user=%lu flips=%lu alternated=%lu\n", rounds,
+           user_count, flips, alternated);
     return 0;
 }

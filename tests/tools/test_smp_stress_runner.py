@@ -38,8 +38,19 @@ class SmpStressRunnerTests(unittest.TestCase):
         middle = b'OK_SMP_HOTPLUG scope=hardware cycles=4 failures=0 cpu=3\r\n'
         final = b'OK_SMP_HOTPLUG scope=hardware cycles=9 failures=0 cpu=3\r\n'
         serial = early + middle + final
-        match = list(runner.HOTPLUG.finditer(serial))[-1]
-        self.assertEqual(runner.hotplug_cycles(serial, match, 4), {'cycles': 9, 'failures': 0, 'cpu': 3})
+        reports = list(runner.HOTPLUG.finditer(serial))
+        match = reports[-1]
+        self.assertEqual(runner.hotplug_cycles(serial, match, 4),
+                         {'cycles': 9, 'failures': 0, 'cpu': 3, 'probe_cycles': 9})
+        # Against the last line before the probe: only later cycles count.
+        self.assertEqual(runner.hotplug_cycles(serial, match, 4, reports[1])['probe_cycles'], 5)
+        # Cycles that all happened before the probe started do not pass.
+        with self.assertRaisesRegex(RuntimeError, 'during the probe'):
+            runner.hotplug_cycles(early + middle, reports[1], 4, reports[1])
+        stalled = early + middle + final + final
+        stalled_reports = list(runner.HOTPLUG.finditer(stalled))
+        with self.assertRaisesRegex(RuntimeError, 'during the probe'):
+            runner.hotplug_cycles(stalled, stalled_reports[-1], 4, stalled_reports[2])
         rejected = (
             (early, early),
             (b'OK_SMP_HOTPLUG scope=hardware cycles=9 failures=1 cpu=3\n',) * 2,
@@ -53,6 +64,32 @@ class SmpStressRunnerTests(unittest.TestCase):
             with self.subTest(serial=serial):
                 with self.assertRaises(RuntimeError):
                     runner.hotplug_cycles(serial, runner.HOTPLUG.fullmatch(last.rstrip(b'\r\n') + b'\n'), 4)
+
+    def test_section_assertions_by_mode(self):
+        def kernel(debug, shadow=0, **counters):
+            values = dict.fromkeys(runner.KERNEL_FIELDS[:-1], 0)
+            values.update(sections=40, completed=40, concurrent=3, witnessed=3, max_parallel=2)
+            values.update(counters)
+            fields = ' '.join('%s=%d' % item for item in values.items())
+            line = ('OK_SMP_KERNEL scope=hardware debug=%d online=2 %s shadow=5/%d '
+                    'cpu0=20:1:1:9:0 cpu1=20:2:2:9:0\n' % (debug, fields, shadow))
+            return runner.kernel_sections(line.encode())
+        families = dict.fromkeys(runner.FAMILY_NAMES, 100)
+        runner.check_sections({}, kernel(1), families, 2, 10, 'debug')
+        runner.check_sections({}, kernel(0), families, 2, 10, 'release')
+        # A release kernel still counts these; each must be 0 there too.
+        for name in runner.RELEASE_ASSERTS:
+            with self.subTest(name=name):
+                with self.assertRaisesRegex(RuntimeError, name):
+                    runner.check_sections({}, kernel(0, **{name: 1}), families, 2, 10, 'release')
+        with self.assertRaisesRegex(RuntimeError, 'shadow mismatches'):
+            runner.check_sections({}, kernel(0, shadow=1), families, 2, 10, 'release')
+        # Debug-only counters are checked in a debug kernel.
+        with self.assertRaisesRegex(RuntimeError, 'purity_faults'):
+            runner.check_sections({}, kernel(1, purity_faults=1), families, 2, 10, 'debug')
+        # The kernel line's mode must be the requested one.
+        with self.assertRaisesRegex(RuntimeError, 'debug=0 for a debug kernel'):
+            runner.check_sections({}, kernel(0), families, 2, 10, 'debug')
 
     def test_hotplug_boot_line_must_pass(self):
         self.assertIsNone(runner.hotplug_boot(b'OK_SMP scope=hardware cpus=2 online=2\n'))

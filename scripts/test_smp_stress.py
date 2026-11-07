@@ -14,8 +14,11 @@ OK_SMP_KERNEL, OK_SMP_KERNEL_FAMILIES and OK_SMP_KERNEL_DECLINES with the
 probe's exit report. The converted families must cover the probe's file
 traffic (fsync >= files, write, read and lseek >= 2 * files); with two or more
 CPUs sections must run on at least two CPUs and overlap other kernel work
-(concurrent, witnessed, max_parallel >= 2); a debug kernel's assertion
-counters and shadow mismatches must be 0. --smp-sections off requires that no
+(concurrent, witnessed, max_parallel >= 2). Its debug= field must match
+--mode; shadow mismatches must be 0, and so must the assertion counters the
+kernel keeps: all of them in a debug kernel, exclusive_asserts,
+section_asserts and cow_refused in a release kernel (the others exist only
+with the debug lock checks). --smp-sections off requires that no
 OK_SMP_KERNEL line appears (the smp_sections=n kernel). The receipt records
 QEMU's TCG thread mode, read from its host threads: only multi-threaded TCG
 runs vCPUs in parallel. This is QEMU evidence, not physical hardware.
@@ -24,7 +27,9 @@ A kernel built with the smp_hotplug_test knob stops and restarts its highest
 secondary CPU periodically and repeats an OK_SMP_HOTPLUG line in every
 interrupt report. When the transcript has one (always with --require-hotplug),
 its counters must never go back and the one the probe's exit prints must show
-cycles>0, failures=0 and a secondary CPU. A debug kernel's boot test point also
+failures=0, a secondary CPU and more cycles than the last line before the
+probe started (cycling begins at userland start, so only those later cycles
+ran under the probe's load). A debug kernel's boot test point also
 stops and restarts CPU 1 before userland; its OK_SMP_HOTPLUG_BOOT line, when
 printed, must pass every check.
 """
@@ -61,6 +66,11 @@ KERNEL_FIELDS = ('sections', 'completed', 'declined', 'handoffs', 'concurrent', 
                  'drain_asserts', 'depth_asserts', 'section_asserts', 'cow_refused', 'purity_faults', 'shadow')
 ASSERTS = ('lock_violations', 'exclusive_asserts', 'drain_asserts', 'depth_asserts', 'section_asserts',
            'cow_refused', 'purity_faults')
+# What a release kernel counts as well: require_exclusive's direct callers,
+# section_assert's unconditional sites and the copy-on-write refusal (and the
+# shadow comparison, checked in both modes). Lock ranks, drain and depth
+# checks and the decline digest exist only in a debug kernel (OK_LOCK_DEBUG).
+RELEASE_ASSERTS = ('exclusive_asserts', 'section_asserts', 'cow_refused')
 FAMILY_NAMES = ('getpid', 'gettid', 'clock_gettime', 'clock_getres', 'read', 'write', 'pread64', 'pwrite64',
                 'lseek', 'fsync', 'fdatasync')
 DECLINE_NAMES = ('runtime', 'personality', 'number', 'pending', 'console', 'descriptor', 'kind', 'append', 'size',
@@ -150,9 +160,11 @@ def named_counts(match, names, what):
     return counts
 
 
-def check_sections(record, kernel, families, online, files):
+def check_sections(record, kernel, families, online, files, mode='debug'):
     """The kernel-section requirements for one passing probe run."""
     problems = []
+    if kernel['debug'] != (1 if mode == 'debug' else 0):
+        problems.append('OK_SMP_KERNEL debug=%d for a %s kernel' % (kernel['debug'], mode))
     if kernel['online'] != online:
         problems.append('OK_SMP_KERNEL online=%d, boot online=%d' % (kernel['online'], online))
     floors = dict(fsync=files, write=2 * files, read=2 * files, lseek=2 * files)
@@ -168,12 +180,11 @@ def check_sections(record, kernel, families, online, files):
                 problems.append(name + '=0')
         if kernel['max_parallel'] < 2:
             problems.append('max_parallel=%d' % kernel['max_parallel'])
-    if kernel['debug'] == 1:
-        for name in ASSERTS:
-            if kernel[name] != 0:
-                problems.append('%s=%d' % (name, kernel[name]))
-        if kernel['shadow_mismatched'] != 0:
-            problems.append('shadow mismatches=%d' % kernel['shadow_mismatched'])
+    for name in ASSERTS if kernel['debug'] == 1 else RELEASE_ASSERTS:
+        if kernel[name] != 0:
+            problems.append('%s=%d' % (name, kernel[name]))
+    if kernel['shadow_mismatched'] != 0:
+        problems.append('shadow mismatches=%d' % kernel['shadow_mismatched'])
     record['section_requirements'] = 'pass' if not problems else problems
     if problems:
         raise RuntimeError('kernel section requirements failed: ' + '; '.join(problems))
@@ -197,22 +208,28 @@ def tcg_threads(pid):
     return mode, tcg
 
 
-def hotplug_cycles(serial, final, cpus):
-    """The kernel's CPU hotplug cycles: {cycles, failures, cpu} of `final`, the
-    OK_SMP_HOTPLUG line of the probe's exit report.
+def hotplug_cycles(serial, final, cpus, baseline=None):
+    """The kernel's CPU hotplug cycles: {cycles, failures, cpu, probe_cycles}
+    of `final`, the OK_SMP_HOTPLUG line of the probe's exit report.
 
     Every OK_SMP_HOTPLUG line in `serial` is cumulative: counters never go
-    back and the CPU stays the same. `final` must show cycles>0, failures=0 and
-    a secondary CPU below `cpus`.
+    back and the CPU stays the same. `final` must show failures=0 and a
+    secondary CPU below `cpus`, and more cycles than `baseline`, the last
+    OK_SMP_HOTPLUG line before the probe started (None: none printed, 0
+    cycles): cycling began at userland start, so only cycles beyond the
+    baseline ran under the probe's load.
     """
     reports = [tuple(int(value) for value in match.groups()) for match in HOTPLUG.finditer(serial)]
     for previous, current in zip(reports, reports[1:]):
         if current[0] < previous[0] or current[1] < previous[1] or current[2] != previous[2]:
             raise RuntimeError('OK_SMP_HOTPLUG counters went back or its CPU changed')
     cycles, failures, cpu = (int(value) for value in final.groups())
-    if cycles <= 0 or failures != 0 or not 1 <= cpu < cpus:
+    before = int(baseline.group(1)) if baseline is not None else 0
+    if failures != 0 or not 1 <= cpu < cpus:
         raise RuntimeError(f'CPU hotplug cycles={cycles} failures={failures} cpu={cpu}')
-    return dict(cycles=cycles, failures=failures, cpu=cpu)
+    if cycles <= before:
+        raise RuntimeError(f'no CPU hotplug cycle during the probe: cycles={cycles}, {before} before it')
+    return dict(cycles=cycles, failures=failures, cpu=cpu, probe_cycles=cycles - before)
 
 
 def hotplug_boot(serial):
@@ -315,6 +332,8 @@ def main():
         # Counters are cumulative: the last report before the probe is its baseline.
         baseline = list(re.finditer(CPUS, serial))
         baseline = cpu_counters(baseline[-1].group(0)) if baseline else None
+        hotplug_baseline = list(HOTPLUG.finditer(serial))
+        hotplug_baseline = hotplug_baseline[-1] if hotplug_baseline else None
 
         process.stdin.write(b'/bin/smp-stress %d %d\n' % (args.workers, args.rounds))
         process.stdin.flush()
@@ -389,13 +408,15 @@ def main():
             record['kernel_sections'] = kernel
             record['kernel_families'] = family_counts
             record['kernel_declines'] = decline_counts
-            check_sections(record, kernel, family_counts, online, int(counts['files']))
+            check_sections(record, kernel, family_counts, online, int(counts['files']), args.mode)
         cycles = list(HOTPLUG.finditer(serial[result.end():]))
         if cycles:
             if online < 2:
                 raise RuntimeError('kernel printed OK_SMP_HOTPLUG for a UP boot')
             record['kernel_smp_hotplug'] = cycles[-1].group(0).decode().strip()
-            record['hotplug'] = hotplug_cycles(serial, cycles[-1], online)
+            if hotplug_baseline is not None:
+                record['kernel_smp_hotplug_baseline'] = hotplug_baseline.group(0).decode().strip()
+            record['hotplug'] = hotplug_cycles(serial, cycles[-1], online, hotplug_baseline)
         elif args.require_hotplug or HOTPLUG.search(serial):
             raise RuntimeError('the probe exit report lacks OK_SMP_HOTPLUG')
         record['status'] = 'pass'
