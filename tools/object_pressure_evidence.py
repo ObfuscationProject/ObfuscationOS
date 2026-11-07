@@ -1,4 +1,4 @@
-"""Strict SDK79 admission and serial evidence for object-pressure guests."""
+"""Strict SDK80 admission and serial evidence for object-pressure guests."""
 from __future__ import annotations
 
 import hashlib
@@ -90,8 +90,8 @@ def admit_sdk(sdk, expected, arch, mode, compiler, compiler_hash):
     for name in manifest['files']:
         relative_file(sdk, name)
     manifest = validate_sdk(sdk, arch, mode, compiler)
-    if manifest['abi_version'] != 79 or manifest['compiler'].get('family') != 'gcc':
-        raise ValueError('object pressure requires SDK79 GCC ABI79')
+    if manifest['abi_version'] != 80 or manifest['compiler'].get('family') != 'gcc':
+        raise ValueError('object pressure requires SDK80 GCC ABI80')
     return manifest
 
 
