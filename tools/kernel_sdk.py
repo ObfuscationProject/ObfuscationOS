@@ -685,7 +685,7 @@ SHARED_FILE_PROFILE_HEADERS = (
 
 
 FUTEX_WAKE_OPERATION_PROFILE_HEADER = "ok/user/native_futex_wake_operation_sdk_profile.hpp"
-FUTEX_WAKE_OPERATION_PROFILE = "bootcpu-serialized-two-key-private-anonymous-shared-signed-wrap-legacy-count-v1"
+FUTEX_WAKE_OPERATION_PROFILE = "kernel-lock-atomic-word-two-key-private-anonymous-shared-signed-wrap-legacy-count-v2"
 FUTEX_WAKE_OPERATION_PROFILE_HEADERS = (
     FUTEX_WAKE_OPERATION_PROFILE_HEADER, "ok/user/native_futex.hpp",
     "ok/abi/linux_futex_wake_operation.hpp", "ok/user/linux_bootstrap.hpp",
@@ -695,7 +695,7 @@ FUTEX_WAKE_OPERATION_PROFILE_HEADERS = (
 
 
 def validate_futex_wake_operation_profile(headers: Path) -> None:
-    """Require the explicit serialized two-key contract, without claiming execution."""
+    """Require the explicit atomic-word two-key contract, without claiming execution."""
     for name in FUTEX_WAKE_OPERATION_PROFILE_HEADERS:
         if not (headers / name).is_file():
             raise ValueError("SDK79 futex wake-operation contract header is missing: " + name)
@@ -714,7 +714,7 @@ def validate_futex_wake_operation_profile(headers: Path) -> None:
             ("native_futex_wake_operation_wake_passes", "usize", "2"),
             ("native_futex_wake_operation_key_domains", "usize", "2"),
             ("native_futex_wake_operation_nonpositive_wake_minimum", "usize", "1"),
-            ("native_futex_wake_operation_smp_atomic", "u32", "0"),
+            ("native_futex_wake_operation_smp_atomic", "u32", "1"),
             ("native_futex_wake_operation_file_backed", "u32", "0"),
             ("native_futex_wake_operation_cross_process_clone_vm", "u32", "0")):
         pattern = rf"^[ \t]*inline[ \t]+constexpr[ \t]+{kind}[ \t]+{name}[ \t]*=[ \t]*([0-9]+)[ \t]*;[ \t]*$"
@@ -723,7 +723,7 @@ def validate_futex_wake_operation_profile(headers: Path) -> None:
 
 
 FUTEX_REQUEUE_PROFILE_HEADER = "ok/user/native_futex_requeue_sdk_profile.hpp"
-FUTEX_REQUEUE_PROFILE = "bootcpu-nonpi-read-keys-signed-counts-exact-origin-ticket-sequence-owned-transfer-v1"
+FUTEX_REQUEUE_PROFILE = "kernel-lock-atomic-compare-nonpi-read-keys-signed-counts-exact-origin-ticket-sequence-owned-transfer-v2"
 FUTEX_REQUEUE_PROFILE_HEADERS = (
     FUTEX_REQUEUE_PROFILE_HEADER, "ok/user/native_futex.hpp", "ok/user/linux_bootstrap.hpp",
     "ok/user/native_page_pool.hpp", "ok/user/native_mapping_pages.hpp",
@@ -756,7 +756,7 @@ def validate_futex_requeue_profile(headers: Path) -> None:
             ("native_futex_requeue_zero_wake_minimum", "u32", "0"),
             ("native_futex_requeue_signed_negative_counts_rejected", "u32", "1"),
             ("native_futex_requeue_transfer_pin_owners_retained", "u32", "1"),
-            ("native_futex_requeue_smp_atomic", "u32", "0"),
+            ("native_futex_requeue_smp_atomic", "u32", "1"),
             ("native_futex_requeue_priority_inheritance", "u32", "0"),
             ("native_futex_requeue_realtime_priority", "u32", "0"),
             ("native_futex_requeue_file_backed", "u32", "0"),
