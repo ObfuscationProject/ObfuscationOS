@@ -88,3 +88,44 @@ waited for on every online CPU (the address-space phase).
 With one vCPU the probe passes on x86_64. `qemu_distro.py --smp N` boots the
 native distro to `OK_USERLAND scope=hardware acceptance=pass` on the three
 profiles with N = 2 and 4.
+
+## Lifting the bring-up limits (kernel ABI 80)
+
+The kernel follow-up runs Linux identity, clock and ext4 regular-file calls as
+kernel sections without the big lock, routes device lines to any CPU, makes
+futex user words atomic, synchronizes x86 TSCs, tags user TLB entries and can
+stop and restart secondary CPUs. The gate grew with it:
+
+- With `--smp-sections on` (default) the probe's exit report must carry
+  `OK_SMP_KERNEL`, `OK_SMP_KERNEL_FAMILIES` and `OK_SMP_KERNEL_DECLINES`: the
+  section families cover the probe's file traffic (`fsync >= files`; `read`,
+  `write`, `lseek >= 2 * files`); with two or more vCPUs sections run on two or
+  more CPUs and overlap other kernel work (`concurrent`, `witnessed` > 0,
+  `max_parallel >= 2`); `debug=` matches `--mode`; the assertion counters a
+  release kernel keeps (`exclusive_asserts`, `section_asserts`,
+  `cow_refused`, shadow mismatches) are 0, and on a debug kernel all of them.
+  `--smp-sections off` (a `smp_sections=n` kernel) requires no
+  `OK_SMP_KERNEL` line. The receipt records QEMU's TCG thread mode from its
+  host thread names (`-name ...,debug-threads=on`).
+- `--require-hotplug` (a `smp_hotplug_test=y` kernel): `OK_SMP_HOTPLUG`
+  counters never go back, and between the last line before the probe and the
+  probe's exit report the cycles advance with `failures=0` on a secondary CPU;
+  a printed `OK_SMP_HOTPLUG_BOOT` must pass every check.
+- `scripts/test_futex_smp_atomic.py` runs `tests/musl/futex_smp_atomic.c`:
+  FUTEX_WAKE_OP updates of one word race user atomics on the same word from
+  another thread, then a copy-on-write word is checked after fork; it prints
+  `FUTEX_SMP_ATOMIC_PASS ... alternated=N`. `alternated` counts alternation
+  of kernel and user updates, not proven simultaneity; the lost-update check is
+  the evidence.
+
+Results (QEMU 10.2.0 TCG, kernel bf3c63c with this tree at 3ed4160, debug
+unless noted, every run multi-threaded TCG with two or more vCPUs): 27 of 27
+stress runs with sections (x86_64, aarch64, rv64 at 1, 2 and 4 vCPUs, three
+runs each; `concurrent` 996-2027 and `max_parallel` 2-4 with two or more
+vCPUs), 12 of 12 hotplug runs (two per profile at 2 and 4 vCPUs; 286-531
+cycles during the probe, no failures), 6 of 6 futex runs, the
+`smp_sections=n` arm and one release run per profile at 2 vCPUs. Guest
+seconds with and without sections are about equal (x86_64 34.8-37.1 s with,
+34.9 s without), so the section overlap brings no measurable speed-up under
+TCG. Receipts: ObfuscationEvidence
+`receipts/ObfuscationKernel@bf3c63c/feat/smp-bringup/smp-gates/`.

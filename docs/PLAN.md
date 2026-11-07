@@ -179,6 +179,12 @@ report everywhere else. `tests/musl/smp_stress.c` with
 probe's pass and user code entered on every online CPU during the probe
 (`OK_SMP_CPUS`) ([SMP_STRESS](qualification/SMP_STRESS.md)). `--allow-up`
 checks the tooling before AP start lands and never passes the gate.
+The follow-up that lifts the bring-up limits adds to the gate: the kernel's
+section evidence (`OK_SMP_KERNEL`, `--smp-sections on|off`), CPU hotplug
+cycles during the probe (`--require-hotplug`), the futex atomicity probe
+`tests/musl/futex_smp_atomic.c` (`scripts/test_futex_smp_atomic.py`), atomic
+virtio interrupt flags for top halves on any CPU, a poll loop that serves the
+polling CPU's interrupts inside a kernel section, and the ABI 80 kernel SDK.
 
 ### WT2.2 `feat/getty-login` (M)
 
