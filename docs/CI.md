@@ -43,6 +43,9 @@ their native ext4 boot check until those platforms have a block transport.
 Broader packaging checks remain available through `xmake distro-test`. The model
 tests retain their separate scope; their boot markers alone do not prove native
 execution. Native execution does not imply hardware SMP or runtime module loading.
+`qemu_distro.py --smp N` (`xmake qemu-distro --smp=N`) boots N vCPUs and also
+requires the kernel's `OK_SMP` line to fit them; CI boots one vCPU and runs no
+SMP gate ([SMP_STRESS](qualification/SMP_STRESS.md)).
 
 `artifact-test` runs every suite under `tests/tools` against the SDK artifact,
 with `OK_TEST_KERNEL_SDK`, `OK_TEST_KERNEL_ARCH` and `OK_TEST_KERNEL_MODE` set.

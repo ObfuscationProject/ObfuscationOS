@@ -699,7 +699,7 @@ template <typename Transport> class VirtioBlock final : public driver::BlockDevi
             return little(*reinterpret_cast<volatile u16 *>(&queue_.used.index)) != used_;
         };
         const auto clock = [] { return arch::monotonic_nanoseconds(); };
-        const auto signalled = [&] { return std::exchange(signalled_, false); };
+        const auto signalled = [&] { return signalled_.take(); };
         const auto completed = interrupt_bound_ ? detail::wait_until(ready, signalled, clock, started.value(),
                                                                      io_timeout_ns, detail::wait_for_device_interrupt)
                                                 : detail::poll_until(ready, clock, started.value(), io_timeout_ns);
@@ -756,11 +756,12 @@ template <typename Transport> class VirtioBlock final : public driver::BlockDevi
     {
         auto &device = *static_cast<VirtioBlock *>(context);
         if (device.transport_.acknowledge())
-            device.signalled_ = true;
+            device.signalled_.raise();
     }
     Transport transport_{};
     Queue &queue_;
-    bool interrupt_attempted_{}, interrupt_bound_{}, signalled_{};
+    bool interrupt_attempted_{}, interrupt_bound_{};
+    detail::DeviceSignal signalled_{};
     u16 available_{}, used_{};
     u64 capacity_{};
     bool writable_{}, flush_{}, ready_{}, busy_{}, shutdown_started_{}, shutdown_finished_{};

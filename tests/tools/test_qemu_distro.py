@@ -166,6 +166,171 @@ class DistroMarkerTests(unittest.TestCase):
         self.assertEqual(command.count("-accel"), 1)
         self.assertEqual(command[command.index("-accel") + 1], "tcg,thread=single")
 
+    def test_single_cpu_command_lines_name_no_cpu_count(self):
+        arches = ("i386", "x86_64", "arm32", "aarch64", "rv32", "rv64", "loongarch64", "mips", "mips64", "ppc")
+        for arch in arches:
+            with self.subTest(arch=arch):
+                default = distro.command_for(Path("qemu"), arch, Path("kernel.bin"), Path("root.img"), "none")
+                self.assertEqual(distro.command_for(Path("qemu"), arch, Path("kernel.bin"), Path("root.img"),
+                                                    "none", cpus=1), default)
+                self.assertNotIn("-smp", default)
+        # The explicit native PPC profile keeps its own single-CPU selection.
+        native = distro.command_for(Path("qemu"), "ppc", Path("kernel.bin"), Path("root.img"), "none",
+                                    native_profile=True, cpus=1)
+        self.assertEqual(native[native.index("-smp") + 1], "1")
+        self.assertEqual(native.count("-smp"), 1)
+
+    def test_multi_cpu_command_lines_add_one_cpu_count(self):
+        arches = ("i386", "x86_64", "arm32", "aarch64", "rv32", "rv64", "loongarch64", "mips", "mips64", "ppc")
+        for arch in arches:
+            for kernel in ("kernel.bin", "kernel.elf"):
+                with self.subTest(arch=arch, kernel=kernel):
+                    default = distro.command_for(Path("qemu"), arch, Path(kernel), Path("root.img"), "none")
+                    command = distro.command_for(Path("qemu"), arch, Path(kernel), Path("root.img"), "none",
+                                                 cpus=4)
+                    self.assertEqual(command.count("-smp"), 1)
+                    at = command.index("-smp")
+                    self.assertEqual(command[at + 1], "4")
+                    # Nothing else changes: the count is the only addition.
+                    self.assertEqual(command[:at] + command[at + 2:], default)
+        x86 = distro.command_for(Path("qemu"), "x86_64", Path("kernel.bin"), Path("root.img"), "none", cpus=2)
+        self.assertEqual(x86[x86.index("-display") + 2:x86.index("-display") + 4], ["-smp", "2"])
+
+    def test_cpu_count_is_bounded_and_native_ppc_stays_single_cpu(self):
+        for cpus in (0, -1, 17, True, 2.0, "2"):
+            with self.subTest(cpus=cpus), self.assertRaisesRegex(ValueError, "cpus"):
+                distro.command_for(Path("qemu"), "x86_64", Path("kernel.bin"), Path("root.img"), "none",
+                                   cpus=cpus)
+        with self.assertRaisesRegex(ValueError, "single-CPU"):
+            distro.command_for(Path("qemu"), "ppc", Path("kernel.bin"), Path("root.img"), "none",
+                               native_profile=True, cpus=2)
+        plain = distro.command_for(Path("qemu"), "ppc", Path("kernel.bin"), Path("root.img"), "none", cpus=2)
+        self.assertEqual(plain[plain.index("-smp") + 1], "2")
+
+    def test_smp_reports_are_judged_per_profile(self):
+        def problem(line, arch, cpus, **kwargs):
+            fields = distro.smp_fields(line)
+            self.assertIsNotNone(fields)
+            return distro.smp_problem(fields, arch, cpus, **kwargs)
+        up = "OK_SMP scope=hardware cpus=1 online=1 ap_start=unsupported ipi=unsupported reason=profile-up"
+        self.assertIsNone(distro.smp_fields("OK_SMP scope=model topology=pass per_cpu=pass ap_start=unsupported"))
+        for arch, method in (("x86_64", "sipi"), ("aarch64", "psci"), ("rv64", "clint-msip")):
+            with self.subTest(arch=arch, method=method):
+                self.assertIsNone(problem(f"OK_SMP scope=hardware cpus=2 online=2 ap_start={method} ipi=pass",
+                                          arch, 2))
+                self.assertIsNotNone(problem(f"OK_SMP scope=hardware cpus=4 online=3 ap_start={method} "
+                                             "ipi=pass reason=secondary-start-failed", arch, 4))
+                self.assertIsNotNone(problem(f"OK_SMP scope=hardware cpus=2 online=2 ap_start={method} ipi=fail",
+                                             arch, 2))
+                self.assertIsNotNone(problem(f"OK_SMP scope=hardware cpus=4 online=4 ap_start={method} ipi=pass",
+                                             arch, 2))
+                self.assertIsNotNone(problem(up, arch, 2))
+                self.assertIsNone(problem(up, arch, 2, allow_up=True))
+                self.assertIsNotNone(problem(f"OK_SMP scope=hardware cpus=4 online=2 ap_start={method} ipi=pass "
+                                             "reason=secondary-start-failed", arch, 4, allow_up=True))
+                self.assertIsNone(problem("OK_SMP scope=hardware cpus=1 online=1 ap_start=unsupported "
+                                          "ipi=unsupported reason=single-cpu", arch, 1))
+        self.assertIsNotNone(problem("OK_SMP scope=hardware cpus=2 online=2 ap_start=unsupported ipi=pass",
+                                     "x86_64", 2))
+        for arch in ("i386", "arm32", "rv32", "loongarch64", "mips", "mips64", "ppc"):
+            with self.subTest(arch=arch):
+                self.assertIsNone(problem(up, arch, 2))
+                self.assertIsNone(problem("OK_SMP scope=hardware cpus=2 online=1 ap_start=unsupported "
+                                          "ipi=unsupported reason=profile-up", arch, 2))
+                self.assertIsNotNone(problem("OK_SMP scope=hardware cpus=2 online=2 ap_start=sipi ipi=pass",
+                                             arch, 2))
+                self.assertIsNotNone(problem("OK_SMP scope=hardware cpus=1 online=1 ap_start=unsupported "
+                                             "ipi=unsupported", arch, 2))
+        self.assertEqual(problem("OK_SMP scope=hardware cpus=two online=1", "x86_64", 2), "malformed OK_SMP report")
+
+    def test_multi_cpu_run_requires_a_fitting_smp_report(self):
+        gui = "OK_SYSTEM_GUI boot=complete\n"
+        smp = "OK_SMP scope=hardware cpus=2 online=2 ap_start=sipi ipi=pass\n"
+        up = "OK_SMP scope=hardware cpus=1 online=1 ap_start=unsupported ipi=unsupported reason=profile-up\n"
+
+        def run(lines, arch, cpus):
+            code = "import os\n" + "\n".join(f"os.write(1, {line.encode()!r})" for line in lines)
+            with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+                return distro.run_until_marker([sys.executable, "-u", "-c", code], 1.0, arch=arch, cpus=cpus)
+        self.assertEqual(run([gui], "x86_64", 2), 124)
+        self.assertEqual(run([smp, gui], "x86_64", 2), 0)
+        self.assertEqual(run([up, gui], "x86_64", 2), 1)
+        self.assertEqual(run([up, gui], "arm32", 2), 0)
+        self.assertEqual(run([smp, gui], "arm32", 2), 1)
+        # A single-CPU run neither needs nor judges the report.
+        self.assertEqual(run([gui], "x86_64", 1), 0)
+        self.assertEqual(run([smp, gui], "x86_64", 1), 0)
+        with self.assertRaisesRegex(ValueError, "architecture"):
+            distro.run_until_marker([sys.executable, "-c", "pass"], 1.0, cpus=2)
+
+    def test_smp_irq_reports_must_spread_device_lines(self):
+        problem = distro.smp_irqs_problem
+        self.assertIsNone(problem("OK_SMP_IRQS scope=hardware cpu0=0:3:175 cpu1=3:0:0 routes=1@1,4@0,11@1,12@0"))
+        self.assertIsNone(problem("OK_SMP_IRQS scope=hardware cpu0=0:3:9 cpu1=0:0:0 cpu2=0:0:0 cpu3=3:0:0 "
+                                  "routes=1@1,4@0,11@3,12@0"))
+        # rv64's acceptance drives almost no device line: none ran on CPU 1.
+        self.assertIsNone(problem("OK_SMP_IRQS scope=hardware cpu0=1:0:148 cpu1=0:1:0 routes=6@0,7@1,8@0,10@0"))
+        self.assertIn("not online", problem("OK_SMP_IRQS scope=hardware cpu0=4:3:9 cpu1=0:1:0 routes=1@2,4@0"))
+        self.assertIn("routed to CPUs [0]", problem("OK_SMP_IRQS scope=hardware cpu0=4:3:9 cpu1=2:0:0 routes=1@0,4@0"))
+        self.assertIn("fewer than two", problem("OK_SMP_IRQS scope=hardware cpu0=4:3:9 routes=1@0"))
+        self.assertEqual(problem("OK_SMP_IRQS scope=hardware cpu0=x:3:9 cpu1=1:0:0 routes=1@1"),
+                         "malformed OK_SMP_IRQS report")
+
+    def test_native_multi_cpu_run_requires_spread_device_lines(self):
+        smp = "OK_SMP scope=hardware cpus=2 online=2 ap_start=sipi ipi=pass\n"
+        none = "OK_SMP_IRQS scope=hardware cpu0=3:3:9 cpu1=0:0:0 routes=1@0,4@0\n"
+        served = "OK_SMP_IRQS scope=hardware cpu0=3:3:9 cpu1=0:0:0 routes=1@1,4@0\n"
+        markers = ["OK_SYSTEM_GUI boot=complete\n", "OK_USERLAND scope=hardware acceptance=pass shell_pipeline=pass\n",
+                   "OK_NATIVE scope=hardware timer=preempted\n",
+                   "OK_PATH scope=hardware relative_exec=pass symlink=pass\n",
+                   "OK_VM_NATIVE scope=hardware map=pass zero=pass protect=pass unmap=pass fork=pass pressure=pass\n",
+                   "OK_VM_PAGED scope=hardware pages=192 fork=pass none=pass remap=pass rollback=pass cleanup=pass\n",
+                   "OK_VM_SHARED scope=hardware fork=pass private_isolation=pass protect=pass none=pass "
+                   "partial_unmap=pass fixed=pass exec_exit=pass pressure=pass cleanup=pass\n",
+                   "OK_TIME_NATIVE scope=hardware monotonic=pass sleep=pass absolute=pass sibling=pass validation=pass\n",
+                   "OK_SLEEP_NATIVE scope=hardware sole_sleeper=pass\n",
+                   "OK_POLL_NATIVE scope=hardware nonblock=pass readiness=pass timeout=pass wake=pass peer_close=pass\n",
+                   "OK_VM_QUOTA scope=hardware resource=address-space refused=enomem restored=pass\n",
+                   "OK_VM_FORK_COPY scope=hardware parent_store=pass parent_kernel_copy=pass "
+                   "child_kernel_copy=pass child_store=pass\n"]
+
+        def run(lines, arch="x86_64"):
+            code = "import os\n" + "\n".join(f"os.write(1, {line.encode()!r})" for line in lines)
+            with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+                return distro.run_until_marker([sys.executable, "-u", "-c", code], 1.0, True, arch=arch, cpus=2)
+        self.assertEqual(run([smp, *markers]), 124)
+        self.assertEqual(run([smp, none, *markers]), 124)
+        self.assertEqual(run([smp, none, served, *markers]), 0)
+        self.assertEqual(run([smp, "OK_SMP_IRQS scope=hardware cpu0=x routes=\n", *markers]), 1)
+
+    def test_cli_forwards_the_cpu_count(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            qemu, kernel, disk = (root / name for name in ("qemu", "kernel.bin", "root.img"))
+            for path in (qemu, kernel, disk):
+                path.write_bytes(b"pristine")
+            seen = []
+
+            def guest(command, *args):
+                seen.append((command, args))
+                return 0
+
+            base = ["qemu_distro", "--arch", "x86_64", "--qemu", str(qemu), "--kernel", str(kernel),
+                    "--rootfs", str(disk), "--fs", "simplefs"]
+            for extra, cpus in (([], 1), (["--smp", "3"], 3)):
+                with patch.object(sys, "argv", base + extra), patch.object(distro, "run_until_marker", guest), \
+                        contextlib.redirect_stdout(io.StringIO()):
+                    self.assertEqual(distro.main(), 0)
+                command, args = seen.pop()
+                self.assertEqual(args[-2:], ("x86_64", cpus))
+                self.assertEqual("-smp" in command, cpus > 1)
+                if cpus > 1:
+                    self.assertEqual(command[command.index("-smp") + 1], "3")
+            for extra in (["--smp", "0"], ["--smp", "17"], ["--arch", "ppc", "--native-profile", "--smp", "2"]):
+                with patch.object(sys, "argv", base + extra), patch.object(distro, "run_until_marker", guest), \
+                        contextlib.redirect_stdout(io.StringIO()), self.assertRaises(SystemExit):
+                    distro.main()
+
     def test_core_boot_does_not_complete_distro_validation(self):
         self.assertEqual(self.run_guest_output(["OK_DEBUG boot=complete\n"]), 124)
 

@@ -51,16 +51,92 @@ def entropy_args(arch: str, *, enabled: bool) -> list[str]:
     return result
 
 
+# Profiles whose kernel starts secondary CPUs. Every other profile must report
+# itself UP.
+SMP_PROFILES = frozenset(("x86_64", "aarch64", "rv64"))
+# The kernel's smp::max_cpus.
+SMP_MAX_CPUS = 16
+
+
+def smp_fields(line: str) -> dict[str, str] | None:
+    """The key=value fields of the kernel's OK_SMP hardware line, else None."""
+    if not line.startswith("OK_SMP scope=hardware "):
+        return None
+    return dict(token.split("=", 1) for token in line.split()[1:] if "=" in token)
+
+
+def smp_problem(fields: dict[str, str], arch: str, cpus: int, *, allow_up: bool = False) -> str | None:
+    """Why an OK_SMP hardware report does not fit a guest with `cpus` vCPUs, or None.
+
+    With several vCPUs an SMP profile must discover and start all of them with
+    a named start method and deliver its IPIs; every other profile, and every
+    single-vCPU guest, must report one online CPU, no start method and the
+    reason it runs UP. `allow_up` (development only) also accepts an SMP
+    profile that brought up the boot CPU alone. The start method's name is the
+    kernel's (ok/arch/smp.hpp), so it is reported, not matched.
+    """
+    try:
+        discovered, online = int(fields["cpus"]), int(fields["online"])
+        method, ipi = fields["ap_start"], fields["ipi"]
+    except (KeyError, ValueError):
+        return "malformed OK_SMP report"
+    if arch in SMP_PROFILES and cpus > 1:
+        if allow_up and online == 1:
+            return None
+        if discovered != cpus or online != cpus:
+            return f"{arch} brought {online} of {discovered} discovered CPUs online, expected {cpus}"
+        if method == "unsupported":
+            return f"{arch} brought {online} CPUs online without a start method"
+        if ipi != "pass" or "reason" in fields:
+            return f"{arch} reported ipi={ipi} reason={fields.get('reason', '')}"
+        return None
+    if online != 1 or method != "unsupported" or "reason" not in fields:
+        return f"{arch} with {cpus} vCPUs must report online=1 ap_start=unsupported and a reason"
+    return None
+
+
+def smp_irqs_problem(line: str) -> str | None:
+    """Why an OK_SMP_IRQS report does not show device lines served off CPU 0, or None.
+
+    The report is `cpuN=delivered:serviced:waits ...` per online CPU and then
+    `routes=line@cpu,...`. Bound device lines must be spread over more than
+    one CPU. Whether a secondary CPU ran a top half depends on which devices
+    the workload drives (rv64's acceptance raises almost none), so it is
+    reported, not required; the native probes prove top halves there.
+    """
+    fields = dict(token.split("=", 1) for token in line.split()[1:] if "=" in token)
+    try:
+        delivered = {int(key[3:]): int(value.split(":")[0]) for key, value in fields.items()
+                     if key.startswith("cpu")}
+        routes = [entry.split("@") for entry in fields.get("routes", "").split(",") if entry]
+        targets = {int(cpu) for _, cpu in routes}
+    except ValueError:
+        return "malformed OK_SMP_IRQS report"
+    if len(delivered) < 2 or 0 not in delivered:
+        return "OK_SMP_IRQS names fewer than two CPUs"
+    if len(targets) < 2:
+        return f"device lines are routed to CPUs {sorted(targets)} only"
+    if not targets <= delivered.keys():
+        return "a device line is routed to a CPU that is not online"
+    return None
+
+
 def command_for(qemu: Path, arch: str, kernel: Path, rootfs: Path, display: str,
-                *, native_profile: bool = False, entropy: str = "virtio") -> list[str]:
+                *, native_profile: bool = False, entropy: str = "virtio", cpus: int = 1) -> list[str]:
     if arch not in {"i386", "x86_64", "aarch64", "arm32", "rv64", "rv32", "loongarch64", "mips", "mips64", "ppc"}:
         raise SystemExit(f"qemu-distro is not configured for {arch}")
     if entropy not in {"virtio", "none"}:
         raise ValueError("entropy must be virtio or none")
+    if not isinstance(cpus, int) or isinstance(cpus, bool) or not 1 <= cpus <= SMP_MAX_CPUS:
+        raise ValueError(f"cpus must be an integer from 1 to {SMP_MAX_CPUS}")
+    if cpus > 1 and arch == "ppc" and native_profile:
+        raise ValueError("the native PPC profile is single-CPU")
 
     common = ["-serial", "stdio", "-monitor", "none", "-no-reboot", "-display", display]
     if arch == "i386":
         common += ["-cpu", "max"]
+    if cpus > 1:
+        common += ["-smp", str(cpus)]
     if arch in {"x86_64", "i386"} and kernel.suffix == ".bin":
         return [
             str(qemu),
@@ -163,7 +239,9 @@ def command_for(qemu: Path, arch: str, kernel: Path, rootfs: Path, display: str,
 
 def run_until_marker(command: list[str], timeout: float, require_native: bool = False,
                      require_storage: bool = False, require_journalled: bool = False,
-                     release: bool = False) -> int:
+                     release: bool = False, arch: str | None = None, cpus: int = 1) -> int:
+    if cpus > 1 and arch is None:
+        raise ValueError("a multi-CPU run needs the architecture to judge the kernel's OK_SMP report")
     process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
     assert process.stdout is not None
     deadline = time.monotonic() + timeout
@@ -188,6 +266,22 @@ def run_until_marker(command: list[str], timeout: float, require_native: bool = 
                 observed.add("journalled-storage")
         if line.startswith("OK_SYSTEM_GUI boot=complete"):
             observed.add("gui")
+        if cpus > 1 and (fields := smp_fields(line)) is not None:
+            problem = smp_problem(fields, arch, cpus)
+            if problem:
+                print(f"[qemu-distro] smp={cpus}: {problem}", file=sys.stderr)
+                return 1
+            print(f"[qemu-distro] smp={cpus}: {line.strip()}")
+            observed.add("smp")
+        # Reported again at each probe exit; one that fits is enough.
+        if cpus > 1 and arch in SMP_PROFILES and line.startswith("OK_SMP_IRQS scope=hardware "):
+            irqs_problem = smp_irqs_problem(line)
+            if irqs_problem is None:
+                observed.add("smp-irqs")
+                print(f"[qemu-distro] smp={cpus}: device lines spread: {line.strip()}")
+            elif irqs_problem.startswith("malformed"):
+                print(f"[qemu-distro] smp={cpus}: {irqs_problem}", file=sys.stderr)
+                return 1
         if line.startswith("OK_USERLAND scope=hardware acceptance=pass shell_pipeline=pass"):
             observed.add("userland")
         if line.startswith("OK_NATIVE scope=hardware timer=preempted"):
@@ -218,6 +312,10 @@ def run_until_marker(command: list[str], timeout: float, require_native: bool = 
             required.update(("storage",) if release else ("storage", "file-private-vm"))
         if require_journalled:
             required.add("journalled-storage")
+        if cpus > 1:
+            required.add("smp")
+        if cpus > 1 and require_native and arch in SMP_PROFILES:
+            required.add("smp-irqs")
         if required <= observed:
             return 0
         return None
@@ -284,6 +382,8 @@ def main() -> int:
     parser.add_argument("--native-profile", action="store_true", help="Select the qualified native PPC CPU profile")
     parser.add_argument("--entropy", choices=("virtio", "none"), default="virtio",
                         help="Attach a modern Virtio RNG or run an explicit no-device control")
+    parser.add_argument("--smp", type=int, default=1, metavar="N",
+                        help="QEMU vCPUs; above 1 requires the kernel's OK_SMP hardware report to fit them")
     parser.add_argument("--timeout", type=float, default=20.0)
     parser.add_argument("--display", default="none", choices=("none", "sdl"), help="QEMU display backend")
     parser.add_argument("--interactive", action="store_true", help="Keep QEMU running until the window/process exits")
@@ -294,6 +394,8 @@ def main() -> int:
         raise SystemExit("--persist requires an ext4 filesystem")
     if args.require_native and args.fs == "release":
         raise SystemExit("the release image omits the acceptance programs that --require-native runs")
+    if not 1 <= args.smp <= SMP_MAX_CPUS:
+        raise SystemExit(f"--smp must be from 1 to {SMP_MAX_CPUS}")
 
     arch = normalize_arch(args.arch)
     qemu = args.qemu.resolve()
@@ -310,21 +412,25 @@ def main() -> int:
         runtime_rootfs = rootfs if args.persist else Path(temp_dir) / rootfs.name
         if not args.persist:
             shutil.copy2(rootfs, runtime_rootfs)
-        command = command_for(qemu, arch, kernel, runtime_rootfs, args.display,
-                              native_profile=args.native_profile, entropy=args.entropy)
-        print(f"[qemu-distro] arch={arch} fs={args.fs} qemu={qemu} kernel={kernel} rootfs={rootfs}")
+        try:
+            command = command_for(qemu, arch, kernel, runtime_rootfs, args.display,
+                                  native_profile=args.native_profile, entropy=args.entropy, cpus=args.smp)
+        except ValueError as error:
+            raise SystemExit(str(error)) from error
+        print(f"[qemu-distro] arch={arch} fs={args.fs} qemu={qemu} kernel={kernel} rootfs={rootfs}"
+              + (f" smp={args.smp}" if args.smp > 1 else ""))
         if args.interactive:
             print(f"[qemu-distro] display={args.display} interactive=1")
             return run_interactive(command)
         code = run_until_marker(command, args.timeout, args.require_native,
                                 args.fs in ("ext4", "ext4-journalled", "release"), args.fs == "ext4-journalled",
-                                args.fs == "release")
+                                args.fs == "release", arch, args.smp)
         if code and args.failure_dir:
             failed = args.failure_dir.resolve()
             failed.mkdir(parents=True, exist_ok=False)
             saved = failed / runtime_rootfs.name
             shutil.copy2(runtime_rootfs, saved)
-            record = {"architecture": arch, "exit_code": code, "command": command,
+            record = {"architecture": arch, "exit_code": code, "command": command, "cpus": args.smp,
                       "scope": "failed-qemu-guest-disk", "disk": saved.name,
                       "disk_sha256": hashlib.sha256(saved.read_bytes()).hexdigest(),
                       "kernel_sha256": hashlib.sha256(kernel.read_bytes()).hexdigest()}
