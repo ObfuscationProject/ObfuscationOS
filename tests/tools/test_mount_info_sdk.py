@@ -37,11 +37,11 @@ class MountInfoSdkTests(unittest.TestCase):
         good = uapi.read_text()
         marker = profile.read_text()
         cases = []
-        cases.append((uapi, good.replace('#define OK_UAPI_VERSION_MINOR 16',
+        cases.append((uapi, good.replace('#define OK_UAPI_VERSION_MINOR 17',
             '#define OK_UAPI_VERSION_MINOR 10 /* wrong compiled version */\n'
-            '/*\n#define OK_UAPI_VERSION_MINOR 16\n*/')))
+            '/*\n#define OK_UAPI_VERSION_MINOR 17\n*/')))
         for before, after in (
-            ('MINOR 16', 'MINOR 10'), ('MINOR 16', 'MINOR 17'),
+            ('MINOR 17', 'MINOR 10'), ('MINOR 17', 'MINOR 16'), ('MINOR 17', 'MINOR 18'),
             ('OK_SYS_MOUNT_INFO 1034ULL', 'OK_SYS_MOUNT_INFO 1035ULL'),
             ('OK_NATIVE_MOUNT_INFO_VERSION 1', 'OK_NATIVE_MOUNT_INFO_VERSION 2'),
             ('OK_MOUNT_INFO_CAPACITY 9U', 'OK_MOUNT_INFO_CAPACITY 8U'),

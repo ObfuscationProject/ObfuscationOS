@@ -20,7 +20,7 @@ def producer():
 def profile_attacks():
     source = CONSOLE_INPUT_HEADER
     yield source.replace('0x3fffffff', '0x3f/**/ffffff')
-    yield source.replace('noecho-v1', 'noecho-v1/*changed*/')
+    yield source.replace('compat-default-v2', 'compat-default-v2/*changed*/')
     yield '#if 0\n' + source + '#endif\n'
     yield '/*\n' + source + '*/\n'
     yield source + '#define native_console_epoch_limit 0\n'
@@ -69,7 +69,7 @@ class ConsoleSdkTests(unittest.TestCase):
         self.exporter(self.sdk / 'include')
         validate_native_console_input_profile(self.sdk / 'include')
         self.assertEqual(validate_sdk(self.sdk, 'x86_64', 'debug')['native_console_input_profile'],
-                         'pid1-issued-epoch-fork-exec-leader-revoke-noecho-v1')
+                         'pid1-issued-epoch-fork-exec-leader-revoke-ntty-compat-default-v2')
 
     def test_missing_or_wrong_manifest_capability(self):
         for value in (None, '', 'root-readable-v1', 1):

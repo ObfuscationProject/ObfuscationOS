@@ -2,8 +2,8 @@
 #include <ok/syscall.h>
 #include <errno.h>
 
-_Static_assert(OK_UAPI_VERSION_MAJOR == 0 && OK_UAPI_VERSION_MINOR == 16 && OK_UAPI_VERSION_PATCH == 0,
-               "native power requires the explicit UAPI0.16.0 SDK");
+_Static_assert(OK_UAPI_VERSION_MAJOR == 0 && OK_UAPI_VERSION_MINOR == 17 && OK_UAPI_VERSION_PATCH == 0,
+               "native power requires the explicit UAPI0.17.0 SDK");
 _Static_assert(OK_NATIVE_POWER_VERSION == 1 && OK_POWER_TOKEN_MAX == 0x3fffffffU,
                "native scalar power contract");
 

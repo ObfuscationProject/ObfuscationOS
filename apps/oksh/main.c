@@ -43,6 +43,20 @@ enum { END, WORD, PIPE, REDIRECT, SEMICOLON, AND_IF, OR_IF, INVALID };
 
 static struct { int fd, failed; pid_t sid, group; } shell_console = {.fd = -1};
 
+/* An interactive shell ignores the job-control signals: SIGTTOU lets it take
+ * the console back from the background, SIGTTIN and SIGTSTP keep it running,
+ * and SIGINT and SIGQUIT at its prompt reach the foreground job instead.
+ * Commands start with the defaults. */
+static const int job_signals[] = {SIGINT, SIGQUIT, SIGTSTP, SIGTTIN, SIGTTOU};
+static int job_signals_ignored;
+
+static int job_signals_set(void (*handler)(int))
+{
+    for (size_t i = 0; i < sizeof(job_signals) / sizeof(job_signals[0]); ++i)
+        if (signal(job_signals[i], handler) == SIG_ERR) return -1;
+    return 0;
+}
+
 static int console_finish(int status)
 {
     if (shell_console.fd >= 0) {
@@ -430,6 +444,7 @@ static int run_pipeline(struct command_list *list, const struct pipeline *pipeli
             goto abort_launch;
         }
         if (!child) {
+            if (job_signals_ignored && job_signals_set(SIG_DFL) < 0) { perror("oksh: signal"); _Exit(1); }
             if (shell_console.fd >= 0) close(shell_console.fd);
             close(gate[1]);
             char abort_token;
@@ -526,6 +541,8 @@ int main(int argc, char **argv)
         int ignored = 0;
         return run_line(argv[2], 0, &ignored);
     }
+    if (job_signals_set(SIG_IGN) < 0) { perror("oksh: signal"); return 1; }
+    job_signals_ignored = 1;
     if (console_prepare() < 0) return console_finish(1);
     char line[LINE_CAPACITY];
     int previous_status = 0, exit_requested = 0;

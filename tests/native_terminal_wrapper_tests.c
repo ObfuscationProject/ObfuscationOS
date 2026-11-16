@@ -28,7 +28,7 @@ long ok_syscall_ret(long result)
 int main(void)
 {
     _Static_assert(sizeof(pid_t) == 4, "four-byte native terminal PID");
-    _Static_assert(OK_NATIVE_CONSOLE_CONTROL_VERSION == 1, "terminal contract version");
+    _Static_assert(OK_NATIVE_CONSOLE_CONTROL_VERSION == 2, "terminal contract version");
     int (*entry)(int, unsigned long, ...) = ioctl;
     response = 0; errno = 73;
     CHECK(!entry(0, TIOCSCTTY, 0) && selected == OK_SYS_IOCTL &&

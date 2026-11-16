@@ -6,6 +6,7 @@
 
 #include <errno.h>
 #include <fcntl.h>
+#include <signal.h>
 #include <ok/console.h>
 #include <ok/syscall.h>
 #include <string.h>
@@ -419,6 +420,10 @@ int main(int argc, char **argv, char **environment)
     char *shell_arguments[] = {"/bin/oksh", 0};
     char *shell_environment[] = {home, "PATH=/bin", user, logname, console, 0};
     (void)argv;
+    /* The session leader keeps the console across job-control signals; the
+     * shell it executes keeps ignoring them and gives its commands the defaults. */
+    if (signal(SIGTTOU, SIG_IGN) == SIG_ERR || signal(SIGTTIN, SIG_IGN) == SIG_ERR ||
+        signal(SIGTSTP, SIG_IGN) == SIG_ERR) goto fail;
     if (argc != 1 || ok_login_epoch(environment, &epoch) < 0 || login_identity() < 0 ||
         ok_account_store_open(&store) < 0) goto fail;
     if (ok_login_write(STDOUT_FILENO, "ObfuscationOS\n") < 0) goto fail;

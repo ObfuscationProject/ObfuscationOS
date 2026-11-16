@@ -36,13 +36,13 @@ class NativeGroupSignalSdkTests(unittest.TestCase):
             consumer.validate_sdk(self.sdk, 'x86_64', 'debug')
 
     def test_exact_bounded_contract_and_ten_architectures(self):
-        expected = 'bootcpu-signed32-current-negative-pgid-probe-term-kill-deferred-partial-v2'
+        expected = 'bootcpu-signed32-current-negative-pgid-probe-all-signals-stop-continue-orphan-hupcont-same-session-cont-partial-v3'
         self.assertEqual(consumer.NATIVE_GROUP_SIGNAL_PROFILE, expected)
         self.assertEqual(producer.NATIVE_GROUP_SIGNAL_PROFILE, expected)
         self.assertEqual(consumer.NATIVE_GROUP_SIGNAL_HEADERS, producer.NATIVE_GROUP_SIGNAL_HEADERS)
         for validate in (producer.validate_native_group_signal_profile, consumer.validate_native_group_signal_profile):
             validate(self.sdk / 'include')
-        self.assertEqual(consumer.validate_sdk(self.sdk, 'x86_64', 'debug')['abi_version'], 80)
+        self.assertEqual(consumer.validate_sdk(self.sdk, 'x86_64', 'debug')['abi_version'], 81)
         self.fixture.test_all_ten_profile_contracts()
 
     def test_manifest_requires_explicit_bounded_profile(self):
@@ -72,20 +72,21 @@ class NativeGroupSignalSdkTests(unittest.TestCase):
         attacks = [self.good + self.good, '/*\n' + self.good + '*/\n',
                    '#if 0\n' + self.good + '#endif\n',
                    'const char *example = R"(\n' + self.good + ')";\n',
-                   '#define native_group_signal_module_abi 80\n' + self.good,
-                   self.good.replace('module_abi = 80', 'module_abi = 72'),
-                   self.good.replace('module_abi = 80', 'module_abi = 81'),
-                   self.good.replace('native_group_signal_version = 2', 'native_group_signal_version = 1'),
-                   self.good.replace('native_group_signal_version = 2', 'native_group_signal_version = 3'),
+                   '#define native_group_signal_module_abi 81\n' + self.good,
+                   self.good.replace('module_abi = 81', 'module_abi = 72'),
+                   self.good.replace('module_abi = 81', 'module_abi = 82'),
+                   self.good.replace('native_group_signal_version = 3', 'native_group_signal_version = 2'),
+                   self.good.replace('native_group_signal_version = 3', 'native_group_signal_version = 4'),
                    self.good.replace('pid_bits = 32', 'pid_bits = 64'),
                    self.good.replace('process_capacity = 64', 'process_capacity = 128'),
                    self.good.replace('term = 15', 'term = 1'),
                    self.good.replace('kill = 9', 'kill = 19'),
                    self.good.replace('\n', '\u2028')]
-        for name in ('current_group', 'negative_group', 'probe', 'deferred_fatal', 'partial_success', 'controlling_tty'):
+        for name in ('current_group', 'negative_group', 'probe', 'deferred_fatal', 'partial_success', 'controlling_tty',
+                     'default_actions', 'same_session_continue', 'orphan_hangup', 'stop_continue', 'job_control'):
             attacks.append(self.good.replace('native_group_signal_' + name + ' = 1',
                                               'native_group_signal_' + name + ' = 0'))
-        for name in ('broadcast', 'stop_continue', 'job_control', 'smp'):
+        for name in ('broadcast', 'smp'):
             attacks.append(self.good.replace('native_group_signal_' + name + ' = 0',
                                               'native_group_signal_' + name + ' = 1'))
         for line in self.good.splitlines(keepends=True):

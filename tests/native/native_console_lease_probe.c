@@ -6,8 +6,8 @@
 #include <sys/uio.h>
 #include <time.h>
 
-_Static_assert(OK_UAPI_VERSION_MAJOR == 0 && OK_UAPI_VERSION_MINOR == 16 && OK_UAPI_VERSION_PATCH == 0,
-    "console lease fixture requires the explicit UAPI 0.16.0 SDK");
+_Static_assert(OK_UAPI_VERSION_MAJOR == 0 && OK_UAPI_VERSION_MINOR == 17 && OK_UAPI_VERSION_PATCH == 0,
+    "console lease fixture requires the explicit UAPI 0.17.0 SDK");
 _Static_assert(OK_NATIVE_CONSOLE_LEASE_VERSION == 1, "console lease version");
 
 #define FIRST_PATH "/run/console-lease-first"
