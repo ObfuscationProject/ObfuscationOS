@@ -24,7 +24,7 @@ class ConsoleGateTests(unittest.TestCase):
         sdk = Path(os.environ.get('OK_TEST_KERNEL_SDK',
                    ROOT.parent / 'ObfuscationKernel/build/sdk/x86_64/debug'))
         manifest = json.loads((sdk / 'manifest.json').read_text())
-        if manifest.get('native_console_input_profile') != 'pid1-issued-epoch-fork-exec-leader-revoke-noecho-v1':
+        if manifest.get('native_console_input_profile') != 'pid1-issued-epoch-fork-exec-leader-revoke-ntty-compat-default-v2':
             self.skipTest('Set OK_TEST_KERNEL_SDK to an explicit console-input-capable exported SDK')
         with tempfile.TemporaryDirectory(prefix='console-wrappers-hosted-') as directory:
             binary = Path(directory) / 'wrapper'

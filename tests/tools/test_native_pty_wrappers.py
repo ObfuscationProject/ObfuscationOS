@@ -23,7 +23,7 @@ class NativePtyWrapperTests(unittest.TestCase):
         mode = os.environ.get('OK_TEST_KERNEL_MODE', 'debug')
         self.assertIn(mode, ('debug', 'release'))
         manifest = validate_sdk(sdk, os.environ.get('OK_TEST_KERNEL_ARCH', 'x86_64'), mode)
-        self.assertEqual(manifest['native_pty_profile'], 'bootcpu-native-raw-pair-ofd-waits-drain-eof-eio-v1')
+        self.assertEqual(manifest['native_pty_profile'], 'bootcpu-native-pair-devpts-counted-endpoints-ntty-hangup-v2')
         with tempfile.TemporaryDirectory(prefix='native-pty-wrappers-') as directory:
             project = Path(directory)
             # Keep hosted libc/sanitizer headers while compiling the actual

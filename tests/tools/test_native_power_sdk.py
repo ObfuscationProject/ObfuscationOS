@@ -69,8 +69,9 @@ class NativePowerSdkTests(unittest.TestCase):
                 UAPI_HEADER.replace(line, '/*\n' + line + '*/\n'),
                 UAPI_HEADER.replace(line, '#define ' + name + '(word) ' + value + '\n')):
                 self.reject(self.uapi, content)
-        for content in (UAPI_HEADER.replace('MINOR 16', 'MINOR 9'),
-                        UAPI_HEADER.replace('MINOR 16', 'MINOR 17'),
+        for content in (UAPI_HEADER.replace('MINOR 17', 'MINOR 9'),
+                        UAPI_HEADER.replace('MINOR 17', 'MINOR 16'),
+                        UAPI_HEADER.replace('MINOR 17', 'MINOR 18'),
                         UAPI_HEADER.replace('\n', '\u2028'),
                         UAPI_HEADER.replace('1032ULL', '10/**/32ULL')):
             self.reject(self.uapi, content)

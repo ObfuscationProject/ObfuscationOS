@@ -516,3 +516,35 @@ int fchownat(int dirfd, const char *path, uid_t uid, gid_t gid, int flags)
 {
     return (int)ok_syscall_ret(ok_syscall6(OK_SYS_FCHOWNAT, dirfd, (long)path, (long)uid, (long)gid, flags, 0));
 }
+
+/* Native rt_sigaction (ok/uapi/job_control.h): SIG_DFL and SIG_IGN only. */
+int sigaction(int signal, const struct sigaction *action, struct sigaction *old)
+{
+    struct ok_sigaction request = {0, 0, 0}, previous = {0, 0, 0};
+    if (action) {
+        request.handler = (uint64_t)(uintptr_t)action->sa_handler;
+        request.flags = (uint64_t)(unsigned)action->sa_flags;
+        request.mask = action->sa_mask;
+    }
+    if (ok_syscall_ret(ok_syscall4(OK_SYS_RT_SIGACTION, signal, action ? (long)&request : 0,
+                                   old ? (long)&previous : 0, sizeof(request.mask))) < 0)
+        return -1;
+    if (old) {
+        old->sa_handler = (sighandler_t)(uintptr_t)previous.handler;
+        old->sa_mask = 0;
+        old->sa_flags = 0;
+    }
+    return 0;
+}
+
+sighandler_t signal(int number, sighandler_t handler)
+{
+    struct sigaction action = {handler, 0, 0}, old;
+    return sigaction(number, &action, &old) < 0 ? SIG_ERR : old.sa_handler;
+}
+
+int sigemptyset(sigset_t *set)
+{
+    *set = 0;
+    return 0;
+}

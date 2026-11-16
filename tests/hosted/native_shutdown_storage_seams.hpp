@@ -84,6 +84,7 @@ class Ext4FileSystem {
 class DeviceFileSystem {
   public:
     int &root() { return root_; }
+    Status attach_terminals(VirtualFileSystem &) { return {}; }
   private:
     int root_{};
 };

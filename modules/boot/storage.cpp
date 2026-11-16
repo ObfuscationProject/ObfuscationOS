@@ -133,15 +133,20 @@ ok::Status mount_runtime_directory(ok::fs::VirtualFileSystem &vfs)
     if (auto status = vfs.create(context, "/run/user", ok::fs::NodeType::directory, 0755, 0, 0); !status) return status;
     if (auto status = vfs.create(context, "/run/user/1000", ok::fs::NodeType::directory, 0700, 1000, 1000); !status) return status;
     report("OK_RUN source=ram mode=volatile pathname_sockets=bounded\n");
-    // The kernel's null, zero and full character devices, over the image's /dev.
-    if (auto status = vfs.mount("/dev", device_filesystem.root()); !status)
+    // The kernel's character devices over the image's /dev: null, zero, full,
+    // tty, console, ptmx and the pts directory. The kernel terminal namespace
+    // is attached before mounting so /dev/pts lists the PTY slaves; nothing is
+    // mounted at /dev/pts.
+    auto status = device_filesystem.attach_terminals(vfs);
+    if (status) status = vfs.mount("/dev", device_filesystem.root());
+    if (!status)
     {
         char text[96]{}; const auto message = status.message();
         for (ok::usize i = 0; i < message.size() && i + 1 < sizeof(text); ++i) text[i] = message[i];
         report("OK_DEV_FAIL "); report(text); report("\n");
         return status;
     }
-    report("OK_DEV source=kernel devices=null,zero,full\n");
+    report("OK_DEV source=kernel devices=null,zero,full,tty,console,ptmx,pts\n");
     return {};
 }
 
