@@ -5,7 +5,8 @@ The runner builds tests/native/oksh_job_probe.c, the root tree and the
 distribution kernel for the configured profile, stages the probe as
 /bin/oksh-jobs in a copy of the root tree, packs it with tools/mkext4.py and
 boots it. It then checks a stop reported by WUNTRACED, `jobs`, the exit
-warning, `fg` (SIGCONT and the job's status), `bg`, a trailing `&` with
+warning, `fg` (SIGCONT, then a nonzero and a zero job status: oksh has no `$?`,
+so `&&` and `||` are the only way to see a status), `bg`, a trailing `&` with
 completion reports, /dev/null input for background jobs without job control,
 and `fg` of a running background job.
 
@@ -133,6 +134,16 @@ def exercise(guest: Guest) -> dict:
     require(guest.step("exit"), b"oksh: there are stopped jobs\n")
     out = guest.step("fg || echo fg-status-nonzero")
     require(out, b"oksh-jobs stop 7\n", b"OKSH_JOBS continued pid=%d\n" % pid, b"fg-status-nonzero\n")
+    if guest.step("jobs").strip():
+        raise RuntimeError("fg left the finished job in the table")
+    # A lost wait (1) or a stale stop status (128 + SIGSTOP) would be nonzero.
+    out = guest.step("oksh-jobs stop 0")
+    pid = re.search(rb"OKSH_JOBS stop pid=(\d+)\n", out)
+    if not pid:
+        raise RuntimeError(f"probe did not start: {out!r}")
+    require(out, b"[1]+ Stopped oksh-jobs stop 0\n")
+    out = guest.step("fg && echo fg-status-zero")
+    require(out, b"oksh-jobs stop 0\n", b"OKSH_JOBS continued pid=%s\n" % pid.group(1), b"fg-status-zero\n")
     if guest.step("jobs").strip():
         raise RuntimeError("fg left the finished job in the table")
     observed["stop_fg"] = "pass"

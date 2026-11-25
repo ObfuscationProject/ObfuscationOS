@@ -126,11 +126,14 @@ Its job-control tests stop and continue real hosted children against the
 modelled terminal of `tests/hosted/oksh_faults.c` (stop report and terminal
 reclaim, `fg`, `bg`, `&`, `jobs`, completion reports, a full table, `exit` with
 stopped jobs, and the degraded mode without a terminal). They are model tests.
-`scripts/test_oksh_jobs.py` (run so far on x86_64) types at the maintenance
-`oksh> ` of a QEMU guest with `tests/native/oksh_job_probe.c` staged as
-`/bin/oksh-jobs`: a self-stop seen through `WUNTRACED`, `jobs`, the exit
-warning, `fg` with the job's status, `bg`, `&` with completion reports,
-`/dev/null` input and `fg` of a running job. That console is not the shell's
+`scripts/test_oksh_jobs.py` types at the maintenance `oksh> ` of a QEMU guest
+with `tests/native/oksh_job_probe.c` staged as `/bin/oksh-jobs`: a self-stop
+seen through `WUNTRACED`, `jobs`, the exit warning, `fg` with a nonzero and a
+zero job status (oksh has no `$?`, so exact statuses are checked only by the
+hosted tests), `bg`, `&` with completion reports, `/dev/null` input and `fg`
+of a running job. It passes on x86_64 only. On mips its first step fails: the
+probe's SIGSTOP to itself does not stop it, so the shell never sees a stop.
+That is unresolved, and the runner is no evidence for the other profiles. That console is not the shell's
 controlling terminal and has ISIG off, so this exercises the degraded mode
 only; `^Z` and terminal handoff on a pseudo-terminal belong to the login lane.
 `tests/native/oksh_pipeline.c`, packaged explicitly as
