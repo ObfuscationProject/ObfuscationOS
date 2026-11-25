@@ -97,13 +97,17 @@ int main(int argc, char **argv)
         if (count <= 0 || count >= (int)sizeof(line) || write(2, line, (size_t)count) != count ||
             write(selected[1], "A", 1) != 1) _Exit(fail(11));
         /* The wait outlives the foreground change: no console POLLERR ends it,
-         * so without input it times out. */
+         * so without input it times out. The parent hands the foreground over
+         * about 0.1 s into it; the timeout leaves room for a slow guest, and
+         * the read waits for the hand-over to be seen, since a foreground read
+         * would block on the console instead of failing. */
         fd_set reads, exceptions;
         FD_ZERO(&reads); FD_ZERO(&exceptions); FD_SET(0, &reads); FD_SET(0, &exceptions);
-        struct timeval timeout = {1, 0};
+        struct timeval timeout = {3, 0};
         errno = 0;
         if (select(1, &reads, 0, &exceptions, &timeout) != 0 || FD_ISSET(0, &reads) ||
             FD_ISSET(0, &exceptions)) _Exit(fail(12));
+        if (tcgetpgrp(0) != controller) _Exit(fail(25));
         char input = 0;
         errno = 0;
         if (read(0, &input, 1) != -1 || errno != EIO || tcgetpgrp(0) != controller ||
