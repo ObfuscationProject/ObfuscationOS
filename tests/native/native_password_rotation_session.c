@@ -1,5 +1,6 @@
 /* Qualification-only shell boundary; forks old readers after authentication. */
 #include "native_password_rotation_authority.h"
+#include <signal.h>
 
 int main(int argc, char **argv, char **environment)
 {
@@ -24,7 +25,10 @@ int main(int argc, char **argv, char **environment)
     if (ok_console_flush(epoch) < 0 || rotation_record("SESSION", epoch)) return failure(66);
     int first = exists(FIRST_PATH);
     if (first < 0) return failure(67);
-    if (!first) return first_console(epoch);
+    /* This process is login's session leader with the console as ctty, and
+     * its exit sends SIGHUP to its foreground group, which holds the old
+     * readers; they must outlive it to observe the next generation. */
+    if (!first) return signal(SIGHUP, SIG_IGN) == SIG_ERR ? failure(70) : first_console(epoch);
     uint32_t active = 0;
     if (exists(DONE_PATH) != 1 || active_epoch(&active) || active != epoch || rotation_wait(1)) return failure(68);
     char *shell[] = {"/bin/oksh-real", 0};
