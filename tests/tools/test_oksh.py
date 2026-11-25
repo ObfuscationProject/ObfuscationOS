@@ -85,6 +85,11 @@ def process_state(pid):
         return 'gone'
 
 
+def exited(pid):
+    """A child has exited once it is a zombie or the shell has already reaped it."""
+    return process_state(pid) in ('Z', 'gone')
+
+
 def rows_of(path, kind):
     return [line.split() for line in path.read_text().splitlines() if line.startswith(kind + ' ')] \
         if path.exists() else []
@@ -482,6 +487,17 @@ class JobControlTests(HostedShell):
     def groups_given(self, session):
         return [row[2] for row in session.rows('SET')]
 
+    def launch(self, session, line, number=1):
+        """Start a background job; return its pid and any report printed with the launch line.
+
+        The shell polls its jobs before every prompt, so a job that finishes or
+        stops quickly can already be reported at the prompt after its launch.
+        """
+        output = session.send(line)
+        launched = re.match(rb'\[%d\] (\d+)\n' % number, output)
+        self.assertIsNotNone(launched, output)
+        return launched.group(1).decode(), output[launched.end():]
+
     def test_foreground_stop_reports_the_job_and_reclaims_the_terminal(self):
         session = Session(self, mask='1')
         command = self.command('stop', 'log', '5')
@@ -569,12 +585,10 @@ class JobControlTests(HostedShell):
         session = Session(self, mask='1')
         first = self.command('wait-file', 'go1')
         second = f'{self.command("status", "3")} | {self.command("wait-file", "go2")}'
-        launched = re.fullmatch(rb'\[1\] (\d+)\n', session.send(first + ' &'))
-        self.assertIsNotNone(launched)
-        first_pid = launched.group(1).decode()
-        launched = re.fullmatch(rb'\[2\] (\d+)\n', session.send(second + '&'))
-        self.assertIsNotNone(launched)
-        second_pid = launched.group(1).decode()
+        first_pid, pending = self.launch(session, first + ' &')
+        self.assertEqual(pending, b'')
+        second_pid, pending = self.launch(session, second + '&', 2)
+        self.assertEqual(pending, b'')
         groups = session.rows('GROUP')
         self.assertEqual(groups[0][1:], [first_pid, first_pid, first_pid])
         self.assertEqual([row[2:] for row in groups[1:]], [[groups[1][1]] * 2] * 2)
@@ -582,8 +596,9 @@ class JobControlTests(HostedShell):
         self.assertEqual(session.rows('SET'), [])
         self.assertEqual(session.send('jobs'), f'[1]- Running {first}\n[2]+ Running {second}\n'.encode())
         (self.work / 'go2').touch()
+        # The first stage may already have been reaped by an earlier poll.
         for pid in (groups[1][1], second_pid):
-            wait_for(lambda: process_state(pid) == 'Z', 'background pipeline did not exit')
+            wait_for(lambda: exited(pid), 'background pipeline did not exit')
         self.assertEqual(session.send(''), f'[2]+ Done {second}\n'.encode())
         self.assertEqual(session.send(''), b'')
         (self.work / 'go1').touch()
@@ -591,13 +606,13 @@ class JobControlTests(HostedShell):
         self.assertEqual(session.send('jobs'), f'[1]+ Done {first}\n'.encode())
         self.assertEqual(session.send(''), b'')
         killed = self.command('signal')
-        launched = re.fullmatch(rb'\[1\] (\d+)\n', session.send(killed + ' &'))
-        wait_for(lambda: process_state(launched.group(1).decode()) == 'Z', 'signalled job did not exit')
-        self.assertEqual(session.send(''), f'[1]+ Killed {int(signal.SIGTERM)} {killed}\n'.encode())
+        pid, pending = self.launch(session, killed + ' &')
+        wait_for(lambda: exited(pid), 'signalled job did not exit')
+        self.assertEqual(pending + session.send(''), f'[1]+ Killed {int(signal.SIGTERM)} {killed}\n'.encode())
         long = self.command('status', '0', *['argument'] * 8)
-        launched = re.fullmatch(rb'\[1\] (\d+)\n', session.send(long + ' &'))
-        wait_for(lambda: process_state(launched.group(1).decode()) == 'Z', 'long job did not exit')
-        self.assertEqual(session.send(''), f'[1]+ Done {long[:60]}...\n'.encode())
+        pid, pending = self.launch(session, long + ' &')
+        wait_for(lambda: exited(pid), 'long job did not exit')
+        self.assertEqual(pending + session.send(''), f'[1]+ Done {long[:60]}...\n'.encode())
         self.assertEqual(session.rows('SET'), [])
         rest, status = session.finish(b'exit\n')
         self.assertEqual((rest, status), (b'', 0))
@@ -606,11 +621,9 @@ class JobControlTests(HostedShell):
     def test_background_job_that_stops_is_reported_before_the_prompt(self):
         session = Session(self, mask='1')
         command = self.command('stop', 'log', '6')
-        session.send(command + ' &')
-        wait_for(lambda: rows_of(self.work / 'log', 'STOP'), 'background job did not start')
-        pid = rows_of(self.work / 'log', 'STOP')[0][1]
+        pid, pending = self.launch(session, command + ' &')
         wait_for(lambda: process_state(pid) == 'T', 'background job did not stop')
-        self.assertEqual(session.send(''), f'[1]+ Stopped {command}\n'.encode())
+        self.assertEqual(pending + session.send(''), f'[1]+ Stopped {command}\n'.encode())
         self.assertEqual(session.send(''), b'')
         self.assertEqual(session.send('fg'), f'{command}\n'.encode())
         rest, status = session.finish(b'exit\n')
@@ -619,12 +632,10 @@ class JobControlTests(HostedShell):
     def test_a_stopped_job_continued_elsewhere_is_listed_as_running(self):
         session = Session(self, mask='1')
         command = self.command('stop-wait', 'log', 'go')
-        session.send(command + ' &')
-        wait_for(lambda: rows_of(self.work / 'log', 'STOP'), 'background job did not start')
-        pid = int(rows_of(self.work / 'log', 'STOP')[0][1])
+        pid, pending = self.launch(session, command + ' &')
         wait_for(lambda: process_state(pid) == 'T', 'background job did not stop')
-        self.assertEqual(session.send(''), f'[1]+ Stopped {command}\n'.encode())
-        os.kill(pid, signal.SIGCONT)
+        self.assertEqual(pending + session.send(''), f'[1]+ Stopped {command}\n'.encode())
+        os.kill(int(pid), signal.SIGCONT)
         wait_for(lambda: rows_of(self.work / 'log', 'CONT'), 'job did not continue')
         self.assertEqual(session.send('jobs'), f'[1]+ Running {command}\n'.encode())
         self.assertEqual(session.send(''), b'')
@@ -638,9 +649,9 @@ class JobControlTests(HostedShell):
         command = self.command('wait-file', 'go')
         pids = []
         for number in range(1, 9):
-            launched = re.fullmatch(rb'\[%d\] (\d+)\n' % number, session.send(command + ' &'))
-            self.assertIsNotNone(launched)
-            pids.append(launched.group(1).decode())
+            pid, pending = self.launch(session, command + ' &', number)
+            self.assertEqual(pending, b'')
+            pids.append(pid)
         self.assertEqual(session.send(command + ' &'), b'oksh: job table full (8 jobs)\n')
         self.assertEqual(len(session.rows('GROUP')), 8)
         stop = self.command('stop', 'log', '6')
@@ -662,18 +673,17 @@ class JobControlTests(HostedShell):
     def test_without_a_terminal_jobs_use_no_groups_and_background_input_is_null(self):
         session = Session(self, mask='0')
         drain = self.command('drain', 'input')
-        launched = re.fullmatch(rb'\[1\] (\d+)\n', session.send(drain + ' &'))
-        self.assertIsNotNone(launched)
+        pid, pending = self.launch(session, drain + ' &')
         wait_for(lambda: rows_of(self.work / 'input', 'STDIN'), 'background job read the shell input')
         self.assertEqual(rows_of(self.work / 'input', 'STDIN'), [['STDIN', '0']])
-        wait_for(lambda: process_state(launched.group(1).decode()) == 'Z', 'background job did not exit')
-        self.assertEqual(session.send(''), f'[1]+ Done {drain}\n'.encode())
+        wait_for(lambda: exited(pid), 'background job did not exit')
+        self.assertEqual(pending + session.send(''), f'[1]+ Done {drain}\n'.encode())
         stop = self.command('stop', 'log', '5')
         self.assertEqual(session.send(stop), f'[1]+ Stopped {stop}\n'.encode())
         pid = rows_of(self.work / 'log', 'STOP')[0][1]
-        self.assertEqual(session.send('bg %1'), f'[1]+ {stop} &\n'.encode())
-        wait_for(lambda: process_state(pid) == 'Z', 'bg did not continue the job')
-        self.assertEqual(session.send(''), f'[1]+ Exit 5 {stop}\n'.encode())
+        output = session.send('bg %1')
+        wait_for(lambda: exited(pid), 'bg did not continue the job')
+        self.assertEqual(output + session.send(''), f'[1]+ {stop} &\n[1]+ Exit 5 {stop}\n'.encode())
         session.send(self.command('stop', 'log', '4'))
         self.assertEqual(session.send('fg'), f'{self.command("stop", "log", "4")}\n'.encode())
         rest, status = session.finish(b'exit\n')
