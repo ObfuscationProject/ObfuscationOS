@@ -490,15 +490,18 @@ staging-file creation.
 The harness explicitly substitutes ownership and strong-sync capability; it
 does not establish device or crash durability.
 
-The login executable validates its PID1 parent, real/effective/saved root
-credentials and inherited console descriptors, and displays the selected
-`ObfuscationOS` name after protected store admission. Input flushes the current epoch
-before each prompt and never echoes entered bytes. Enrollment uses only trusted
-`getrandom` salt acquisition and publishes pending then active credentials.
-Authentication requires the verifier's explicit success value; failed attempts
-use a monotonic delay. After authentication it closes the store, enters a held,
-validated `/root` dirfd, constructs a fixed session environment and directly
-executes `oksh` in the same leased process. Nine hosted input groups and sixteen
+The login executable validates real/effective/saved root credentials and its
+session (the pts checks in "getty, login and the pts"), and displays the
+selected `ObfuscationOS` name after protected store admission. Enrollment uses
+only trusted `getrandom` salt acquisition and publishes pending then active
+credentials. Authentication requires the verifier's explicit success value;
+failed attempts use a monotonic delay. After authentication it closes the
+store, enters a held, validated `/root` dirfd, constructs a fixed session
+environment and executes `oksh` in its own process. The rest of this paragraph
+records the direct console login of ABI 69, which getty replaced: login then
+required PID1 as its parent and the inherited console descriptors, flushed the
+current lease epoch before each prompt, never echoed entered bytes and was
+itself the leased process. Nine hosted input groups and sixteen
 hosted main-flow groups pass, including explicit verifier-error refusal, entropy
 failure without fallback, authentication before recovery, ordered pending/active
 publication, retry delay and failures before shell execution. The maintenance default starts `oksh`. Actual x86_64 Debug and Release SDK-only
