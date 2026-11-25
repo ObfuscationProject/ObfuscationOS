@@ -1,6 +1,7 @@
 #define _POSIX_C_SOURCE 200809L
 #include <errno.h>
 #include <poll.h>
+#include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <sys/ioctl.h>
@@ -37,6 +38,19 @@ static int waited(pid_t child)
     return waitpid(child, &status, 0) == child && WIFEXITED(status) && !WEXITSTATUS(status) ? 0 : -1;
 }
 
+/* Bounded wait for one status report; a broken kernel fails the probe. */
+static int reported(pid_t child, int options, int *status)
+{
+    for (int attempt = 0; attempt < 500; ++attempt) {
+        pid_t found = waitpid(child, status, options | WNOHANG);
+        if (found == child) return 0;
+        if (found < 0 && errno != EINTR) return -1;
+        const struct timespec delay = {0, 10000000};
+        nanosleep(&delay, 0);
+    }
+    return -1;
+}
+
 int main(int argc, char **argv)
 {
     (void)argv;
@@ -50,8 +64,9 @@ int main(int argc, char **argv)
         "\nNATIVE_CONSOLE_LINUX_IDS pid=%d ppid=%d sid=%d pgid=%d tty_sid=%d fg=%d uid=0\n",
         pid, parent, sid, group, tcgetsid(0), tcgetpgrp(0));
     if (size <= 0 || size >= (int)sizeof(line) || write(2, line, (size_t)size) != size) return fail(2);
+    /* Not a session leader: EPERM whatever the argument (no force steal). */
     errno = 0;
-    if (ioctl(0, TIOCSCTTY, 1) != -1 || errno != EOPNOTSUPP) return fail(3);
+    if (ioctl(0, TIOCSCTTY, 1) != -1 || errno != EPERM) return fail(3);
     errno = 0;
     if (ioctl(0, TIOCSCTTY, 0) != -1 || errno != EPERM) return fail(4);
 
@@ -67,6 +82,10 @@ int main(int argc, char **argv)
     }
     close(stop[0]); close(ready[1]);
     if (byte(ready[0], 'C') || close(ready[0]) || getpgid(controller) != controller) return fail(8);
+    /* Like a shell, the probe ignores SIGTTOU (to reclaim the console from the
+     * background) and SIGTTIN (so its own background reads give EIO instead
+     * of stopping its group); the reader inherits both. */
+    if (signal(SIGTTOU, SIG_IGN) == SIG_ERR || signal(SIGTTIN, SIG_IGN) == SIG_ERR) return fail(9);
     pid_t reader = fork();
     if (reader < 0) return fail(9);
     if (!reader) {
@@ -77,11 +96,13 @@ int main(int argc, char **argv)
             getpid(), getppid(), getsid(0), getpgrp());
         if (count <= 0 || count >= (int)sizeof(line) || write(2, line, (size_t)count) != count ||
             write(selected[1], "A", 1) != 1) _Exit(fail(11));
+        /* The wait outlives the foreground change: no console POLLERR ends it,
+         * so without input it times out. */
         fd_set reads, exceptions;
         FD_ZERO(&reads); FD_ZERO(&exceptions); FD_SET(0, &reads); FD_SET(0, &exceptions);
-        struct timeval timeout = {5, 0};
+        struct timeval timeout = {1, 0};
         errno = 0;
-        if (select(1, &reads, 0, &exceptions, &timeout) != 1 || !FD_ISSET(0, &reads) ||
+        if (select(1, &reads, 0, &exceptions, &timeout) != 0 || FD_ISSET(0, &reads) ||
             FD_ISSET(0, &exceptions)) _Exit(fail(12));
         char input = 0;
         errno = 0;
@@ -104,13 +125,27 @@ int main(int argc, char **argv)
     errno = 0;
     if (readv(0, &vector, 1) != -1 || errno != EIO) return fail(17);
     struct pollfd console = {0, POLLIN, 0};
-    if (poll(&console, 1, 0) != 1 || console.revents != POLLERR ||
+    if (poll(&console, 1, 0) != 0 || console.revents != 0 ||
         byte(selected[0], 'S') || close(selected[0]) || waited(reader)) return fail(18);
+    /* At its default SIGTTIN stops a background reader's whole group, so the
+     * stopper reads from a group of its own. */
+    pid_t stopper = fork();
+    if (stopper < 0) return fail(21);
+    if (!stopper) {
+        char ignored = 0;
+        if (setpgid(0, 0) || signal(SIGTTIN, SIG_DFL) == SIG_ERR) _Exit(fail(22));
+        (void)read(0, &ignored, 1);
+        _Exit(fail(23));
+    }
+    int status = 0;
+    if (reported(stopper, WUNTRACED, &status) || !WIFSTOPPED(status) || WSTOPSIG(status) != SIGTTIN ||
+        kill(stopper, SIGKILL) || reported(stopper, 0, &status) || !WIFSIGNALED(status) ||
+        WTERMSIG(status) != SIGKILL) return fail(24);
     if (tcsetpgrp(0, group) || tcgetpgrp(0) != group || tcgetsid(0) != sid ||
         write(stop[1], "X", 1) != 1 || close(stop[1]) || waited(controller)) return fail(19);
     size = snprintf(line, sizeof(line),
         "\nNATIVE_CONSOLE_LINUX_PASS pid=%d sid=%d pgid=%d reader=%d controller=%d uid=1000 "
-        "select=readable read=EIO readv=EIO poll=ERR reclaim=pass pid_bytes=4\n",
+        "sctty=EPERM select=timeout read=EIO readv=EIO poll=none sigttin=stop reclaim=sigttou-ignored pid_bytes=4\n",
         pid, sid, group, reader, controller);
     return size <= 0 || size >= (int)sizeof(line) || write(2, line, (size_t)size) != size ? fail(20) : 0;
 }
