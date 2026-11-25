@@ -116,3 +116,10 @@ Open after S4:
   stale console-era probes that S2 rewrites. `tools/qualify_native_login.py`
   and `tools/read_native_login.py` stay pinned to ABI 69 and the direct-login
   manifest.
+- Processes that outlive a session in a group other than its foreground group
+  keep their pts pair, and the kernel has 8 pairs. Once S3's `&` lands, a user
+  who leaves enough running background jobs behind at logout locks the console
+  out: getty fails with `stage=open errno=11` and PID1 restarts it until a
+  pair is free (`docs/native-init.md`). getty, like Linux getty, does not kill
+  processes outside its session. S5 should cover this in the lane or its docs;
+  more pairs are a kernel change.

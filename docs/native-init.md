@@ -80,7 +80,18 @@ write and on a line of its own:
 | `GETTY event=error stage=<stage> errno=<n>` | setup failed (`arguments`, `open`, `fork`) and getty exits 1, or the child failed before login ran (`signals`, `master`, `setsid`, `open`, `ctty`, `dup`, `close`, `exec`) and exits 127 |
 
 `reason=exit` means getty reaped login first, `hangup` that the slave closed
-first; a logout can report either. Hosted tests in
+first; a logout can report either.
+
+The hangup reaches only the session leader and, when the leader exits, the
+foreground group. As on Linux, a process that keeps running in another group
+(for example a background job once oksh has `&`) is not signalled and keeps its
+descriptors on the old slave, and the kernel frees a pts pair only when both of
+its sides are closed. The kernel has 8 pairs (`OK_PTS_CAPACITY`) rather than
+Linux's thousands, so a few such processes left behind at logout can use them
+all up. getty then reports `GETTY event=error stage=open errno=11` (`EAGAIN`) and
+exits 1, and PID1 restarts it after its back-off until a pair is free again.
+getty does not kill processes outside the session it started; nobody can log in
+on the console until those processes exit. Hosted tests in
 `tests/tools/test_native_getty.py`, `test_native_login_main.py` and
 `test_native_login_input.py` model these paths over substituted system calls;
 `scripts/test_getty_login.py` drives the real guest over serial.
