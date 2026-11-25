@@ -2,8 +2,8 @@
 #include "password.h"
 
 #include <errno.h>
-#include <ok/console.h>
 #include <string.h>
+#include <termios.h>
 #include <unistd.h>
 
 #define LOGIN_EPOCH_LIMIT 0x3fffffffU
@@ -58,18 +58,15 @@ int ok_login_write(int descriptor, const char *text)
     return 0;
 }
 
-int ok_login_read_line(uint32_t epoch, const char *prompt, unsigned char *buffer,
-                       size_t capacity, size_t *length)
+/* login runs on its pts: the line discipline echoes and edits the line, and
+ * TCIFLUSH drops input typed before the prompt. A line read without echo ends
+ * with login's own newline. */
+static int login_read(const char *prompt, unsigned char *buffer, size_t capacity,
+                      size_t *length, int echoed)
 {
     size_t used = 0, discarded = 0;
     int invalid = 0;
-    if (length) *length = 0;
-    if (buffer && capacity) ok_password_clear(buffer, capacity);
-    if (!buffer || !capacity || !length || !prompt || !epoch || epoch > LOGIN_EPOCH_LIMIT) {
-        errno = EINVAL;
-        return OK_LOGIN_INPUT_ERROR;
-    }
-    if (ok_console_flush(epoch) < 0 || ok_login_write(STDOUT_FILENO, prompt) < 0) goto fail;
+    if (tcflush(STDIN_FILENO, TCIFLUSH) < 0 || ok_login_write(STDOUT_FILENO, prompt) < 0) goto fail;
     for (;;) {
         unsigned char byte;
         ssize_t count = read(STDIN_FILENO, &byte, 1);
@@ -77,7 +74,7 @@ int ok_login_read_line(uint32_t epoch, const char *prompt, unsigned char *buffer
         if (count < 0) goto fail;
         if (count != 1) { errno = EIO; goto fail; }
         if (byte == '\n' || byte == '\r') {
-            if (ok_login_write(STDOUT_FILENO, "\n") < 0) goto fail;
+            if (!echoed && ok_login_write(STDOUT_FILENO, "\n") < 0) goto fail;
             if (invalid) {
                 ok_password_clear(buffer, capacity);
                 return OK_LOGIN_INPUT_INVALID;
@@ -91,7 +88,7 @@ int ok_login_read_line(uint32_t epoch, const char *prompt, unsigned char *buffer
         else if (++discarded == LOGIN_DRAIN_LIMIT) {
             /* Bound the drain without ever admitting the stored prefix. The
              * next prompt flushes again before accepting a new complete line. */
-            if (ok_console_flush(epoch) < 0 || ok_login_write(STDOUT_FILENO, "\n") < 0) goto fail;
+            if (tcflush(STDIN_FILENO, TCIFLUSH) < 0 || ok_login_write(STDOUT_FILENO, "\n") < 0) goto fail;
             ok_password_clear(buffer, capacity);
             return OK_LOGIN_INPUT_INVALID;
         }
@@ -99,4 +96,50 @@ int ok_login_read_line(uint32_t epoch, const char *prompt, unsigned char *buffer
 fail:
     ok_password_clear(buffer, capacity);
     return OK_LOGIN_INPUT_ERROR;
+}
+
+static int login_arguments(uint32_t epoch, const char *prompt, unsigned char *buffer,
+                           size_t capacity, size_t *length)
+{
+    if (length) *length = 0;
+    if (buffer && capacity) ok_password_clear(buffer, capacity);
+    if (!buffer || !capacity || !length || !prompt || !epoch || epoch > LOGIN_EPOCH_LIMIT) {
+        errno = EINVAL;
+        return -1;
+    }
+    return 0;
+}
+
+int ok_login_read_line(uint32_t epoch, const char *prompt, unsigned char *buffer,
+                       size_t capacity, size_t *length)
+{
+    if (login_arguments(epoch, prompt, buffer, capacity, length) < 0) return OK_LOGIN_INPUT_ERROR;
+    return login_read(prompt, buffer, capacity, length, 1);
+}
+
+int ok_login_read_secret(uint32_t epoch, const char *prompt, unsigned char *buffer,
+                         size_t capacity, size_t *length)
+{
+    struct termios saved, quiet;
+    int status, error;
+    if (login_arguments(epoch, prompt, buffer, capacity, length) < 0) return OK_LOGIN_INPUT_ERROR;
+    if (tcgetattr(STDIN_FILENO, &saved) < 0) return OK_LOGIN_INPUT_ERROR;
+    quiet = saved;
+    quiet.c_lflag &= ~(tcflag_t)(ECHO | ECHONL);
+    if (tcsetattr(STDIN_FILENO, TCSANOW, &quiet) < 0) {
+        error = errno;
+        (void)tcsetattr(STDIN_FILENO, TCSANOW, &saved);
+        errno = error;
+        return OK_LOGIN_INPUT_ERROR;
+    }
+    status = login_read(prompt, buffer, capacity, length, 0);
+    error = errno;
+    /* Echo comes back on every path; a secret read without it is not kept. */
+    if (tcsetattr(STDIN_FILENO, TCSANOW, &saved) < 0) {
+        ok_password_clear(buffer, capacity);
+        *length = 0;
+        return OK_LOGIN_INPUT_ERROR;
+    }
+    errno = error;
+    return status;
 }
