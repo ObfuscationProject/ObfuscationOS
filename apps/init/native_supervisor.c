@@ -547,7 +547,7 @@ int native_supervisor_run(void)
     if (loaded < 0) ns_hold(&runtime, errno);
     if (loaded == NS_CONFIG_MISSING) {
 #ifdef OK_NATIVE_CONSOLE_LOGIN
-        static const char fallback[] = "OK_SERVICE_MANIFEST 2\nservice console simple /bin/login - 0 0\n";
+        static const char fallback[] = "OK_SERVICE_MANIFEST 2\nservice console simple /bin/getty - 0 0\n";
 #else
         static const char fallback[] = "OK_SERVICE_MANIFEST 1\nservice console simple /bin/oksh -\n";
 #endif

@@ -23,7 +23,7 @@ class NativeConsoleProfileTests(unittest.TestCase):
         module.write_bytes(b'module fixture')
         apps = work / 'apps'
         apps.mkdir()
-        for name in (*stage.APPS, 'login'):
+        for name in (*stage.APPS, 'getty', 'login'):
             (apps / (name + '.elf')).write_bytes(name.encode())
         return project, apps
 
@@ -40,12 +40,17 @@ class NativeConsoleProfileTests(unittest.TestCase):
                 out = work / ('login' if selected else 'maintenance')
                 self.assertEqual(self.run_stage(project, apps, out, *(['--console-login'] if selected else [])), 0)
                 self.assertEqual((out / 'bin/login').exists(), selected)
+                self.assertEqual((out / 'bin/getty').exists(), selected)
                 for name in ('timed', 'timectl', 'mountctl', 'resolved', 'resolvectl'):
                     self.assertEqual((out / 'bin' / name).read_bytes(), name.encode())
                     self.assertEqual((out / 'bin' / name).stat().st_mode & 0o7777, 0o755)
                 if selected:
                     self.assertEqual((out / 'bin/login').read_bytes(), b'login')
                     self.assertEqual((out / 'bin/login').stat().st_mode & 0o7777, 0o755)
+                    self.assertEqual((out / 'bin/getty').read_bytes(), b'getty')
+                    self.assertEqual((out / 'bin/getty').stat().st_mode & 0o7777, 0o755)
+                    self.assertTrue((out / 'etc/services.conf').read_bytes().startswith(
+                        b'OK_SERVICE_MANIFEST 2\nservice console simple /bin/getty - 0 0\n'))
                 manifest = 'services-login.conf' if selected else 'services.conf'
                 self.assertEqual((out / 'etc/services.conf').read_bytes(), (project / 'config' / manifest).read_bytes())
                 self.assertEqual(b'service timed notify /bin/timed - 0 0\n' in
@@ -57,7 +62,7 @@ class NativeConsoleProfileTests(unittest.TestCase):
                 self.assertEqual((out / 'root').stat().st_mode & 0o7777, 0o700)
                 self.assertFalse((out / 'bin/oksh-real').exists())
 
-    def test_missing_login_or_linux_pid1_selection_preserves_previous_output(self):
+    def test_missing_getty_login_or_linux_pid1_selection_preserves_previous_output(self):
         with tempfile.TemporaryDirectory() as directory:
             work = Path(directory)
             project, apps = self.project(work)
@@ -68,10 +73,13 @@ class NativeConsoleProfileTests(unittest.TestCase):
                                 ('--service-graph-build', '--service-graph-manifest-sha256')):
                 with self.assertRaises(SystemExit):
                     self.run_stage(project, apps, out, '--console-login', option, str(work / 'external'), pin, '0' * 64)
-            (apps / 'login.elf').unlink()
-            with self.assertRaises(SystemExit):
-                self.run_stage(project, apps, out, '--console-login')
-            self.assertEqual((out / 'preserved').read_bytes(), b'previous root')
+            for name in ('getty', 'login'):
+                with self.subTest(missing=name):
+                    (apps / (name + '.elf')).rename(work / (name + '.elf'))
+                    with self.assertRaises(SystemExit):
+                        self.run_stage(project, apps, out, '--console-login')
+                    self.assertEqual((out / 'preserved').read_bytes(), b'previous root')
+                    (work / (name + '.elf')).rename(apps / (name + '.elf'))
 
     def test_missing_time_products_preserve_previous_output(self):
         for name in ('timed', 'timectl', 'resolved', 'resolvectl'):
@@ -87,7 +95,7 @@ class NativeConsoleProfileTests(unittest.TestCase):
                                  {'preserved': b'previous root'})
 
     def test_console_service_drift_refuses_before_previous_output_mutation(self):
-        for mutation in ('missing', 'simple', 'unprivileged', 'reordered'):
+        for mutation in ('missing', 'simple', 'unprivileged', 'reordered', 'direct-login'):
             with self.subTest(mutation=mutation), tempfile.TemporaryDirectory() as directory:
                 work = Path(directory)
                 project, apps = self.project(work)
@@ -100,6 +108,9 @@ class NativeConsoleProfileTests(unittest.TestCase):
                     'unprivileged': original.replace(row, row.replace(b'0 0', b'1000 1000')),
                     'reordered': original.replace(row, b'').replace(b'OK_SERVICE_MANIFEST 2\n',
                         b'OK_SERVICE_MANIFEST 2\n' + row),
+                    # The pre-getty profile ran login straight on the console.
+                    'direct-login': original.replace(b'service console simple /bin/getty - 0 0\n',
+                                                     b'service console simple /bin/login - 0 0\n'),
                 }[mutation]
                 configuration.write_bytes(changed)
                 out = work / 'out'; out.mkdir()

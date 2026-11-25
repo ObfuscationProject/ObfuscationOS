@@ -59,6 +59,23 @@ target("app-login")
     add_syslinks("gcc")
 target_end()
 
+-- The login profile's PID1 console service: runs login on a devpts session.
+target("app-getty")
+    set_kind("binary")
+    set_default(false)
+    set_filename("getty.elf")
+    set_targetdir(path.join(build, "apps"))
+    add_deps("okcrt")
+    add_ok_user_toolchain()
+    add_ok_user_include_dirs()
+    on_load(add_sdk_identity)
+    add_files(path.join(project, "apps", "getty", "main.c"))
+    add_files(path.join(project, "lib", "okcrt", "arch", arch_spec.source, "crt0.S"))
+    add_ok_user_cflags()
+    add_ok_user_linkflags()
+    add_syslinks("gcc")
+target_end()
+
 for _, name in ipairs(app_names) do
     target("app-" .. name)
         set_kind("binary")
@@ -249,7 +266,7 @@ target("apps")
     for _, name in ipairs(app_names) do
         add_deps("app-" .. name)
     end
-    if get_config("native_console_login") then add_deps("app-login") end
+    if get_config("native_console_login") then add_deps("app-getty", "app-login") end
 target_end()
 
 target("sysroot")

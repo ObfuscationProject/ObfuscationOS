@@ -85,10 +85,10 @@ class ConsoleLoggingDiskTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             root = self.root(Path(directory))
             selected = disk.product(root)
-            self.assertEqual(selected['profile'], 'ordinary-native-console-login-logging-time-mount-resolver-v1')
+            self.assertEqual(selected['profile'], 'ordinary-native-console-getty-login-logging-time-mount-resolver-v1')
             self.assertEqual(set(selected['files']), set(disk.PRODUCTS))
             self.assertEqual(selected['files']['/bin/logd'], hashlib.sha256((root / 'bin/logd').read_bytes()).hexdigest())
-            for name in ('timed', 'timectl', 'mountctl', 'resolved', 'resolvectl'):
+            for name in ('getty', 'timed', 'timectl', 'mountctl', 'resolved', 'resolvectl'):
                 self.assertEqual(selected['files']['/bin/' + name],
                                  hashlib.sha256((root / 'bin' / name).read_bytes()).hexdigest())
             self.assertEqual(selected['initial_logging_checkpoint'],
@@ -99,8 +99,8 @@ class ConsoleLoggingDiskTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, 'configuration differs'):
                 disk.product(root)
 
-    def test_missing_or_redirected_time_or_inventory_product_refuses_before_activation(self):
-        for name in ('timed', 'timectl', 'mountctl', 'resolved', 'resolvectl'):
+    def test_missing_or_redirected_getty_time_or_inventory_product_refuses_before_activation(self):
+        for name in ('getty', 'timed', 'timectl', 'mountctl', 'resolved', 'resolvectl'):
             for redirect in (False, True):
                 with self.subTest(name=name, redirect=redirect), tempfile.TemporaryDirectory() as directory:
                     work = Path(directory)
@@ -162,7 +162,10 @@ class ConsoleLoggingDiskTests(unittest.TestCase):
             disk.initial_seed(original, debugfs)
             self.assertEqual(disk.admit(original, root, debugfs), disk.product(root))
             self.assertEqual(disk.sha(original), before)
-            for name, field, value in (('/bin/logd', 'mode', '0100644'),
+            for name, field, value in (('/bin/getty', 'mode', '0100644'),
+                                       ('/bin/getty', 'uid', '1000'),
+                                       ('/bin/getty', 'links_count', '2'),
+                                       ('/bin/logd', 'mode', '0100644'),
                                        ('/bin/logger', 'uid', '1000'),
                                        ('/bin/timed', 'mode', '0100644'),
                                        ('/bin/timed', 'uid', '1000'),
@@ -217,8 +220,8 @@ class ConsoleLoggingDiskTests(unittest.TestCase):
                 disk.admit(original, root, debugfs)
 
     @unittest.skipUnless(shutil.which('debugfs') and shutil.which('mke2fs'), 'ext4 tools required')
-    def test_time_or_inventory_binary_byte_drift_refuses_without_rewriting_the_disk(self):
-        for name in ('timed', 'timectl', 'mountctl', 'resolved', 'resolvectl'):
+    def test_getty_time_or_inventory_binary_byte_drift_refuses_without_rewriting_the_disk(self):
+        for name in ('getty', 'timed', 'timectl', 'mountctl', 'resolved', 'resolvectl'):
             with self.subTest(name=name), tempfile.TemporaryDirectory() as directory:
                 work = Path(directory)
                 root = self.root(work)
@@ -339,6 +342,25 @@ class ConsoleLoggingDiskTests(unittest.TestCase):
             for name in ('resolved', 'resolvectl'):
                 del prior['files']['/bin/' + name]
             old_services = disk.SERVICES.replace(b'service resolved notify /bin/resolved - 0 0\n', b'')
+            prior['files']['/etc/services.conf'] = hashlib.sha256(old_services).hexdigest()
+            image = self.image(work, root, prior)
+            protected = (image, image.with_name(image.name + '.manifest.json'),
+                         image.with_name(image.name + '.activation.log'), root / 'etc/accounts.db')
+            before = {path: disk.sha(path) for path in protected}
+            with patch.object(disk.subprocess, 'run') as external:
+                with self.assertRaisesRegex(ValueError, 'matching complete activation/product evidence'):
+                    disk.admit(image, root, Path(shutil.which('debugfs')))
+                external.assert_not_called()
+            self.assertEqual({path: disk.sha(path) for path in protected}, before)
+
+    @unittest.skipUnless(shutil.which('debugfs') and shutil.which('mke2fs'), 'ext4 tools required')
+    def test_prior_direct_login_profile_refuses_before_disk_inspection_or_account_upgrade(self):
+        with tempfile.TemporaryDirectory() as directory:
+            work = Path(directory); root = self.root(work); prior = disk.product(root)
+            prior['profile'] = 'ordinary-native-console-login-logging-time-mount-resolver-v1'
+            del prior['files']['/bin/getty']
+            old_services = disk.SERVICES.replace(b'/bin/getty - 0 0', b'/bin/login - 0 0')
+            self.assertNotEqual(old_services, disk.SERVICES)
             prior['files']['/etc/services.conf'] = hashlib.sha256(old_services).hexdigest()
             image = self.image(work, root, prior)
             protected = (image, image.with_name(image.name + '.manifest.json'),

@@ -7,75 +7,75 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <signal.h>
-#include <ok/console.h>
 #include <ok/syscall.h>
 #include <string.h>
 #include <sys/random.h>
-#include <sys/ioctl.h>
 #include <sys/stat.h>
+#include <termios.h>
 #include <time.h>
 #include <unistd.h>
 
-static int login_identity_as(uint32_t uid, uint32_t gid)
+static int login_credentials(uint32_t uid, uint32_t gid)
 {
     uid_t real_uid, effective_uid, saved_uid;
     gid_t real_gid, effective_gid, saved_gid;
-    if (getpid() <= 1 || getppid() != 1 ||
-        getresuid(&real_uid, &effective_uid, &saved_uid) < 0 ||
+    if (getresuid(&real_uid, &effective_uid, &saved_uid) < 0 ||
         getresgid(&real_gid, &effective_gid, &saved_gid) < 0) return -1;
     if (real_uid != uid || effective_uid != uid || saved_uid != uid ||
         real_gid != gid || effective_gid != gid || saved_gid != gid) {
         errno = EPERM;
         return -1;
     }
+    return 0;
+}
+
+/* getty opened one pts for login and made it fds 0..2: the same open
+ * description on all three, read-write, kept across exec, owned by uid:gid
+ * and granting nothing beyond 0620. */
+static int login_terminal_identity(uint32_t uid, uint32_t gid)
+{
+    struct stat first;
+    memset(&first, 0, sizeof(first));
     for (int descriptor = 0; descriptor < 3; ++descriptor) {
         struct stat info;
-        int expected = descriptor ? O_WRONLY : O_RDONLY;
-        if (fcntl(descriptor, F_GETFD) != 0 || fcntl(descriptor, F_GETFL) != expected ||
+        if (fcntl(descriptor, F_GETFD) != 0 || fcntl(descriptor, F_GETFL) != O_RDWR ||
             fstat(descriptor, &info) < 0) return -1;
         if ((info.st_mode & S_IFMT) != OK_MODE_CHARACTER_DEVICE ||
-            (info.st_mode & 07777) != 0600 || info.st_uid || info.st_gid ||
-            info.st_size || info.st_nlink != 1) {
+            (info.st_mode & 07777 & ~0620U) || (info.st_mode & 0600) != 0600 ||
+            info.st_uid != uid || info.st_gid != gid || info.st_size || info.st_nlink != 1 ||
+            (descriptor && info.st_ino != first.st_ino)) {
             errno = EPERM;
             return -1;
         }
+        if (!descriptor) first = info;
     }
+    return 0;
+}
+
+/* login leads its own session, which controls that terminal with login's
+ * group in the foreground. Its parent is getty, not PID1. */
+static int login_session_identity(void)
+{
+    pid_t pid = getpid();
+    if (pid <= 1 || getsid(0) != pid || getsid(pid) != pid ||
+        getpgrp() != pid || getpgid(0) != pid || getpgid(pid) != pid ||
+        tcgetsid(STDIN_FILENO) != pid || tcgetpgrp(STDIN_FILENO) != pid) {
+        errno = EPERM;
+        return -1;
+    }
+    return 0;
+}
+
+static int login_identity_as(uint32_t uid, uint32_t gid)
+{
+    if (login_session_identity() < 0 || login_credentials(uid, gid) < 0 ||
+        login_terminal_identity(uid, gid) < 0) return -1;
     return 0;
 }
 
 static int login_identity(void)
 {
     return login_identity_as(0, 0);
-}
-
-static int login_session_identity(void)
-{
-    pid_t pid = getpid();
-    if (pid <= 1 || getppid() != 1 || getsid(0) != pid || getsid(pid) != pid ||
-        getpgrp() != pid || getpgid(0) != pid || getpgid(pid) != pid) {
-        errno = EPERM;
-        return -1;
-    }
-    return 0;
-}
-
-static int login_session_begin(void)
-{
-    pid_t pid = getpid();
-    if (login_identity() < 0) return -1;
-    pid_t sid = setsid();
-    if (sid < 0) return -1;
-    if (sid != pid) { errno = EIO; return -1; }
-    return login_session_identity();
-}
-
-static int login_console_identity(void)
-{
-    if (tcgetsid(STDIN_FILENO) != getpid() || tcgetpgrp(STDIN_FILENO) != getpgrp()) {
-        errno = EPERM;
-        return -1;
-    }
-    return 0;
 }
 
 static int login_delay(void)
@@ -112,7 +112,7 @@ static int login_enroll(struct ok_account_store *store, uint32_t epoch)
     size_t name_size, password_size = 0, repeated_size = 0;
     int result = -1, status;
     if (store->account.state != OK_ACCOUNT_UNCONFIGURED || store->recovering) goto done;
-    if (ok_login_write(STDOUT_FILENO, "Create the first administrator (UID 0). Input is not echoed.\n") < 0) goto done;
+    if (ok_login_write(STDOUT_FILENO, "Create the first administrator (UID 0). Passwords are not echoed.\n") < 0) goto done;
     for (;;) {
         status = ok_login_read_line(epoch, "Account name: ", (unsigned char *)next.name,
                                      sizeof(next.name), &name_size);
@@ -121,14 +121,14 @@ static int login_enroll(struct ok_account_store *store, uint32_t epoch)
         if (ok_login_write(STDOUT_FILENO, "Invalid account name.\n") < 0) goto done;
     }
     for (;;) {
-        status = ok_login_read_line(epoch, "Password: ", password, sizeof(password), &password_size);
+        status = ok_login_read_secret(epoch, "Password: ", password, sizeof(password), &password_size);
         if (status == OK_LOGIN_INPUT_ERROR) goto done;
         if (status != OK_LOGIN_INPUT_OK || !password_size) {
             ok_password_clear(password, sizeof(password));
             if (ok_login_write(STDOUT_FILENO, "Use a nonempty password of at most 128 bytes.\n") < 0) goto done;
             continue;
         }
-        status = ok_login_read_line(epoch, "Repeat password: ", repeated, sizeof(repeated), &repeated_size);
+        status = ok_login_read_secret(epoch, "Repeat password: ", repeated, sizeof(repeated), &repeated_size);
         if (status == OK_LOGIN_INPUT_ERROR) goto done;
         if (status == OK_LOGIN_INPUT_OK && password_size == repeated_size &&
             !memcmp(password, repeated, password_size)) break;
@@ -161,7 +161,7 @@ static int login_rotate(struct ok_account_store *store, uint32_t epoch)
     if (ok_login_write(STDOUT_FILENO,
         "If saving is interrupted, the next sign-in may require the new password.\n") < 0) goto done;
     for (;;) {
-        status = ok_login_read_line(epoch, "New password: ", password, sizeof(password), &password_size);
+        status = ok_login_read_secret(epoch, "New password: ", password, sizeof(password), &password_size);
         if (status == OK_LOGIN_INPUT_ERROR) goto done;
         if (status != OK_LOGIN_INPUT_OK || !password_size) {
             ok_password_clear(password, sizeof(password));
@@ -169,7 +169,7 @@ static int login_rotate(struct ok_account_store *store, uint32_t epoch)
             if (ok_login_write(STDOUT_FILENO, "Use a nonempty password of at most 128 bytes.\n") < 0) goto done;
             continue;
         }
-        status = ok_login_read_line(epoch, "Repeat new password: ", repeated, sizeof(repeated), &repeated_size);
+        status = ok_login_read_secret(epoch, "Repeat new password: ", repeated, sizeof(repeated), &repeated_size);
         if (status == OK_LOGIN_INPUT_ERROR) goto done;
         if (status == OK_LOGIN_INPUT_OK && password_size == repeated_size &&
             !memcmp(password, repeated, password_size)) break;
@@ -219,14 +219,14 @@ static int login_user_secret(struct ok_user *user, uint32_t epoch)
     size_t password_size = 0, repeated_size = 0;
     int result = -1, status;
     for (;;) {
-        status = ok_login_read_line(epoch, "New password: ", password, sizeof(password), &password_size);
+        status = ok_login_read_secret(epoch, "New password: ", password, sizeof(password), &password_size);
         if (status == OK_LOGIN_INPUT_ERROR) goto done;
         if (status != OK_LOGIN_INPUT_OK || !password_size) {
             ok_password_clear(password, sizeof(password));
             if (ok_login_write(STDOUT_FILENO, "Use a nonempty password of at most 128 bytes.\n") < 0) goto done;
             continue;
         }
-        status = ok_login_read_line(epoch, "Repeat new password: ", repeated, sizeof(repeated), &repeated_size);
+        status = ok_login_read_secret(epoch, "Repeat new password: ", repeated, sizeof(repeated), &repeated_size);
         if (status == OK_LOGIN_INPUT_ERROR) goto done;
         if (status == OK_LOGIN_INPUT_OK && password_size == repeated_size &&
             !memcmp(password, repeated, password_size)) break;
@@ -303,7 +303,7 @@ static int login_authenticate(struct ok_account_store *store, struct ok_users_st
                 "Complete account activation or recovery before changing the password.\n") < 0) goto done;
             continue;
         }
-        int password_status = ok_login_read_line(epoch, "Password: ", password, sizeof(password), &password_size);
+        int password_status = ok_login_read_secret(epoch, "Password: ", password, sizeof(password), &password_size);
         if (password_status == OK_LOGIN_INPUT_ERROR) goto done;
         int usable = password_status == OK_LOGIN_INPUT_OK && password_size;
         selected = name_status == OK_LOGIN_INPUT_OK ? ok_users_find(&users->users, (const char *)name, name_size) : -1;
@@ -420,10 +420,12 @@ int main(int argc, char **argv, char **environment)
     char *shell_arguments[] = {"/bin/oksh", 0};
     char *shell_environment[] = {home, "PATH=/bin", user, logname, console, 0};
     (void)argv;
-    /* The session leader keeps the console across job-control signals; the
-     * shell it executes keeps ignoring them and gives its commands the defaults. */
-    if (signal(SIGTTOU, SIG_IGN) == SIG_ERR || signal(SIGTTIN, SIG_IGN) == SIG_ERR ||
-        signal(SIGTSTP, SIG_IGN) == SIG_ERR) goto fail;
+    /* Keyboard and job-control signals from the pts never cut an account
+     * transaction short; the shell keeps ignoring them at its prompt and gives
+     * its commands the defaults. A hangup ends login and the shell. */
+    if (signal(SIGHUP, SIG_DFL) == SIG_ERR || signal(SIGINT, SIG_IGN) == SIG_ERR ||
+        signal(SIGQUIT, SIG_IGN) == SIG_ERR || signal(SIGTTOU, SIG_IGN) == SIG_ERR ||
+        signal(SIGTTIN, SIG_IGN) == SIG_ERR || signal(SIGTSTP, SIG_IGN) == SIG_ERR) goto fail;
     if (argc != 1 || ok_login_epoch(environment, &epoch) < 0 || login_identity() < 0 ||
         ok_account_store_open(&store) < 0) goto fail;
     if (ok_login_write(STDOUT_FILENO, "ObfuscationOS\n") < 0) goto fail;
@@ -441,15 +443,16 @@ int main(int argc, char **argv, char **environment)
     login_environment(home, "HOME=", selection.home);
     login_epoch_environment(console, epoch);
     if (ok_users_store_close(&users) < 0 || ok_account_store_close(&store) < 0) goto fail;
-    /* Account descriptors are closed before creating the authenticated session;
-     * the native console lease and PID1 parent remain independently checked. */
-    if (login_session_begin() < 0 || ioctl(STDIN_FILENO, TIOCSCTTY, 0) < 0 ||
-        login_console_identity() < 0) goto fail;
+    /* Account descriptors are closed before the session is handed over. Only
+     * root may give the terminal away, so an ordinary user's pts changes owner
+     * before the credentials drop. */
     if (selection.ordinary) {
-        if (login_identity() < 0 || ok_login_home_enter(selection.name, selection.uid, selection.gid) < 0 ||
+        if (login_identity() < 0 || fchown(STDIN_FILENO, selection.uid, selection.gid) < 0 ||
+            fchmod(STDIN_FILENO, 0620) < 0 || login_terminal_identity(selection.uid, selection.gid) < 0 ||
+            ok_login_home_enter(selection.name, selection.uid, selection.gid) < 0 ||
             login_identity_as(selection.uid, selection.gid) < 0) goto fail;
     } else if (login_home() < 0 || login_identity() < 0) goto fail;
-    if (login_session_identity() < 0 || login_console_identity() < 0 || ok_console_flush(epoch) < 0) goto fail;
+    if (tcflush(STDIN_FILENO, TCIFLUSH) < 0) goto fail;
     if (rotated == 1 && ok_login_write(STDOUT_FILENO, "Password changed.\n") < 0) goto fail;
     if (rotated == 2 && ok_login_write(STDOUT_FILENO, "Account created.\n") < 0) goto fail;
     execve(shell_arguments[0], shell_arguments, shell_environment);
