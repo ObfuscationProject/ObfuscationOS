@@ -13,7 +13,7 @@ import tempfile
 import unittest
 
 ROOT = Path(__file__).resolve().parents[2]
-SOURCES = (ROOT / 'lib/okcrt/src/syscalls.c',)
+SOURCES = (ROOT / 'lib/okcrt/src/syscalls.c', ROOT / 'lib/okcrt/src/termios.c')
 TEST = ROOT / 'tests/native_terminal_wrapper_tests.c'
 SANITIZE = ['-fsanitize=undefined', '-fno-sanitize-recover=all', '-fno-omit-frame-pointer']
 
