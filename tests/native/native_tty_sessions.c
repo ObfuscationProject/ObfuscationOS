@@ -871,8 +871,10 @@ static void case_orphan_read(void)
     wait_byte(done[0], __LINE__);
 }
 
-/* 19: TIOCSWINSZ sends SIGWINCH to the foreground group, whose default is to
- * ignore it, and both ends read the size back. */
+/* 19: TIOCSWINSZ on either end reads back on the other, and a foreground
+ * member at the default SIGWINCH disposition is neither stopped nor killed.
+ * Whether SIGWINCH was sent is not observable here: native processes have
+ * no handlers or masks, and the default action ignores it. */
 static void case_winsize(void)
 {
     struct winsize size = {0, 0, 0, 0};

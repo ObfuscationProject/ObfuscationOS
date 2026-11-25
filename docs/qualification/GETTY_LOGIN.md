@@ -37,7 +37,7 @@ case instead of hanging the shell. The cases, in order:
 | 16 | `leader_exit` | the leader's exit kills both members of the foreground group with SIGHUP (seen by a background witness) and clears the association |
 | 17 | `orphan_stop` | when the leader exits, a group with stopped members is orphaned: a SIG_DFL member dies of SIGHUP, a member ignoring SIGHUP is continued (WCONTINUED) |
 | 18 | `orphan_read` | in a background group orphaned by its parent's exit, read and `tcsetattr` give EIO and TIOCSPGRP ENOTTY instead of a stop |
-| 19 | `winsize` | the initial window is 0×0; TIOCSWINSZ on either end reads back on the other; SIGWINCH to the foreground group is ignored by default |
+| 19 | `winsize` | the initial window is 0×0; TIOCSWINSZ on either end reads back on the other; a foreground member at the default SIGWINCH disposition is neither stopped nor killed (SIGWINCH delivery itself is not observable natively; the kernel's hosted tests check it) |
 | 20 | `pts_capacity` | run last: besides the case's own pair exactly `OK_PTS_CAPACITY` - 1 more pairs open before `posix_openpt` fails with EAGAIN (the kernel's ENOSPC), and a pair opens again once they are closed |
 
 The probe prints `TTY_SESSIONS_CASE n=<n> name=<name> result=pass` per case
