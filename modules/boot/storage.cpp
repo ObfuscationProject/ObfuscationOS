@@ -4,6 +4,7 @@
 #include <ok/arch/terminal_power.hpp>
 #include <ok/core/shutdown_storage.hpp>
 #include <ok/fs/devfs.hpp>
+#include <ok/fs/sysfs.hpp>
 #include <ok/fs/ext4/layout.hpp>
 #include <ok/fs/fat_fs.hpp>
 #include <ok/fs/ext4_mounted_common_profile.hpp>
@@ -18,6 +19,7 @@ void report(const char *text)
 }
 ok::fs::Ext4FileSystem root_filesystem;
 ok::fs::DeviceFileSystem device_filesystem;
+ok::fs::CpuSysFileSystem cpu_filesystem;
 ok::fs::FatFileSystem media_filesystem;
 using JournalRoot = ok::fs::Ext4MountedMetadata<1>;
 JournalRoot::Registry journal_registry;
@@ -94,8 +96,10 @@ ok::Status admit_shutdown_storage(ok::fs::VirtualFileSystem &vfs, ok::SystemPowe
     return os::drivers::preflight_virtio_block_shutdown(*journal_device);
 }
 
+// A root-owned 0755 directory at `path` (/run, /sys), created when the image
+// lacks it; never a symlink.
 ok::Status ensure_runtime_mountpoint(ok::fs::VirtualFileSystem &vfs,
-                                     const ok::fs::ResolveContext &context)
+                                     const ok::fs::ResolveContext &context, std::string_view path)
 {
     auto validate = [](const ok::fs::Metadata &metadata, bool created) -> ok::Status {
         if (metadata.type == ok::fs::NodeType::symlink)
@@ -111,13 +115,13 @@ ok::Status ensure_runtime_mountpoint(ok::fs::VirtualFileSystem &vfs,
     };
     // Inspect the direct final component without following a disk symlink.
     // The checked stat consumes its path reference before returning metadata.
-    auto existing = vfs.try_stat_absolute("/run", context.credentials, ok::fs::FinalComponent::no_follow);
+    auto existing = vfs.try_stat_absolute(path, context.credentials, ok::fs::FinalComponent::no_follow);
     if (existing.result) return validate(existing.result.value(), false);
     if (existing.result.status().code() != ok::StatusCode::not_found)
         return existing.result.status();
-    if (auto status = vfs.create(context, "/run", ok::fs::NodeType::directory, 0755, 0, 0); !status)
+    if (auto status = vfs.create(context, path, ok::fs::NodeType::directory, 0755, 0, 0); !status)
         return status;
-    auto created = vfs.try_stat_absolute("/run", context.credentials, ok::fs::FinalComponent::no_follow);
+    auto created = vfs.try_stat_absolute(path, context.credentials, ok::fs::FinalComponent::no_follow);
     if (!created.result) return created.result.status();
     return validate(created.result.value(), true);
 }
@@ -126,7 +130,7 @@ ok::Status mount_runtime_directory(ok::fs::VirtualFileSystem &vfs)
 {
     if (run_attachment.valid()) return ok::Status::busy("volatile runtime directory is already attached");
     ok::fs::ResolveContext context{.credentials = {.uid = 0, .gid = 0}, .check_search = true};
-    if (auto status = ensure_runtime_mountpoint(vfs, context); !status) return status;
+    if (auto status = ensure_runtime_mountpoint(vfs, context, "/run"); !status) return status;
     auto attached = vfs.mount_ram_owned("/run", 0755, 0, 0);
     if (!attached) return attached.status();
     run_attachment = attached.value();
@@ -147,6 +151,18 @@ ok::Status mount_runtime_directory(ok::fs::VirtualFileSystem &vfs)
         return status;
     }
     report("OK_DEV source=kernel devices=null,zero,full,tty,console,ptmx,pts\n");
+    // The kernel's CPU attributes (/sys/devices/system/cpu): cpuN/online
+    // writes reach the CPU hotplug service; root only.
+    status = ensure_runtime_mountpoint(vfs, context, "/sys");
+    if (status) status = vfs.mount("/sys", cpu_filesystem.root());
+    if (!status)
+    {
+        char text[96]{}; const auto message = status.message();
+        for (ok::usize i = 0; i < message.size() && i + 1 < sizeof(text); ++i) text[i] = message[i];
+        report("OK_SYS_FAIL "); report(text); report("\n");
+        return status;
+    }
+    report("OK_SYS source=kernel tree=devices/system/cpu\n");
     return {};
 }
 

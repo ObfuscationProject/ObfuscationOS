@@ -18,9 +18,12 @@
  *
  * Each worker sends its counts, or where its first check failed, through one
  * pipe all workers share and exits 0 only if every check held. The parent reaps and checks
- * every worker and prints exactly one line:
+ * every worker and prints exactly one line (`smp-stress W R hotplug` also runs
+ * the user CPU hotplug controller described above controller() and adds its
+ * counts; its pinned children are announced by SMP_STRESS_PINNED lines):
  *
  *   SMP_STRESS_PASS arch=<arch> workers=W rounds=R files=<n> messages=<n> forks=<n> seconds=<s>
+ *                   [hotplug_cycles=<n> pinned=<n> racing=<n> killed=<n> killed_filed=<n> refusals=<n>]
  *   SMP_STRESS_FAIL arch=<arch> reason=<token>
  *
  * files counts the files written and verified, messages the verified round
@@ -32,6 +35,8 @@
 #include <errno.h>
 #include <pthread.h>
 #include <sched.h>
+#include <signal.h>
+#include <stdlib.h>
 #include <fcntl.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -39,6 +44,7 @@
 #include <sys/mman.h>
 #include <sys/socket.h>
 #include <sys/stat.h>
+#include <sys/uio.h>
 #include <sys/wait.h>
 #include <time.h>
 #include <unistd.h>
@@ -466,6 +472,521 @@ static __attribute__((noreturn)) void worker(const char *self, const char *base,
     finish();
 }
 
+/* User CPU hotplug (smp-stress W R hotplug): a controller process cycles every
+ * present secondary CPU offline and online again through
+ * /sys/devices/system/cpu/cpuN/online while the workers run, until the parent
+ * creates the stop file and at least two full cycles ran. Each cycle checks,
+ * while CPU N is offline, that cpuN/online reads 0, the online list excludes
+ * N and the offline list names it, sched_getaffinity counts the online CPUs
+ * as sysconf(_SC_NPROCESSORS_ONLN) does, and no sched_getcpu() reports N. On
+ * top, per secondary and cycle in turn:
+ *
+ * - pinned: a child pinned to N runs on N; N goes offline and the child keeps
+ *   running elsewhere with its affinity reset (the kernel names it in an
+ *   OK_SMP_AFFINITY_BROKEN line; the controller prints SMP_STRESS_PINNED);
+ * - racing: two children write the same value to cpuN/online at once; each
+ *   write succeeds or is EBUSY, never anything else, and one succeeds;
+ * - killed: children writing "0" get SIGKILL (kill_writer), possibly while
+ *   they wait in the uninterruptible hotplug wait, until one died after its
+ *   request was filed; with three or more CPUs also writers of "0" and of
+ *   "1" (to an offline N) killed right after they announced their write
+ *   through shared memory, at varied points of their uninterruptible wait
+ *   (kill_waiting); the CPU stays usable either way;
+ * - otherwise the cycle writes directly or, every other time, runs the
+ *   distribution's /bin/chcpu -d and -e.
+ *
+ * The direct writes of the pinned and plain cycles rotate through write(),
+ * writev() (digit and newline in two vectors) and pwrite(), each of which
+ * waits for the service; the controller stops only after every one took a
+ * CPU offline and back.
+ *
+ * Before the first cycle it checks the refusals: cpu0/online is ENOENT
+ * (O_WRONLY) and EACCES (O_CREAT), `online` opened for writing is EACCES,
+ * "x" is EINVAL and uid 1000 gets EACCES. Its record: rounds = cycles, files =
+ * pinned children that survived, messages = racing pairs, forks = kills that
+ * landed, round = refusals checked and, as it passed, error = kills whose
+ * request was filed (the CPU went offline although its writer died). */
+#define CPU_ROOT "/sys/devices/system/cpu"
+#define MAX_CPUS 16
+
+static long cpu_list(const char *name)
+{
+    char path[64], text[64];
+    join(path, CPU_ROOT, name);
+    int fd = open(path, O_RDONLY);
+    if (fd < 0)
+        return -1;
+    ssize_t got = read(fd, text, sizeof text - 1);
+    close(fd);
+    if (got <= 0)
+        return -1;
+    text[got] = 0;
+    long mask = 0;
+    const char *p = text;
+    if (*p == '\n')
+        return 0;
+    for (;;)
+    {
+        long first = 0, last;
+        if (*p < '0' || *p > '9')
+            return -1;
+        while (*p >= '0' && *p <= '9')
+            first = first * 10 + (*p++ - '0');
+        last = first;
+        if (*p == '-')
+        {
+            last = 0;
+            ++p;
+            while (*p >= '0' && *p <= '9')
+                last = last * 10 + (*p++ - '0');
+        }
+        if (first > last || last >= MAX_CPUS)
+            return -1;
+        for (long cpu = first; cpu <= last; ++cpu)
+            mask |= 1L << cpu;
+        if (*p == ',')
+        {
+            ++p;
+            continue;
+        }
+        return *p == '\n' ? mask : -1;
+    }
+}
+
+static void online_path(char *path, unsigned cpu)
+{
+    char name[16];
+    name_into(name, "cpu", cpu, 0, 0);
+    join(path, CPU_ROOT, name);
+    join(path, path, "online");
+}
+
+/* One write of `value` to cpuN/online: 0 on success, else errno. `method`
+   0 is write(); 1 is writev() with the digit and the newline in two
+   vectors; 2 is pwrite() at offset 0. */
+static int set_cpu_via(unsigned cpu, char value, unsigned method)
+{
+    char path[64];
+    online_path(path, cpu);
+    int fd = open(path, O_WRONLY);
+    if (fd < 0)
+        return errno ? errno : EIO;
+    char text[2] = {value, '\n'};
+    struct iovec parts[2] = {{&text[0], 1}, {&text[1], 1}};
+    const ssize_t wrote = method == 1 ? writev(fd, parts, 2) : method == 2 ? pwrite(fd, text, 2, 0)
+                                                                          : write(fd, text, 2);
+    const int error = wrote == 2 ? 0 : wrote < 0 ? errno : EIO;
+    close(fd);
+    return error;
+}
+
+static int set_cpu(unsigned cpu, char value)
+{
+    return set_cpu_via(cpu, value, 0);
+}
+
+/* cpuN/online's digit, or -1. */
+static int cpu_state(unsigned cpu)
+{
+    char path[64], text[4];
+    online_path(path, cpu);
+    int fd = open(path, O_RDONLY);
+    if (fd < 0)
+        return -1;
+    const ssize_t got = read(fd, text, sizeof text);
+    close(fd);
+    return got == 2 && text[1] == '\n' && (text[0] == '0' || text[0] == '1') ? text[0] - '0' : -1;
+}
+
+static long affinity(void)
+{
+    cpu_set_t set;
+    CPU_ZERO(&set);
+    if (sched_getaffinity(0, sizeof set, &set))
+        return -1;
+    long mask = 0;
+    for (int cpu = 0; cpu < MAX_CPUS; ++cpu)
+        if (CPU_ISSET(cpu, &set))
+            mask |= 1L << cpu;
+    return CPU_COUNT(&set) == __builtin_popcountl(mask) ? mask : -1;
+}
+
+static int pin(long mask)
+{
+    cpu_set_t set;
+    CPU_ZERO(&set);
+    for (int cpu = 0; cpu < MAX_CPUS; ++cpu)
+        if (mask & (1L << cpu))
+            CPU_SET(cpu, &set);
+    return sched_setaffinity(0, sizeof set, &set);
+}
+
+/* Bring `cpu` online again, retrying while a killed writer's request still runs. */
+static int restore_cpu(unsigned cpu)
+{
+    for (int attempt = 0; attempt < 400; ++attempt)
+    {
+        const int state = cpu_state(cpu);
+        if (state == 1)
+            return 0;
+        const int error = state == 0 ? set_cpu(cpu, '1') : EBUSY;
+        if (!error)
+            return 0;
+        if (error != EBUSY)
+            return error;
+        const struct timespec pause = {0, 10000000};
+        nanosleep(&pause, 0);
+    }
+    return EBUSY;
+}
+
+/* While `cpu` is offline: the files, the affinity and getcpu agree. */
+static void check_offline(unsigned cpu)
+{
+    const long online = cpu_list("online"), offline = cpu_list("offline"), present = cpu_list("present");
+    CHECK(cpu_state(cpu) == 0);
+    CHECK(online > 0 && !(online & (1L << cpu)) && offline >= 0 && (offline & (1L << cpu)));
+    CHECK(offline == (present & ~online));
+    const long allowed = affinity();
+    CHECK(allowed == online && sysconf(_SC_NPROCESSORS_ONLN) == __builtin_popcountl(online));
+    for (int sample = 0; sample < 32; ++sample)
+    {
+        const int here = sched_getcpu();
+        CHECK(here >= 0 && here != (int)cpu && (online & (1L << here)));
+        sched_yield();
+    }
+}
+
+/* Exit codes of a racing writer: 0 written, 1 EBUSY, 2 anything else. */
+static __attribute__((noreturn)) void racer(unsigned cpu, char value)
+{
+    const int error = set_cpu(cpu, value);
+    _exit(error == 0 ? 0 : error == EBUSY ? 1 : 2);
+}
+
+/* A child pinned to `cpu` until its affinity breaks; exits 0 if it kept running. */
+static __attribute__((noreturn)) void pinned_child(unsigned cpu, const char *flag)
+{
+    if (pin(1L << cpu) || affinity() != (1L << cpu))
+        _exit(2);
+    sched_yield();
+    if (sched_getcpu() != (int)cpu)
+        _exit(3);
+    const int fd = open(flag, O_WRONLY | O_CREAT | O_EXCL, 0644);
+    if (fd < 0)
+        _exit(4);
+    close(fd);
+    /* User-mode work on its CPU until the offline resets the mask. */
+    volatile unsigned long spin = 0;
+    long now = affinity();
+    /* While the CPU leaves, its last calls on it see no online CPU allowed. */
+    for (unsigned long rounds = 0; now == (1L << cpu) || now == 0; ++rounds, now = affinity())
+    {
+        for (int i = 0; i < 20000; ++i)
+            spin = spin + (unsigned long)i;
+        if (rounds > 2000000)
+            _exit(5);
+    }
+    /* Reset to every CPU; it now runs on an online one. */
+    const long online = cpu_list("online");
+    const int here = sched_getcpu();
+    _exit(now == online && here >= 0 && here != (int)cpu ? 0 : 6);
+}
+
+/* Runs /bin/chcpu OPTION CPU; its exit status, or -1. */
+static int chcpu(const char *option, unsigned cpu)
+{
+    char number[16];
+    name_into(number, "", cpu, 0, 0);
+    const pid_t child = fork();
+    if (child < 0)
+        return -1;
+    if (child == 0)
+    {
+        char *const argv[] = {"/bin/chcpu", (char *)option, number, 0};
+        char *const envp[] = {0};
+        execve(argv[0], argv, envp);
+        _exit(127);
+    }
+    int status = 0;
+    if (reap(child, &status) != child || !WIFEXITED(status))
+        return -1;
+    return WEXITSTATUS(status);
+}
+
+/* SIGKILL to a child writing "0" to cpuN/online, then N online again.
+   mode 0: right away, before or while it files its request. mode 1: once
+   the CPU reads offline, the controller and the writer sharing CPU 0, which
+   serves the request between their steps: the writer holds a result it has
+   not consumed when the kill lands. mode 2: once the CPU reads offline, from
+   any CPU: with three or more CPUs the kill can land while CPU 0 still
+   stops N and the writer waits. A killed writer whose CPU still went
+   offline had filed its request (result.error counts them). With two CPUs
+   only mode 1 can find one: the controller never runs while CPU 0 stops
+   the other CPU. */
+static void kill_writer(unsigned cpu, unsigned mode)
+{
+    const long present = cpu_list("present");
+    if (mode == 1)
+        CHECK(pin(1) == 0);
+    const pid_t child = fork();
+    CHECK(child >= 0);
+    if (child == 0)
+        racer(cpu, '0');
+    int status = 0;
+    pid_t gone = 0;
+    if (mode == 0)
+        for (unsigned spin = 0; spin < (unsigned)result.forks % 4 * 3; ++spin)
+            sched_yield();
+    else
+        for (int poll = 0; poll < 20000 && !gone && cpu_state(cpu) == 1; ++poll)
+        {
+            /* From other CPUs a short sleep per poll keeps the kernel lock
+               free for the stop; on CPU 0 the stop runs between steps. */
+            if (mode == 2)
+            {
+                const struct timespec pause = {0, 500000};
+                nanosleep(&pause, 0);
+            }
+            gone = waitpid(child, &status, WNOHANG);
+        }
+    if (!gone)
+    {
+        kill(child, SIGKILL);
+        gone = reap(child, &status);
+    }
+    CHECK(gone == child);
+    if (WIFSIGNALED(status))
+    {
+        CHECK(WTERMSIG(status) == SIGKILL);
+        ++result.forks;
+        for (int wait = 0; wait < 200 && cpu_state(cpu) == 1; ++wait)
+            sched_yield();
+        result.error += cpu_state(cpu) != 1;
+    }
+    else
+        CHECK(WIFEXITED(status) && WEXITSTATUS(status) <= 1);
+    if (mode == 1)
+        CHECK(pin(present) == 0);
+    const int error = restore_cpu(cpu);
+    errno = error;
+    CHECK(error == 0 && cpu_state(cpu) == 1);
+}
+
+/* Shared with kill_waiting's writer: set just before its write. */
+static volatile uint32_t *announce;
+
+/* With three or more CPUs: SIGKILL to a child writing `value` ('0' stops N,
+   '1' restarts it after the controller took it offline) as soon as it
+   announced its write through shared memory, after `spins` rounds of user
+   work, so that the kill lands while the writer waits uninterruptibly:
+   before CPU 0 takes its request (dropped_waiting), or while CPU 0 runs it
+   (abandoned). Returns 1 when the kill landed before the writer exited; N
+   is online again on return. */
+static int kill_waiting(unsigned cpu, char value, unsigned spins)
+{
+    if (value == '1')
+        CHECK(set_cpu(cpu, '0') == 0);
+    *announce = 0;
+    const pid_t child = fork();
+    CHECK(child >= 0);
+    if (child == 0)
+    {
+        char path[64];
+        online_path(path, cpu);
+        const int fd = open(path, O_WRONLY);
+        if (fd < 0)
+            _exit(2);
+        const char text[2] = {value, '\n'};
+        *announce = 1;
+        const ssize_t wrote = write(fd, text, 2);
+        _exit(wrote == 2 ? 0 : wrote < 0 && errno == EBUSY ? 1 : 2);
+    }
+    /* No system call until the kill: the writer runs on another CPU. */
+    for (unsigned long wait = 0; !*announce && wait < 2000000000ul; ++wait)
+        ;
+    volatile unsigned long work = 0;
+    for (unsigned i = 0; i < spins; ++i)
+        work = work + i;
+    kill(child, SIGKILL);
+    int status = 0;
+    CHECK(reap(child, &status) == child);
+    int killed = 0;
+    if (WIFSIGNALED(status))
+    {
+        CHECK(WTERMSIG(status) == SIGKILL);
+        ++result.forks;
+        killed = 1;
+    }
+    else
+        CHECK(WIFEXITED(status) && WEXITSTATUS(status) <= 1);
+    const int error = restore_cpu(cpu);
+    errno = error;
+    CHECK(error == 0 && cpu_state(cpu) == 1);
+    return killed;
+}
+
+static void say_pinned(pid_t pid, unsigned cpu)
+{
+    struct line out = {{0}, 0};
+    put(&out, "SMP_STRESS_PINNED pid=");
+    put_number(&out, (uint64_t)pid);
+    put(&out, " cpu=");
+    put_number(&out, cpu);
+    emit(&out);
+}
+
+static void refusals(unsigned secondary)
+{
+    errno = 0;
+    CHECK(open(CPU_ROOT "/cpu0/online", O_WRONLY) < 0 && errno == ENOENT);
+    errno = 0;
+    CHECK(open(CPU_ROOT "/cpu0/online", O_WRONLY | O_CREAT | O_TRUNC, 0644) < 0 && errno == EACCES);
+    errno = 0;
+    CHECK(open(CPU_ROOT "/online", O_WRONLY) < 0 && errno == EACCES);
+    char path[64];
+    online_path(path, secondary);
+    int fd = open(path, O_WRONLY);
+    CHECK(fd >= 0);
+    errno = 0;
+    CHECK(write(fd, "x", 1) < 0 && errno == EINVAL);
+    close(fd);
+    const pid_t user = fork();
+    CHECK(user >= 0);
+    if (user == 0)
+    {
+        if (setgid(1000) || setuid(1000))
+            _exit(2);
+        errno = 0;
+        _exit(open(path, O_WRONLY) < 0 && errno == EACCES ? 0 : 3);
+    }
+    int status = 0;
+    CHECK(reap(user, &status) == user && WIFEXITED(status) && WEXITSTATUS(status) == 0);
+    result.round = 5;
+}
+
+static __attribute__((noreturn)) void controller(const char *base, const char *stop, unsigned index)
+{
+    result.worker = index;
+    const long present = cpu_list("present");
+    CHECK(present > 1 && cpu_list("online") == present);
+    const long secondaries = present & ~1L;
+    unsigned first = 1;
+    while (!(secondaries & (1L << first)))
+        ++first;
+    refusals(first);
+    unsigned cycle = 0, scenario = 0, kills = 0, chcpu_runs = 0, plain = 0, method = 0, methods = 0;
+    unsigned waits = 0;
+    announce = mmap(0, 4096, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_ANONYMOUS, -1, 0);
+    CHECK(announce != MAP_FAILED);
+    for (;; ++cycle)
+    {
+        /* Every write method took a CPU offline and back at least once. */
+        if (cycle >= 2 && scenario >= 4 && chcpu_runs && methods == 7 && access(stop, F_OK) == 0)
+            break;
+        CHECK(cycle < 10000);
+        for (unsigned cpu = 1; cpu < MAX_CPUS; ++cpu)
+        {
+            if (!(secondaries & (1L << cpu)))
+                continue;
+            const unsigned kind = scenario++ % 4;
+            if (kind == 1)
+            {
+                /* Pinned: the child's only CPU goes offline under it. */
+                char flag[64], name[32];
+                name_into(name, "pinned-", cycle, '-', cpu);
+                join(flag, base, name);
+                const pid_t child = fork();
+                CHECK(child >= 0);
+                if (child == 0)
+                    pinned_child(cpu, flag);
+                for (int wait = 0; access(flag, F_OK) != 0; ++wait)
+                {
+                    int status;
+                    CHECK(wait < 100000 && waitpid(child, &status, WNOHANG) == 0);
+                    sched_yield();
+                }
+                say_pinned(child, cpu);
+                CHECK(set_cpu_via(cpu, '0', method % 3) == 0);
+                check_offline(cpu);
+                int status = 0;
+                CHECK(reap(child, &status) == child && WIFEXITED(status));
+                errno = (int)WEXITSTATUS(status);
+                CHECK(WEXITSTATUS(status) == 0);
+                CHECK(unlink(flag) == 0);
+                ++result.files;
+            }
+            else if (kind == 2)
+            {
+                /* Racing: two writers of the same value, each way. */
+                for (char value = '0'; value <= '1'; ++value)
+                {
+                    pid_t racers[2];
+                    for (int i = 0; i < 2; ++i)
+                    {
+                        racers[i] = fork();
+                        CHECK(racers[i] >= 0);
+                        if (racers[i] == 0)
+                            racer(cpu, value);
+                    }
+                    int written = 0;
+                    for (int i = 0; i < 2; ++i)
+                    {
+                        int status = 0;
+                        CHECK(reap(racers[i], &status) == racers[i] && WIFEXITED(status));
+                        errno = (int)WEXITSTATUS(status);
+                        CHECK(WEXITSTATUS(status) <= 1);
+                        written += WEXITSTATUS(status) == 0;
+                    }
+                    CHECK(written >= 1 && cpu_state(cpu) == value - '0');
+                    if (value == '0')
+                        check_offline(cpu);
+                }
+                ++result.messages;
+                continue;
+            }
+            else if (kind == 3)
+            {
+                /* Killed: SIGKILL writers, maybe in their uninterruptible
+                   wait, until one died after filing its request. */
+                unsigned attempts = 0;
+                do
+                    kill_writer(cpu, kills++ % 3);
+                while (!result.error && ++attempts < 32);
+                /* With three or more CPUs, kills aimed at writers in their
+                   uninterruptible wait, stopping or restarting N, landing
+                   at varied points of it. */
+                static const unsigned spins[] = {0, 1000, 10000, 100000};
+                if (__builtin_popcountl(present) >= 3)
+                    for (unsigned attempt = 0; attempt < 4; ++attempt, ++waits)
+                        kill_waiting(cpu, waits % 2 ? '1' : '0', spins[waits / 2 % 4]);
+                continue;
+            }
+            else if (plain++ % 2)
+            {
+                /* The distribution's chcpu, as an administrator runs it. */
+                CHECK(chcpu("-d", cpu) == 0);
+                check_offline(cpu);
+                CHECK(chcpu("-e", cpu) == 0 && cpu_state(cpu) == 1);
+                CHECK(cpu_list("online") & (1L << cpu));
+                ++chcpu_runs;
+                continue;
+            }
+            else
+            {
+                CHECK(set_cpu_via(cpu, '0', method % 3) == 0);
+                check_offline(cpu);
+            }
+            CHECK(set_cpu_via(cpu, '1', method % 3) == 0 && cpu_state(cpu) == 1);
+            CHECK(cpu_list("online") & (1L << cpu));
+            methods |= 1u << (method++ % 3);
+        }
+    }
+    CHECK(cpu_list("online") == present && affinity() == present);
+    result.rounds = cycle;
+    finish();
+}
+
 int main(int argc, char **argv)
 {
     long value;
@@ -476,7 +997,8 @@ int main(int argc, char **argv)
         _exit((int)value);
     }
     long workers = DEFAULT_WORKERS, rounds = DEFAULT_ROUNDS;
-    if (argc > 3 || (argc > 1 && parse(argv[1], 1, MAX_WORKERS, &workers)) ||
+    const int hotplug = argc == 4 && !strcmp(argv[3], "hotplug");
+    if ((argc > 3 && !hotplug) || (argc > 1 && parse(argv[1], 1, MAX_WORKERS, &workers)) ||
         (argc > 2 && parse(argv[2], 1, MAX_ROUNDS, &rounds)))
     {
         errno = EINVAL;
@@ -511,26 +1033,73 @@ int main(int argc, char **argv)
             worker(self, base, (unsigned)i, (unsigned)rounds, gate[0]);
         }
     }
+    /* The hotplug controller reports through the same channel, as one more record. */
+    char stop[64];
+    join(stop, base, "stop");
+    pid_t control = 0;
+    if (hotplug)
+    {
+        control = fork();
+        if (control < 0)
+            fail("fork", (uint64_t)workers);
+        if (control == 0)
+        {
+            close(gate[0]);
+            close(gate[1]);
+            close(channel[0]);
+            record_fd = channel[1];
+            controller(base, stop, (unsigned)workers);
+        }
+    }
     close(gate[0]);
     close(gate[1]);
     close(channel[1]);
 
-    int statuses[MAX_WORKERS] = {0}, reaped[MAX_WORKERS] = {0}, received[MAX_WORKERS] = {0};
+    int statuses[MAX_WORKERS] = {0}, reaped[MAX_WORKERS] = {0}, received[MAX_WORKERS + 1] = {0};
     for (long i = 0; i < workers; ++i)
         reaped[i] = reap(children[i], &statuses[i]) == children[i];
-    struct record reports[MAX_WORKERS];
+    int control_status = 0;
+    if (hotplug)
+    {
+        const int marker = open(stop, O_WRONLY | O_CREAT | O_EXCL, 0644);
+        if (marker < 0)
+            fail("stop", 0);
+        close(marker);
+        if (reap(control, &control_status) != control)
+            fail("reap-controller", 0);
+    }
+    struct record reports[MAX_WORKERS + 1];
     for (;;)
     {
         struct record report;
         const int got = read_all(channel[0], (unsigned char *)&report, sizeof report);
         if (got == 1)
             break;
-        if (got || report.worker >= (uint32_t)workers || received[report.worker])
+        if (got || report.worker >= (uint32_t)workers + (hotplug ? 1u : 0u) || received[report.worker])
             fail("record", got ? 0 : report.worker);
         reports[report.worker] = report;
         received[report.worker] = 1;
     }
     close(channel[0]);
+    if (hotplug)
+    {
+        const struct record control_report = reports[workers];
+        if (!received[workers] || control_report.failed || !WIFEXITED(control_status) ||
+            WEXITSTATUS(control_status) != 0)
+        {
+            struct line out = {{0}, 0};
+            put(&out, "SMP_STRESS_FAIL arch=" PROBE_ARCH " reason=hotplug-line-");
+            put_number(&out, received[workers] ? control_report.line : 0);
+            put(&out, "-errno-");
+            put_number(&out, received[workers] ? control_report.error : 0);
+            put(&out, "-status-");
+            put_number(&out, (uint64_t)control_status);
+            emit(&out);
+            return 1;
+        }
+        if (unlink(stop))
+            fail("unlink-stop", 0);
+    }
 
     uint64_t files = 0, messages = 0, forks = 0;
     long failed = -1;
@@ -597,6 +1166,22 @@ int main(int argc, char **argv)
     put_number(&out, milliseconds / 100u % 10u);
     put_number(&out, milliseconds / 10u % 10u);
     put_number(&out, milliseconds % 10u);
+    if (hotplug)
+    {
+        const struct record control_report = reports[workers];
+        put(&out, " hotplug_cycles=");
+        put_number(&out, control_report.rounds);
+        put(&out, " pinned=");
+        put_number(&out, control_report.files);
+        put(&out, " racing=");
+        put_number(&out, control_report.messages);
+        put(&out, " killed=");
+        put_number(&out, control_report.forks);
+        put(&out, " killed_filed=");
+        put_number(&out, control_report.error);
+        put(&out, " refusals=");
+        put_number(&out, control_report.round);
+    }
     emit(&out);
     return 0;
 }

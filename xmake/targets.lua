@@ -1,4 +1,4 @@
-local app_names = {"init", "oksh", "posix-check", "udp-probe", "hello", "cat", "ls", "stat", "mkdir", "rm", "mv", "ln", "pwd", "whoami", "uname", "uptime", "touch", "settings", "tasks", "notes", "about", "sync", "kmodload", "service-ctl", "logd", "logger", "timed", "timectl", "mountctl", "resolved", "resolvectl"}
+local app_names = {"init", "oksh", "posix-check", "udp-probe", "hello", "cat", "ls", "stat", "mkdir", "rm", "mv", "ln", "pwd", "whoami", "uname", "uptime", "touch", "settings", "tasks", "notes", "about", "sync", "kmodload", "service-ctl", "logd", "logger", "timed", "timectl", "mountctl", "resolved", "resolvectl", "chcpu"}
 
 local arch, arch_spec = ok_user_require_arch(ok_user_current_arch())
 local project = os.projectdir()
@@ -462,7 +462,7 @@ target_end()
 -- so the supervised service programs (started only from ext4 roots through
 -- services*.conf) are omitted here. The archive unit tests still require an unfiltered 33+-entry root to
 -- be rejected.
-local simplefs_omit = "logd,logger,timed,timectl,resolved,resolvectl,mountctl,service-ctl"
+local simplefs_omit = "logd,logger,timed,timectl,resolved,resolvectl,mountctl,service-ctl,chcpu"
 
 target("rootfs-simplefs")
     set_kind("phony")

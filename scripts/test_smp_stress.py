@@ -33,6 +33,27 @@ probe started (cycling begins at userland start, so only those later cycles
 ran under the probe's load). A debug kernel's boot test point also
 stops and restarts CPU 1 before userland; its OK_SMP_HOTPLUG_BOOT line, when
 printed, must pass every check.
+
+--user-hotplug (SMP profiles, two or more vCPUs) runs the probe's hotplug
+controller beside the workers: it cycles every secondary CPU offline and
+online through /sys/devices/system/cpu/cpuN/online and checks the files,
+sched_getaffinity, sysconf and sched_getcpu while each is offline, a child
+pinned to the leaving CPU surviving it, two racing writers, writers killed
+in or around their uninterruptible wait (with three or more vCPUs at least
+one whose request was filed: its CPU went offline although it died) and the
+refusals (cpu0/online, `online`, "x",
+uid 1000). The probe's PASS line must report its cycles, every pinned child
+it announced (SMP_STRESS_PINNED) must be named by the kernel's
+OK_SMP_AFFINITY_BROKEN line, and the OK_SMP_HOTPLUG_USER line of the probe's
+exit report must show as many CPUs brought online as taken offline, every
+secondary taken offline once per cycle (less writers killed before they
+filed), no failure and no wedged CPU. The OK_SMP_HOTPLUG_RECORDS line after
+it may count no more abandoned, dropped and orphaned requests than kills, and
+with three or more vCPUs at least one abandoned request: a writer killed in
+its uninterruptible wait while CPU 0 ran its request. The controller's direct writes rotate
+through write(), writev() and pwrite(). It is incompatible with
+--require-hotplug: the smp_hotplug_test knob owns its CPU and makes writes
+to it EBUSY.
 """
 from pathlib import Path
 import argparse
@@ -77,6 +98,13 @@ FAMILY_NAMES = ('getpid', 'gettid', 'clock_gettime', 'clock_getres', 'read', 'wr
 DECLINE_NAMES = ('runtime', 'personality', 'number', 'pending', 'console', 'descriptor', 'kind', 'append', 'size',
                  'fault', 'shadow', 'shutdown')
 HOTPLUG = re.compile(rb'OK_SMP_HOTPLUG scope=hardware cycles=(\d+) failures=(\d+) cpu=(\d+)\r?\n')
+HOTPLUG_USER = re.compile(rb'OK_SMP_HOTPLUG_USER scope=hardware((?: [a-z_]+=\d+)+)\r?\n')
+HOTPLUG_USER_FIELDS = ('requests', 'offline', 'online', 'noop', 'failures', 'busy', 'orphaned', 'wedged',
+                       'affinity_broken', 'max_us')
+HOTPLUG_RECORDS = re.compile(rb'OK_SMP_HOTPLUG_RECORDS scope=hardware abandoned=(\d+) dropped_waiting=(\d+) '
+                             rb'dropped_done=(\d+)\r?\n')
+PINNED = re.compile(rb'SMP_STRESS_PINNED pid=(\d+) cpu=(\d+)\r?\n')
+BROKEN = re.compile(rb'OK_SMP_AFFINITY_BROKEN pid=(\d+) tid=(\d+) cpu=(\d+)\r?\n')
 HOTPLUG_BOOT = re.compile(rb'OK_SMP_HOTPLUG_BOOT scope=hardware cpu=1 stop=(\w+) parked_ipi=(\w+) '
                           rb'restart=(\w+) ipi=(\w+)\r?\n')
 # Messages per round in the probe; files and forks are two per round.
@@ -246,6 +274,70 @@ def hotplug_boot(serial):
     return HOTPLUG_BOOT.search(serial).group(0).decode().strip()
 
 
+def user_hotplug(serial, result, counts, online):
+    """The --user-hotplug requirements for one passing probe run."""
+    names = ('hotplug_cycles', 'pinned', 'racing', 'killed', 'killed_filed', 'refusals')
+    if any(name not in counts for name in names):
+        raise RuntimeError('the probe did not run its hotplug controller')
+    probe = {name: int(counts[name]) for name in names}
+    # A killed writer whose CPU still went offline had filed its request. With
+    # two CPUs the controller cannot run while CPU 0 stops the other one, so
+    # it can only kill a writer holding an unconsumed result, which races
+    # the writer's own re-dispatch; three or more CPUs also kill writers that
+    # still wait while their CPU stops.
+    if (probe['hotplug_cycles'] < 2 or probe['pinned'] < 1 or probe['racing'] < 1 or probe['killed'] < 1 or
+            (online >= 3 and probe['killed_filed'] < 1) or probe['refusals'] != 5):
+        raise RuntimeError('hotplug controller counts too low: %r' % probe)
+    pinned = [(int(pid), int(cpu)) for pid, cpu in PINNED.findall(serial)]
+    broken = [(int(pid), int(tid), int(cpu)) for pid, tid, cpu in BROKEN.findall(serial)]
+    if len(pinned) != probe['pinned']:
+        raise RuntimeError('SMP_STRESS_PINNED lines differ from the pinned count')
+    for pid, cpu in pinned:
+        if not 1 <= cpu < online or (pid, pid, cpu) not in broken:
+            raise RuntimeError(f'no OK_SMP_AFFINITY_BROKEN line names pinned child {pid} on CPU {cpu}')
+    reports = list(HOTPLUG_USER.finditer(serial[result.end():]))
+    if not reports:
+        raise RuntimeError('no OK_SMP_HOTPLUG_USER report after the probe')
+    fields = {}
+    for token in reports[-1].group(1).decode().split():
+        name, value = token.split('=')
+        fields[name] = int(value)
+    if tuple(fields) != HOTPLUG_USER_FIELDS:
+        raise RuntimeError('OK_SMP_HOTPLUG_USER fields differ from the report format')
+    problems = []
+    if fields['failures'] or fields['wedged']:
+        problems.append('failures=%d wedged=%d' % (fields['failures'], fields['wedged']))
+    # Every cycle takes each secondary offline once; a writer killed before
+    # its request was filed takes nothing offline.
+    floor = probe['hotplug_cycles'] * (online - 1) - probe['killed']
+    if fields['offline'] < floor or fields['online'] != fields['offline']:
+        problems.append('offline=%d online=%d for %d cycles of %d secondaries' % (
+            fields['offline'], fields['online'], probe['hotplug_cycles'], online - 1))
+    if fields['affinity_broken'] < probe['pinned']:
+        problems.append('affinity_broken=%d below %d pinned' % (fields['affinity_broken'], probe['pinned']))
+    if fields['orphaned'] > probe['killed']:
+        problems.append('orphaned=%d above %d kills' % (fields['orphaned'], probe['killed']))
+    records = list(HOTPLUG_RECORDS.finditer(serial[result.end():]))
+    if not records:
+        raise RuntimeError('no OK_SMP_HOTPLUG_RECORDS report after the probe')
+    abandoned, waiting, done = (int(value) for value in records[-1].groups())
+    # A writer killed in its uninterruptible wait leaves its request armed
+    # (dropped_waiting) or, while CPU 0 runs it, abandoned: the service still
+    # changes the CPU, frees the request and completes nothing. With three or
+    # more CPUs the controller aims kills at that wait from another CPU, and
+    # some land while CPU 0 runs the request.
+    if online >= 3 and abandoned < 1:
+        problems.append('abandoned=%d dropped_waiting=%d: no writer was killed while CPU 0 ran its request' % (
+            abandoned, waiting))
+    if abandoned + waiting + done + fields['orphaned'] > probe['killed']:
+        problems.append('abandoned=%d dropped_waiting=%d dropped_done=%d orphaned=%d above %d kills' % (
+            abandoned, waiting, done, fields['orphaned'], probe['killed']))
+    if problems:
+        raise RuntimeError('user hotplug requirements failed: ' + '; '.join(problems))
+    return dict(probe=probe, kernel=fields, records=dict(abandoned=abandoned, dropped_waiting=waiting, dropped_done=done), pinned=pinned,
+                line=reports[-1].group(0).decode().strip() + ' ' + records[-1].group(0).decode().strip())
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--arch', choices=ARCH_TRIPLES, required=True)
@@ -260,6 +352,8 @@ def main():
                         help='development only: accept a UP boot on an SMP profile and skip the per-CPU check')
     parser.add_argument('--require-hotplug', action='store_true',
                         help='the kernel must report CPU hotplug cycles (built with smp_hotplug_test)')
+    parser.add_argument('--user-hotplug', action='store_true',
+                        help='also cycle secondary CPUs through /sys/devices/system/cpu (SMP profiles, 2+ vCPUs)')
     parser.add_argument('--timeout', type=float, default=600)
     parser.add_argument('--smp-sections', choices=('on', 'off'),
                         help='the kernel runs converted syscalls as kernel sections (on) or was built with '
@@ -272,6 +366,10 @@ def main():
         raise SystemExit(f'--smp-sections on needs x86_64, aarch64 or rv64; {args.arch} builds no kernel sections')
     if not 1 <= args.smp <= SMP_MAX_CPUS:
         raise SystemExit(f'--smp must be from 1 to {SMP_MAX_CPUS}')
+    if args.user_hotplug and args.require_hotplug:
+        raise SystemExit('--user-hotplug is incompatible with --require-hotplug: the knob makes its CPU EBUSY')
+    if args.user_hotplug and (args.arch not in SMP_PROFILES or args.smp < 2 or args.allow_up):
+        raise SystemExit('--user-hotplug needs x86_64, aarch64 or rv64 with two or more vCPUs')
     if not 1 <= args.workers <= 6 or not 1 <= args.rounds <= 10000:
         raise SystemExit('--workers must be from 1 to 6 and --rounds from 1 to 10000')
     validate_sdk(args.kernel_sdk.resolve(), args.arch, args.mode)
@@ -306,7 +404,7 @@ def main():
     record = dict(schema=1, architecture=args.arch, mode=args.mode, scope='actual-static-musl-qemu-smp-stress',
                   status='running', command=command, cpus=args.smp, smp=args.smp > 1, allow_up=args.allow_up,
                   workers=args.workers, rounds=args.rounds, smp_sections=args.smp_sections,
-                  require_hotplug=args.require_hotplug,
+                  require_hotplug=args.require_hotplug, user_hotplug=args.user_hotplug,
                   sdk_manifest_sha256=sha(args.kernel_sdk.resolve() / 'manifest.json'),
                   musl_manifest_sha256=sha(args.musl_build.resolve() / 'manifest.json'),
                   probe_manifest_sha256=sha(manifest_path), probe_sha256=sha(args.probe.resolve()),
@@ -341,7 +439,8 @@ def main():
         hotplug_baseline = list(HOTPLUG.finditer(serial))
         hotplug_baseline = hotplug_baseline[-1] if hotplug_baseline else None
 
-        process.stdin.write(b'/bin/smp-stress %d %d\n' % (args.workers, args.rounds))
+        process.stdin.write(b'/bin/smp-stress %d %d%s\n' % (args.workers, args.rounds,
+                                                          b' hotplug' if args.user_hotplug else b''))
         process.stdin.flush()
         began = time.monotonic()
         state = {'result': None, 'scanned': start}
@@ -362,7 +461,9 @@ def main():
             hotplug = args.require_hotplug or HOTPLUG.search(serial) is not None
             return (LATENCY.search(after) is not None and (online < 2 or CPUS.search(after) is not None) and
                     (args.smp_sections == 'off' or DECLINES.search(after) is not None) and
-                    (not hotplug or HOTPLUG.search(after) is not None))
+                    (not hotplug or HOTPLUG.search(after) is not None) and
+                    (not args.user_hotplug or (HOTPLUG_USER.search(after) is not None and
+                                               HOTPLUG_RECORDS.search(after) is not None)))
         receive(process, serial, finished, time.monotonic() + args.timeout)
         record['probe_seconds'] = round(time.monotonic() - began, 2)
         result = state['result']
@@ -425,6 +526,10 @@ def main():
             record['hotplug'] = hotplug_cycles(serial, cycles[-1], online, hotplug_baseline)
         elif args.require_hotplug or HOTPLUG.search(serial):
             raise RuntimeError('the probe exit report lacks OK_SMP_HOTPLUG')
+        if args.user_hotplug:
+            if HOTPLUG.search(serial):
+                raise RuntimeError('a kernel built with the smp_hotplug_test knob cannot run --user-hotplug')
+            record['user_hotplug_result'] = user_hotplug(serial, result, counts, online)
         record['status'] = 'pass'
     except BaseException as error:
         record.update(status='fail', failure=repr(error))
@@ -451,6 +556,8 @@ def main():
     print('accelerator=' + record['accelerator'])
     if 'kernel_smp_hotplug' in record:
         print(record['kernel_smp_hotplug'])
+    if 'user_hotplug_result' in record:
+        print(record['user_hotplug_result']['line'])
 
 
 if __name__ == '__main__':

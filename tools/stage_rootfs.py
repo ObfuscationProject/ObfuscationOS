@@ -42,6 +42,7 @@ APPS = (
     "mountctl",
     "resolved",
     "resolvectl",
+    "chcpu",
 )
 
 
