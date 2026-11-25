@@ -241,19 +241,39 @@ static int attributes(unsigned *cases)
     response = 0;
     *cases += 3;
 
-    /* cfmakeraw of the pts defaults is the kernel's raw-pair termios. */
+    /* cfmakeraw clears exactly the musl/glibc bit set, sets CS8, VMIN 1 and
+     * VTIME 0, and keeps every other bit and control character. */
+    memset(&value, 0xff, sizeof(value));
+    calls = 0;
+    cfmakeraw(&value);
+    CHECK(!calls && value.c_iflag == (tcflag_t)~(IGNBRK | BRKINT | PARMRK | ISTRIP | INLCR | IGNCR | ICRNL | IXON));
+    CHECK(value.c_oflag == (tcflag_t)~OPOST && value.c_lflag == (tcflag_t)~(ECHO | ECHONL | ICANON | ISIG | IEXTEN));
+    CHECK(value.c_cflag == (tcflag_t)(~(CSIZE | PARENB) | CS8) && value.c_line == 0xff);
+    for (unsigned index = 0; index < NCCS; ++index)
+        CHECK(value.c_cc[index] == (index == VMIN ? 1 : index == VTIME ? 0 : 0xff));
     memcpy(&value, &pts, sizeof(value));
     value.c_iflag |= IGNBRK | BRKINT | PARMRK | ISTRIP | INLCR | IGNCR | IUTF8;
     value.c_cflag = (value.c_cflag & ~CSIZE) | CS7 | PARENB;
     value.c_lflag |= ECHONL | TOSTOP;
     value.c_cc[VMIN] = 0; value.c_cc[VTIME] = 5;
-    calls = 0;
     cfmakeraw(&value);
     CHECK(!calls && value.c_iflag == IUTF8 && value.c_oflag == ONLCR);
     CHECK(value.c_cflag == (B38400 | CS8 | CREAD));
     CHECK(value.c_lflag == (ECHOE | ECHOK | ECHOCTL | ECHOKE | TOSTOP));
     CHECK(value.c_cc[VMIN] == 1 && value.c_cc[VTIME] == 0 && value.c_cc[VINTR] == 3);
-    ++*cases;
+    /* The kernel builds OK_SYS_PTY_PAIR slaves as cfmakeraw(tty_std), which
+     * keeps HUPCL; the pts default above has it cleared. These are the tty.md
+     * table rows typed by hand: the SDK does not export the kernel's values,
+     * so only a guest probe can compare against the kernel itself. */
+    const struct ok_termios raw_pair = {
+        0, OK_ONLCR, OK_B38400 | OK_CS8 | OK_CREAD | OK_HUPCL, OK_ECHOE | OK_ECHOK | OK_ECHOCTL | OK_ECHOKE, 0,
+        {3, 28, 127, 21, 4, 0, 1, 0, 17, 19, 26, 0, 18, 15, 23, 22, 0, 0, 0},
+    };
+    memcpy(&value, &pts, sizeof(value));
+    value.c_cflag |= HUPCL;
+    cfmakeraw(&value);
+    CHECK(same_termios(&value, &raw_pair));
+    *cases += 3;
 
     /* Speeds are CBAUD codes; the input speed is the output speed. */
     memcpy(&value, &pts, sizeof(value));

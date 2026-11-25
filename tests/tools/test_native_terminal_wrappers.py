@@ -15,7 +15,7 @@ import unittest
 ROOT = Path(__file__).resolve().parents[2]
 SOURCES = (ROOT / 'lib/okcrt/src/syscalls.c', ROOT / 'lib/okcrt/src/termios.c')
 TEST = ROOT / 'tests/native_terminal_wrapper_tests.c'
-CASES = 118
+CASES = 120
 SANITIZE = ['-fsanitize=undefined', '-fno-sanitize-recover=all', '-fno-omit-frame-pointer']
 
 
