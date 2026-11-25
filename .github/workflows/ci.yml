@@ -91,6 +91,10 @@ jobs:
         # posix-check's quota, fork-copy and bulk-mapping probes push the
         # emulated x86_64 boot past 30 s on hosted runners.
         run: xmake qemu-distro --fs=simplefs --require-native --timeout=90
+      - name: Verify terminals, sessions and job control in QEMU
+        # Native probe on its own /dev/ptmx pairs from the maintenance shell
+        # of an ext4 root; about 40 s locally per profile, two runs per boot.
+        run: xmake tty-sessions-test --timeout=240
       - name: Verify ext4 persistence across boots
         if: matrix.arch == 'x86_64'
         run: |
