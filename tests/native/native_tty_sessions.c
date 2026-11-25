@@ -240,7 +240,8 @@ static void wait_byte(int fd, int line)
     read_exact(fd, &byte, 1, line);
 }
 
-enum { SAME_GROUP, NEW_GROUP, NEW_SESSION };
+enum { SAME_GROUP, NEW_GROUP, NEW_SESSION, JOIN_GROUP };
+static pid_t join_group;
 
 /* Forks a child that runs `body` and exits 0. The child first enters its
  * group or session, resets the job-control signals and reports that it has,
@@ -260,6 +261,8 @@ static pid_t spawn(int placement, void (*body)(void), int line)
             fail_at(line, 0);
         if (placement == NEW_SESSION && setsid() != getpid())
             fail_at(line, 0);
+        if (placement == JOIN_GROUP && setpgid(0, join_group) < 0)
+            fail_at(line, join_group);
         if (write(sync[1], "s", 1) != 1)
             fail_at(line, 0);
         close(sync[1]);
@@ -270,6 +273,37 @@ static pid_t spawn(int placement, void (*body)(void), int line)
     wait_byte(sync[0], line);
     close(sync[0]);
     return pid;
+}
+
+/* A second member of `group` that never touches the terminal: only a signal
+ * sent to the whole group reaches it, not one sent to the caller or the
+ * group's leader alone. */
+static pid_t companion(pid_t group, int line)
+{
+    join_group = group;
+    return spawn(JOIN_GROUP, park, line);
+}
+
+/* Holds a background reader or writer until its companion has joined. */
+static int gate[2] = {-1, -1};
+
+static void open_gate(int line)
+{
+    if (pipe(gate) < 0)
+        fail_at(line, 0);
+}
+
+static void pass_gate(void)
+{
+    wait_byte(gate[0], __LINE__);
+}
+
+static void release_gate(int line)
+{
+    if (write(gate[1], "g", 1) != 1)
+        fail_at(line, 0);
+    close(gate[0]);
+    close(gate[1]);
 }
 
 static void acquire(void)
@@ -405,15 +439,17 @@ static void case_notty_member(void)
     close(alias);
 }
 
-/* 5: TIOCNOTTY by the leader hangs up the foreground group and clears the
- * association; the leader may acquire again. */
+/* 5: TIOCNOTTY by the leader hangs up the whole foreground group and clears
+ * the association; the leader may acquire again. */
 static void case_notty_leader(void)
 {
     acquire();
     const pid_t member = spawn(NEW_GROUP, park, __LINE__);
+    const pid_t other = companion(member, __LINE__);
     CHECK(tcsetpgrp(tty, member) == 0, member);
     CHECK(ioctl(tty, TIOCNOTTY) == 0, 0);
     expect_signal(member, SIGHUP, __LINE__);
+    expect_signal(other, SIGHUP, __LINE__);
     CHECK(tcgetsid(tty) < 0 && errno == ENOTTY, 0);
     CHECK(open("/dev/tty", O_RDWR) < 0 && errno == ENXIO, 0);
     CHECK(ioctl(tty, TIOCSCTTY, 0) == 0, 0);
@@ -446,25 +482,32 @@ static void case_pgrp(void)
 static void read_ttin(void)
 {
     char buffer[16];
+    pass_gate();
     const long got = read(tty, buffer, sizeof buffer);
     CHECK(got == 5 && memcmp(buffer, "ttin\n", 5) == 0, got);
 }
 
-/* 7: a background read stops the group with SIGTTIN; once continued in the
- * foreground the same read completes. */
+/* 7: a background read stops the whole group with SIGTTIN; once continued
+ * in the foreground the same read completes. */
 static void case_ttin_stop(void)
 {
     acquire();
     signal(SIGTTOU, SIG_IGN);
+    open_gate(__LINE__);
     const pid_t reader = spawn(NEW_GROUP, read_ttin, __LINE__);
+    const pid_t other = companion(reader, __LINE__);
+    release_gate(__LINE__);
     expect_stop(reader, SIGTTIN, __LINE__);
+    expect_stop(other, SIGTTIN, __LINE__);
     CHECK(tcsetpgrp(tty, reader) == 0, reader);
-    CHECK(kill(reader, SIGCONT) == 0, reader);
+    CHECK(kill(-reader, SIGCONT) == 0, reader);
     expect_continued(reader, __LINE__);
+    expect_continued(other, __LINE__);
     send_text(master, "ttin\n", __LINE__);
     expect_exit0(reader, __LINE__);
     expect_bytes(master, "ttin\r\n", __LINE__);
     reclaim(__LINE__);
+    kill_child(other, __LINE__);
 }
 
 static void read_ignored(void)
@@ -528,6 +571,7 @@ static void case_ttou_stop(void)
 
 static void write_stopped(void)
 {
+    pass_gate();
     write(tty, "t", 1);
     fail_at(__LINE__, 0);
 }
@@ -554,15 +598,20 @@ static void set_tostop(int on)
     CHECK(tcsetattr(tty, TCSANOW, &attributes) == 0, 0);
 }
 
-/* 10: TOSTOP stops a background writer with SIGTTOU (nothing reaches the
- * master); ignored SIGTTOU or a clear TOSTOP lets the write through. */
+/* 10: TOSTOP stops a background writer's group with SIGTTOU (nothing reaches
+ * the master); ignored SIGTTOU or a clear TOSTOP lets the write through. */
 static void case_tostop(void)
 {
     acquire();
     set_tostop(1);
+    open_gate(__LINE__);
     const pid_t writer = spawn(NEW_GROUP, write_stopped, __LINE__);
+    const pid_t other = companion(writer, __LINE__);
+    release_gate(__LINE__);
     expect_stop(writer, SIGTTOU, __LINE__);
+    expect_stop(other, SIGTTOU, __LINE__);
     kill_child(writer, __LINE__);
+    kill_child(other, __LINE__);
     expect_exit0(spawn(NEW_GROUP, write_ignored, __LINE__), __LINE__);
     expect_bytes(master, "ign", __LINE__);
     set_tostop(0);
@@ -589,15 +638,18 @@ static void read_forever(void)
     fail_at(__LINE__, got);
 }
 
-/* 11: VINTR written to the master kills the foreground group with SIGINT. */
+/* 11: VINTR written to the master kills the whole foreground group with
+ * SIGINT. */
 static void case_isig_int(void)
 {
     acquire();
     signal(SIGTTOU, SIG_IGN);
     const pid_t reader = spawn(NEW_GROUP, read_forever, __LINE__);
+    const pid_t other = companion(reader, __LINE__);
     CHECK(tcsetpgrp(tty, reader) == 0, reader);
     send_text(master, "\x03", __LINE__);
     expect_signal(reader, SIGINT, __LINE__);
+    expect_signal(other, SIGINT, __LINE__);
     expect_bytes(master, "^C", __LINE__);
     reclaim(__LINE__);
 }
@@ -610,23 +662,27 @@ static void read_go(void)
     CHECK(got == 3 && memcmp(buffer, "go\n", 3) == 0, got);
 }
 
-/* 12: VSUSP stops the foreground group with SIGTSTP; kill(-pgid, SIGCONT)
- * continues it and its read then completes. */
+/* 12: VSUSP stops the whole foreground group with SIGTSTP; kill(-pgid,
+ * SIGCONT) continues it and the reader's read then completes. */
 static void case_isig_tstp(void)
 {
     acquire();
     signal(SIGTTOU, SIG_IGN);
     const pid_t reader = spawn(NEW_GROUP, read_go, __LINE__);
+    const pid_t other = companion(reader, __LINE__);
     CHECK(tcsetpgrp(tty, reader) == 0, reader);
     send_text(master, "\x1a", __LINE__);
     expect_stop(reader, SIGTSTP, __LINE__);
+    expect_stop(other, SIGTSTP, __LINE__);
     expect_bytes(master, "^Z", __LINE__);
     CHECK(kill(-reader, SIGCONT) == 0, reader);
     expect_continued(reader, __LINE__);
+    expect_continued(other, __LINE__);
     send_text(master, "go\n", __LINE__);
     expect_exit0(reader, __LINE__);
     expect_bytes(master, "go\r\n", __LINE__);
     reclaim(__LINE__);
+    kill_child(other, __LINE__);
 }
 
 /* 13: pts defaults: canonical lines with erase, ECHO/ECHOE, ICRNL, ONLCR
@@ -712,21 +768,23 @@ static void case_master_close(void)
     park();
 }
 
-static pid_t hup_target;
+static pid_t hup_target, hup_other;
 
 static void leader_exit_witness(void)
 {
     signal(SIGTTOU, SIG_IGN);
     hup_target = spawn(NEW_GROUP, park, __LINE__);
+    hup_other = companion(hup_target, __LINE__);
     CHECK(tcsetpgrp(tty, hup_target) == 0, hup_target);
     CHECK(tcgetpgrp(tty) == hup_target, tcgetpgrp(tty));
     CHECK(write(ready_fd, "r", 1) == 1, 0);
     expect_signal(hup_target, SIGHUP, __LINE__);
+    expect_signal(hup_other, SIGHUP, __LINE__);
     CHECK(tcgetsid(tty) < 0 && errno == ENOTTY, 0);
     witness_pass();
 }
 
-/* 16: the session leader's exit sends SIGHUP to the foreground group. */
+/* 16: the session leader's exit sends SIGHUP to the whole foreground group. */
 static void case_leader_exit(void)
 {
     int ready[2];

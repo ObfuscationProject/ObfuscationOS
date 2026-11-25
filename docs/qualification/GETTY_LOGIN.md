@@ -11,7 +11,10 @@ built by default) is a native okcrt probe that needs nothing from the
 console but a place to print. Each case opens its own `/dev/ptmx` pair and
 forks a session leader that runs the checks; native processes have no
 handlers and no SIGCHLD, so every signal outcome is read from `waitpid`
-status words. Every wait and read is bounded, so a broken kernel fails a
+status words. Every case that expects a terminal-generated signal for a
+group gives that group a second member that never touches the terminal and
+checks it too, so delivery to the caller or the group leader alone fails.
+Every wait and read is bounded, so a broken kernel fails a
 case instead of hanging the shell. The cases, in order:
 
 | # | Name | Checks |
@@ -20,18 +23,18 @@ case instead of hanging the shell. The cases, in order:
 | 2 | `noctty` | `O_NOCTTY` does not acquire (`tcgetsid`/`tcgetpgrp` ENOTTY, `/dev/tty` ENXIO); `TIOCSCTTY(0)` then acquires |
 | 3 | `sctty_eperm` | `TIOCSCTTY` on the own ctty is 0 for arg 0 and 1; on a master ENOTTY; a leader that already has a ctty, a member with or without one, a write-only descriptor and another session's terminal (also with arg 1: no steal) give EPERM; a new leader then acquires a free terminal |
 | 4 | `notty_member` | `TIOCNOTTY` by a foreground member detaches only it (ENOTTY, `/dev/tty` ENXIO afterwards); on a master ENOTTY; the leader keeps the terminal |
-| 5 | `notty_leader` | `TIOCNOTTY` by the leader kills the foreground group with SIGHUP and clears the association; the leader may acquire again |
+| 5 | `notty_leader` | `TIOCNOTTY` by the leader kills both members of the foreground group with SIGHUP and clears the association; the leader may acquire again |
 | 6 | `pgrp` | `tcsetpgrp` EINVAL (negative), ESRCH (no group), EPERM (group of another session); setting through the master; handing the foreground to a member and reclaiming it from the background with SIGTTOU ignored |
-| 7 | `ttin_stop` | a background read stops the reader with SIGTTIN (WUNTRACED); after the foreground is handed over and SIGCONT is seen (WCONTINUED) the same read completes |
+| 7 | `ttin_stop` | a background read stops the reader and its group's other member with SIGTTIN (WUNTRACED); after the foreground is handed over and `kill(-pgid, SIGCONT)` is seen for both (WCONTINUED) the same read completes |
 | 8 | `ttin_eio` | with SIGTTIN ignored a background read is EIO, and background poll reports nothing |
 | 9 | `ttou_stop` | background `tcsetattr` and `tcsetpgrp` stop with SIGTTOU; with SIGTTOU ignored `tcsetattr`, `tcflush` and `tcsetpgrp` go through |
-| 10 | `tostop` | with TOSTOP a background write stops with SIGTTOU and nothing reaches the master; ignored SIGTTOU, or TOSTOP clear, lets it through |
-| 11 | `isig_int` | `0x03` written to the master kills the foreground reader with SIGINT (`WTERMSIG`) and echoes `^C` |
-| 12 | `isig_tstp` | `0x1a` stops the foreground reader with SIGTSTP (WUNTRACED); `kill(-pgid, SIGCONT)` is seen with WCONTINUED and the reader's read then completes |
+| 10 | `tostop` | with TOSTOP a background write stops the writer and its group's other member with SIGTTOU and nothing reaches the master; ignored SIGTTOU, or TOSTOP clear, lets it through |
+| 11 | `isig_int` | `0x03` written to the master kills the foreground reader and its group's other member with SIGINT (`WTERMSIG`) and echoes `^C` |
+| 12 | `isig_tstp` | `0x1a` stops the foreground reader and its group's other member with SIGTSTP (WUNTRACED); `kill(-pgid, SIGCONT)` is seen for both with WCONTINUED and the reader's read then completes |
 | 13 | `canonical` | pts defaults (ISIG, ICANON, ECHO, ECHOE, OPOST, ONLCR, ICRNL, ^C ^Z ^D); erase echo `\b \b`; one line per read; no partial line readable; CR becomes NL; ONLCR on output; VEOF at line start reads 0 |
 | 14 | `echo_off` | with ECHO clear nothing is echoed; restored ECHO echoes again |
 | 15 | `master_close` | the master's last close kills the session leader with SIGHUP (seen by the probe); a member that ignores SIGHUP sees POLLHUP, read 0, write and TCGETS EIO, `/dev/tty` ENXIO |
-| 16 | `leader_exit` | the leader's exit kills the foreground group with SIGHUP (seen by a background witness) and clears the association |
+| 16 | `leader_exit` | the leader's exit kills both members of the foreground group with SIGHUP (seen by a background witness) and clears the association |
 | 17 | `orphan_stop` | when the leader exits, a group with stopped members is orphaned: a SIG_DFL member dies of SIGHUP, a member ignoring SIGHUP is continued (WCONTINUED) |
 | 18 | `orphan_read` | in a background group orphaned by its parent's exit, read and `tcsetattr` give EIO and TIOCSPGRP ENOTTY instead of a stop |
 | 19 | `winsize` | the initial window is 0×0; TIOCSWINSZ on either end reads back on the other; SIGWINCH to the foreground group is ignored by default |
