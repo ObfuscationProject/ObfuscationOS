@@ -118,8 +118,14 @@ parent state/descriptor restoration, exit propagation and repeated list cleanup.
 Its job-control tests stop and continue real hosted children against the
 modelled terminal of `tests/hosted/oksh_faults.c` (stop report and terminal
 reclaim, `fg`, `bg`, `&`, `jobs`, completion reports, a full table, `exit` with
-stopped jobs, and the degraded mode without a terminal). They are model tests:
-a guest job-control lane on a pseudo-terminal is separate native evidence.
+stopped jobs, and the degraded mode without a terminal). They are model tests.
+`scripts/test_oksh_jobs.py` (run so far on x86_64) types at the maintenance
+`oksh> ` of a QEMU guest with `tests/native/oksh_job_probe.c` staged as
+`/bin/oksh-jobs`: a self-stop seen through `WUNTRACED`, `jobs`, the exit
+warning, `fg` with the job's status, `bg`, `&` with completion reports,
+`/dev/null` input and `fg` of a running job. That console is not the shell's
+controlling terminal and has ISIG off, so this exercises the degraded mode
+only; `^Z` and terminal handoff on a pseudo-terminal belong to the login lane.
 `tests/native/oksh_pipeline.c`, packaged explicitly as
 `/bin/oksh-acceptance`, runs the native execution suite. The independent observer
 `tools/qualify_oksh_guest.py` records its actual QEMU output; hosted success is not
