@@ -38,6 +38,9 @@ the ext4 persistence check on x86_64 only. On ppc, `qemu-distro --require-native
 selects the measured e500v2 single-CPU profile (`qemu_distro.py --native-profile`),
 the only one native PPC ELF admission accepts; it needs the pinned QEMU 10.2.0,
 as native userland stops after timer preemption on QEMU 8.2.
+The fast lane also runs `xmake tty-sessions-test`, the native TTY/session/
+job-control probe on its own `/dev/ptmx` pairs
+([GETTY_LOGIN](qualification/GETTY_LOGIN.md)).
 `distro-test` still builds ext4 images on MIPS/MIPS64/PPC but explicitly skips
 their native ext4 boot check until those platforms have a block transport.
 Broader packaging checks remain available through `xmake distro-test`. The model
