@@ -66,6 +66,24 @@ local function task_configure_args(config, mode, arch)
     return args
 end
 
+-- The explicit override, else the configured SysToolchain directory or the
+-- resolved systoolchain package; nil when neither is available. (Description
+-- scope has no assert: the on_run callers check the result.)
+local function task_qemu(config, project, spec, explicit)
+    if explicit then
+        return path.absolute(explicit)
+    end
+    local prefix = config.get("systoolchain_dir")
+    if not prefix then
+        local systoolchain = project.required_package("systoolchain")
+        if not systoolchain then
+            return nil
+        end
+        prefix = systoolchain:installdir()
+    end
+    return path.absolute(path.join(prefix, "bin", spec.qemu_system))
+end
+
 task("arch-matrix")
     set_menu {
         usage = "xmake arch-matrix [-m MODE]",
@@ -257,19 +275,8 @@ task("qemu-distro")
         end
 
         local arch, spec = task_require_arch(config.get("arch") or "x86_64")
-        local qemu = option.get("qemu")
-        if qemu then
-            qemu = path.absolute(qemu)
-        else
-            local prefix = config.get("systoolchain_dir")
-            if not prefix then
-                local systoolchain = project.required_package("systoolchain")
-                assert(systoolchain, "the systoolchain package is not resolved")
-                prefix = systoolchain:installdir()
-            end
-            qemu = path.absolute(path.join(prefix, "bin", spec.qemu_system))
-        end
-        assert(os.isfile(qemu), "QEMU executable is missing: %s", qemu)
+        local qemu = task_qemu(config, project, spec, option.get("qemu"))
+        assert(qemu and os.isfile(qemu), "QEMU executable is missing: %s", tostring(qemu))
         local project_dir = os.projectdir()
         local kernel = option.get("kernel")
         if not kernel then
@@ -311,6 +318,62 @@ task("qemu-distro")
             end
         end
         os.execv("python3", args)
+    end)
+task_end()
+
+task("tty-sessions-test")
+    set_menu {
+        usage = "xmake tty-sessions-test [--out=DIR]",
+        description = "Run the native TTY/session/job-control probe in QEMU for the configured profile",
+        options = {
+            {nil, "out", "kv", nil, "New output directory (default build/<arch>/<mode>/tty-sessions, replaced)"},
+            {nil, "qemu", "kv", nil, "Explicit QEMU executable override"},
+            {nil, "runs", "kv", "2", "Probe runs in one boot"},
+            {nil, "timeout", "kv", "300", "Seconds for the boot and for each run"}
+        }
+    }
+    on_run(function ()
+        import("core.base.option")
+        import("core.project.config")
+        import("core.project.project")
+        config.load()
+        local arch, spec = task_require_arch(config.get("arch") or "x86_64")
+        local mode = config.get("mode") or "release"
+        if config.get("native_console_login") then
+            raise("native_console_login makes /bin/login the console service; the TTY probe needs the maintenance oksh console")
+        end
+        -- Startup acceptance (which `qemu-distro --require-native` leaves
+        -- configured) runs posix-check and the shell pipeline before the
+        -- maintenance shell; the probe needs only that shell.
+        local acceptance = {"native_init_acceptance", "native_vm_acceptance", "native_udp_probe"}
+        for _, name in ipairs(acceptance) do
+            if config.get(name) then
+                print("[tty-sessions] reconfiguring %s/%s without native startup acceptance", arch, mode)
+                local argv = task_configure_args(config, mode, arch)
+                for i, a in ipairs(argv) do
+                    for _, option_name in ipairs(acceptance) do
+                        local prefix = "--" .. option_name .. "="
+                        if a:sub(1, #prefix) == prefix then argv[i] = prefix .. "n" end
+                    end
+                end
+                os.execv("xmake", argv)
+                config.load()
+                break
+            end
+        end
+        local out = option.get("out")
+        if out then
+            out = path.absolute(out)
+        else
+            out = path.join(task_builddir(config), "tty-sessions")
+            os.tryrm(out)
+        end
+        local qemu = task_qemu(config, project, spec, option.get("qemu"))
+        assert(qemu and os.isfile(qemu), "QEMU executable is missing: %s", tostring(qemu))
+        os.execv("python3", {"-B", path.join(os.projectdir(), "scripts", "test_tty_sessions.py"),
+            "--arch", arch, "--mode", mode, "--qemu", qemu,
+            "--out", out, "--runs", option.get("runs") or "2", "--timeout", option.get("timeout") or "300"},
+            {envs = {PYTHONDONTWRITEBYTECODE = "1"}})
     end)
 task_end()
 
