@@ -43,7 +43,9 @@ struct lexer { const char *cursor; char *output; };
 struct token { int kind, target, source, flags; char *word; };
 enum { END, WORD, PIPE, REDIRECT, SEMICOLON, AND_IF, OR_IF, BACKGROUND, INVALID };
 
-static struct { int fd, failed; pid_t sid, group; } shell_console = {.fd = -1};
+/* fd is the shell's alias of its controlling terminal; input says whether
+ * standard input is that terminal. */
+static struct { int fd, input, failed; pid_t sid, group; } shell_console = {.fd = -1};
 
 /* Job control state. A job is one pipeline; its processes share a process
  * group only when the shell manages a terminal. Native processes get no
@@ -82,6 +84,7 @@ static int console_finish(int status)
     if (shell_console.fd >= 0) {
         if (close(shell_console.fd) < 0) status = 1;
         shell_console.fd = -1;
+        shell_console.input = 0;
     }
     return status;
 }
@@ -107,6 +110,7 @@ static int console_prepare(void)
             return -1;
         }
         shell_console.fd = control;
+        shell_console.input = fd == STDIN_FILENO;
         return 0;
     }
     return 0;
@@ -793,14 +797,15 @@ static int internal_pipe(int fds[2])
 }
 
 /* Without job control an asynchronous command ignores the interactive
- * interrupt signals and its first stage reads /dev/null instead of the
- * shell's input (POSIX). */
+ * interrupt signals (POSIX). Its first stage reads /dev/null unless the
+ * shell's input is the terminal it manages, where SIGTTIN guards reads, so
+ * it never consumes commands meant for the shell. */
 static void detach_background_child(int first_stage)
 {
-    if (signal(SIGINT, SIG_IGN) == SIG_ERR || signal(SIGQUIT, SIG_IGN) == SIG_ERR) {
+    if (shell_console.fd < 0 && (signal(SIGINT, SIG_IGN) == SIG_ERR || signal(SIGQUIT, SIG_IGN) == SIG_ERR)) {
         perror("oksh: signal"); flush_streams(); _Exit(1);
     }
-    if (!first_stage) return;
+    if (!first_stage || shell_console.input) return;
     int input = open("/dev/null", O_RDONLY);
     if (input < 0 || (input != STDIN_FILENO && dup2(input, STDIN_FILENO) < 0)) {
         perror("oksh: /dev/null"); flush_streams(); _Exit(1);
@@ -835,7 +840,7 @@ static int run_pipeline(struct command_list *list, const struct pipeline *pipeli
         if (!child) {
             shell_jobs.subshell = 1;
             if (job_signals_ignored && job_signals_set(SIG_DFL) < 0) { perror("oksh: signal"); _Exit(1); }
-            if (background && shell_console.fd < 0) detach_background_child(!stage);
+            if (background) detach_background_child(!stage);
             if (shell_console.fd >= 0) close(shell_console.fd);
             close(gate[1]);
             char abort_token;

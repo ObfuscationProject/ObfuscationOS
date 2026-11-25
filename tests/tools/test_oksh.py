@@ -692,6 +692,28 @@ class JobControlTests(HostedShell):
         self.assertFalse(any(row[0] in ('GROUP', 'SET', 'GET', 'SET_FAIL') for row in session.rows()))
         self.assertNotIn(b'console', bytes(session.output))
 
+    def test_commands_start_with_default_signals_and_background_input_follows_the_terminal(self):
+        # The mask says which of fds 0..2 is the modelled terminal. A background
+        # job reads the shell's input only when that input is the managed
+        # terminal; without any terminal it also ignores SIGINT and SIGQUIT.
+        for mask, background_input, background_ignored in (
+                ('1', None, '-'), ('2', '/dev/null', '-'), ('4', '/dev/null', '-'), ('0', '/dev/null', 'INT,QUIT')):
+            with self.subTest(mask=mask):
+                (self.work / 'terminal-events').unlink(missing_ok=True)
+                session = Session(self, mask=mask)
+                shell_input = os.readlink(f'/proc/{session.process.pid}/fd/0')
+                foreground, background = self.command('inspect', f'fg{mask}'), self.command('inspect', f'bg{mask}')
+                self.assertEqual(session.send(foreground), b'')
+                pid, pending = self.launch(session, background + ' &')
+                wait_for(lambda: exited(pid), 'background job did not exit')
+                self.assertEqual(pending + session.send(''), f'[1]+ Done {background}\n'.encode())
+                self.assertEqual((self.work / f'fg{mask}').read_text(), f'INPUT {shell_input}\nIGNORED -\n')
+                self.assertEqual((self.work / f'bg{mask}').read_text(),
+                                 f'INPUT {background_input or shell_input}\nIGNORED {background_ignored}\n')
+                self.assertEqual(len(session.rows('GROUP')), 0 if mask == '0' else 2)
+                rest, status = session.finish(b'exit\n')
+                self.assertEqual((rest, status), (b'', 0))
+
     def test_command_mode_background_runs_without_reports(self):
         events = self.work / 'terminal-events'
         result = self.run_shell(f'echo first;{self.child} touch marker &',

@@ -78,6 +78,25 @@ int main(int argc, char **argv)
         int fd = open(argv[2], O_WRONLY | O_CREAT | O_APPEND, 0600);
         if (fd < 0 || dprintf(fd, "STDIN %ld\n", total) < 0) return 3;
         close(fd);
+    } else if (!strcmp(argv[1], "inspect") && argc == 3) {
+        /* Report what the shell handed over: standard input and which of the
+         * signals the interactive shell ignores are still ignored. */
+        static const struct { int number; const char *name; } signals[] = {
+            {SIGINT, "INT"}, {SIGQUIT, "QUIT"}, {SIGTSTP, "TSTP"}, {SIGTTIN, "TTIN"}, {SIGTTOU, "TTOU"}};
+        char input[256], ignored[64] = "";
+        ssize_t length = readlink("/proc/self/fd/0", input, sizeof(input) - 1);
+        if (length < 0) return 3;
+        input[length] = '\0';
+        for (size_t i = 0; i < sizeof(signals) / sizeof(signals[0]); ++i) {
+            struct sigaction action;
+            if (sigaction(signals[i].number, NULL, &action) < 0) return 3;
+            if (action.sa_handler != SIG_IGN) continue;
+            if (ignored[0]) strcat(ignored, ",");
+            strcat(ignored, signals[i].name);
+        }
+        int fd = open(argv[2], O_WRONLY | O_CREAT | O_APPEND, 0600);
+        if (fd < 0 || dprintf(fd, "INPUT %s\nIGNORED %s\n", input, ignored[0] ? ignored : "-") < 0) return 3;
+        close(fd);
     } else if (!strcmp(argv[1], "status")) return atoi(argv[2]);
     else if (!strcmp(argv[1], "signal")) raise(SIGTERM);
     else return 2;

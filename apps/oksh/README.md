@@ -72,7 +72,11 @@ only through `waitpid`.
   stop signal.
 - A trailing `&` runs the last pipeline of a line in the background in its own
   process group without the terminal, and the interactive shell prints
-  `[n] <pid of the last command>`. `&` must end the line and cannot follow an
+  `[n] <pid of the last command>`. Its first command keeps the shell's
+  standard input only when that input is the managed terminal, where SIGTTIN
+  stops a background read; when the shell reads a file or pipe while another
+  descriptor is the terminal, the job reads `/dev/null` so it cannot consume
+  the shell's commands. `&` must end the line and cannot follow an
   `&&` or `||` operand: `echo a; program &` is accepted, `a && b &` and
   `a & b` are syntax errors, because background and-or lists and subshells are
   not implemented.
@@ -98,9 +102,9 @@ only through `waitpid`.
   exits. On exit the shell sends SIGHUP and then SIGCONT to each stopped job,
   like the kernel's orphaned-group rule; running background jobs keep running.
 
-Without a controlling terminal (the maintenance console when it is not the
-shell's controlling terminal, redirected or piped input, and `oksh -c`), job
-control degrades instead of failing: no process groups are created and no
+When none of descriptors 0..2 is the controlling terminal (the maintenance
+console when it is not the shell's controlling terminal, redirected or piped
+input and output, and always in `oksh -c`), job control degrades instead of failing: no process groups are created and no
 terminal calls are made, `&` still runs the pipeline in the background with
 SIGINT and SIGQUIT ignored and standard input from `/dev/null` (POSIX
 asynchronous lists), and the job table, reports, `jobs`, `fg` and `bg` work
