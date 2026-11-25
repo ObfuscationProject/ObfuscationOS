@@ -38,9 +38,10 @@ case instead of hanging the shell. The cases, in order:
 | 17 | `orphan_stop` | when the leader exits, a group with stopped members is orphaned: a SIG_DFL member dies of SIGHUP, a member ignoring SIGHUP is continued (WCONTINUED) |
 | 18 | `orphan_read` | in a background group orphaned by its parent's exit, read and `tcsetattr` give EIO and TIOCSPGRP ENOTTY instead of a stop |
 | 19 | `winsize` | the initial window is 0×0; TIOCSWINSZ on either end reads back on the other; SIGWINCH to the foreground group is ignored by default |
+| 20 | `pts_capacity` | run last: besides the case's own pair exactly `OK_PTS_CAPACITY` - 1 more pairs open before `posix_openpt` fails with EAGAIN (the kernel's ENOSPC), and a pair opens again once they are closed |
 
 The probe prints `TTY_SESSIONS_CASE n=<n> name=<name> result=pass` per case
-and finally `TTY_SESSIONS_PROBE stage=PASS cases=19 arch=<arch>`, or at the
+and finally `TTY_SESSIONS_PROBE stage=PASS cases=20 arch=<arch>`, or at the
 first failure `TTY_SESSIONS_PROBE stage=FAIL case=<n> name=<name>
 line=<source line> value=<v> errno=<e> arch=<arch>`, where `line` is the
 line of the failed check in the source (0: the leader's wait status was
@@ -54,12 +55,15 @@ whose init runs posix-check and the shell pipeline before the shell, and
 `native_console_login`, whose console service is `/bin/login` instead of
 the maintenance oksh; the staged `etc/services.conf` must name `/bin/oksh`
 as the console service. A guest that prints the acceptance marker fails at
-once instead of waiting for the prompt. It then builds the probe, `rootfs-stage` and `distro_image`,
-copies `build/<arch>/<mode>/rootfs`, adds the probe as `/bin/tty-sessions`,
+once instead of waiting for the prompt. It then builds the probe,
+`rootfs-stage` and `distro_image`, copies `build/<arch>/<mode>/rootfs`, adds the probe as `/bin/tty-sessions`,
 packs it with `tools/mkext4.py`, boots it with `qemu_distro.command_for`
 (`native_profile=True`, which selects the native e500v2 profile on ppc) and
-types the probe at the maintenance `oksh> ` prompt, twice per boot so that
-PTY slots and case processes must be released. Each run must list all 19
+types the probe at the maintenance `oksh> ` prompt, twice per boot. Within
+a run, a case passes only once every process of the case has exited (its
+report pipe reaches end of file), and the last case counts the free PTY
+slots, so a slot that any earlier case failed to release fails that run;
+process-table slots are not counted. Each run must list all 20
 cases and print the exact PASS marker; `serial.log` and `result.json` are
 kept in the output directory. `xmake tty-sessions-test` resolves QEMU like
 `qemu-distro`, refuses `native_console_login` before building,

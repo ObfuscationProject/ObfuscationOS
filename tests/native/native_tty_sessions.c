@@ -898,6 +898,32 @@ static void case_winsize(void)
     kill_child(member, __LINE__);
 }
 
+/* 20, run last: every earlier case released its PTY pairs, so besides this
+ * case's own pair exactly OK_PTS_CAPACITY - 1 open before the table is full
+ * (posix_openpt gives EAGAIN for the kernel's ENOSPC). The maintenance image
+ * holds no other pair. */
+static void case_pts_capacity(void)
+{
+    int masters[OK_PTS_CAPACITY];
+    char path[32];
+    unsigned count = 0;
+    for (;;) {
+        const int fd = posix_openpt(O_RDWR | O_NOCTTY);
+        if (fd < 0) {
+            CHECK(errno == EAGAIN, count);
+            break;
+        }
+        CHECK(count < OK_PTS_CAPACITY - 1, count);
+        masters[count++] = fd;
+    }
+    CHECK(count == OK_PTS_CAPACITY - 1, count);
+    for (unsigned i = 0; i < count; ++i)
+        close(masters[i]);
+    const int again = open_pair(path, sizeof path);
+    CHECK(again >= 0, again);
+    close(again);
+}
+
 struct probe_case {
     const char *name;
     void (*body)(void);
@@ -925,6 +951,7 @@ static const struct probe_case cases[] = {
     {"orphan_stop", case_orphan_stop, 1, 0},
     {"orphan_read", case_orphan_read, 1, 0},
     {"winsize", case_winsize, 0, 0},
+    {"pts_capacity", case_pts_capacity, 0, 0},
 };
 #define CASE_COUNT ((int)(sizeof cases / sizeof cases[0]))
 

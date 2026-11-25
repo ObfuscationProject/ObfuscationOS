@@ -32,7 +32,7 @@ from kernel_sdk import ARCH_TRIPLES  # noqa: E402
 from musl_source import inspect_elf  # noqa: E402
 
 PROMPT = b"oksh> "
-CASES = 19  # entries of cases[] in tests/native/native_tty_sessions.c
+CASES = 20  # entries of cases[] in tests/native/native_tty_sessions.c
 FAILURES = (b"KERNEL PANIC", b"ASSERTION FAILED", b"OK_SYSTEM_GUI boot=failed", b"OK_TEST_FAIL")
 # init prints this only when it runs startup acceptance before the shell.
 STARTUP_ACCEPTANCE = b"OK_USERLAND scope=hardware"
@@ -106,7 +106,7 @@ def main() -> None:
     parser.add_argument("--out", required=True, type=Path, help="new output directory")
     parser.add_argument("--xmake", default="xmake")
     parser.add_argument("--no-build", action="store_true", help="use the existing build outputs")
-    parser.add_argument("--runs", type=int, default=2, help="probe runs in one boot (checks PTY slot reuse)")
+    parser.add_argument("--runs", type=int, default=2, help="probe runs in one boot")
     parser.add_argument("--timeout", type=float, default=300, help="seconds for the boot and for each run")
     args = parser.parse_args()
     if args.runs < 1:
