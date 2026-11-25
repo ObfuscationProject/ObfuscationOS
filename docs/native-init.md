@@ -4,10 +4,10 @@
 
 Sign out of the console shell with `exit`. At the next fresh `Login:` prompt,
 enter `:passwd`, then the administrator account name and current password.
-After authentication, enter and repeat the new password. Input remains hidden.
-The account name, UID/GID 0 and `/root` stay the same; the new verifier uses
-fresh trusted entropy and the existing PBKDF2-HMAC-SHA-256 policy. This entry
-runs in the new PID1 console leader before any shell or child process starts.
+After authentication, enter and repeat the new password. Passwords are not
+echoed. The account name, UID/GID 0 and `/root` stay the same; the new verifier
+uses fresh trusted entropy and the existing PBKDF2-HMAC-SHA-256 policy. This
+entry runs in login on the session's pts before any shell starts.
 
 Rotation is available only for an active account with no recovery transaction.
 Finish ordinary activation or authenticated recovery before selecting it.
@@ -25,13 +25,65 @@ multiuser policy or general shell `passwd` command.
 
 ## Persistent console login profile
 
-`--native_console_login=y` selects the ordinary native PID1 and `/bin/login`
-console service. It builds and stages the unwrapped login executable, uses
-`config/services-login.conf`, and selects login if the leaf manifest is missing.
+`--native_console_login=y` selects the ordinary native PID1 with `/bin/getty`
+as its `console` service (`service console simple /bin/getty - 0 0` in
+`config/services-login.conf`, and the compiled fallback when the leaf manifest
+is missing). It builds and stages the unwrapped getty and login executables.
 Malformed or unsafe manifests still hold PID1. The profile rejects Linux-init
-replacements and startup acceptance modes, which could run before authentication.
-The existing maintenance console remains the default while general journalled
-root qualification is open.
+replacements and startup acceptance modes, which could run before
+authentication. The existing maintenance console remains the default while
+general journalled root qualification is open.
+
+### getty, login and the pts
+
+getty holds the console lease; login and the shell run on a pseudo-terminal:
+
+1. PID1 starts getty as the `console` service and gives it the lease. getty
+   never makes the console its controlling terminal and leaves the console's
+   raw-compatible termios (ICRNL only) alone.
+2. getty opens `/dev/ptmx` (`O_NOCTTY`, close-on-exec, nonblocking), unlocks
+   the slave and sets its window to 24x80. It forks a child that resets the
+   signals to their defaults, calls `setsid`, opens `/dev/pts/N`, which makes
+   that pts its controlling terminal, duplicates it onto descriptors 0-2 and
+   executes `/bin/login` with only `TERM` and `OK_CONSOLE_EPOCH` in its
+   environment.
+3. getty relays console input to the master and master output to the console,
+   with `poll` (100 ms ticks) and `waitpid(WNOHANG)`. While the master is
+   full it stops reading the console. The pts line discipline echoes, edits
+   lines and turns ^C, ^\ and ^Z into signals for the foreground group.
+4. login accepts only this session: descriptors 0-2 are one read-write pts
+   description that it leads (`tcgetsid(0)` and the foreground group are
+   login's own), owned by root with no access beyond 0620. Its parent is
+   getty. Account names are echoed by the line discipline; passwords are read
+   with ECHO cleared, and the terminal attributes are restored on every path.
+   Each prompt first discards earlier input with `tcflush(TCIFLUSH)`. login
+   ignores SIGINT, SIGQUIT and the job-control stops so that a key cannot cut
+   an account transaction short, and keeps SIGHUP at its default.
+5. For an ordinary account login gives the pts to the user (`fchown`, mode
+   0620) before the credentials drop, then checks the session again as that
+   user. login executes `/bin/oksh` with SIGHUP at its default.
+6. The session ends when login or the shell exits, when the slave's last
+   descriptor closes (the master reads EIO or polls POLLHUP), or when the lease
+   is revoked (the console polls POLLERR|POLLHUP). getty writes out what is left
+   on the master, closes it, which hangs up the session (SIGHUP and SIGCONT to
+   its leader), gives the session 3 s to exit before SIGKILL, reaps it and
+   exits 0. PID1 then starts the `console` service again under a new lease
+   epoch, after its usual restart back-off.
+
+getty writes one line per session event to the console, each with a single
+write and on a line of its own:
+
+| Line | Meaning |
+|---|---|
+| `GETTY event=open pts=<n> pid=<pid>` | login runs on `/dev/pts/<n>` as `<pid>` |
+| `GETTY event=close pts=<n> pid=<pid> status=<wait status> reason=<exit\|hangup\|revoked>` | the session ended; `status` is the raw wait status in decimal (`-1` if none was available) |
+| `GETTY event=error stage=<stage> errno=<n>` | setup failed (`arguments`, `open`, `fork`) and getty exits 1, or the child failed before login ran (`signals`, `master`, `setsid`, `open`, `ctty`, `dup`, `close`, `exec`) and exits 127 |
+
+`reason=exit` means getty reaped login first, `hangup` that the slave closed
+first; a logout can report either. Hosted tests in
+`tests/tools/test_native_getty.py`, `test_native_login_main.py` and
+`test_native_login_input.py` model these paths over substituted system calls;
+`scripts/test_getty_login.py` drives the real guest over serial.
 
 Configure the selected architecture/mode SDK, compiler toolchain and explicit
 Linux journal-activation image with its SHA-256, then run:
@@ -43,9 +95,11 @@ xmake qemu-distro --fs=ext4-journalled --interactive --qemu=/usr/bin/qemu-system
 
 The console profile uses `rootfs.login.ext4-journalled.img` and reuses that disk
 so subsequent runs retain the account. Before each launch, it requires complete
-activation evidence and reads the actual disk to match `/init`, `/bin/login`,
-`/bin/oksh` and `/etc/services.conf` to the selected build, including protected
-path metadata. A maintenance disk, incomplete publication or changed product
+activation evidence and reads the actual disk to match `/init`, `/bin/getty`,
+`/bin/login`, `/bin/oksh` and `/etc/services.conf` to the selected build,
+including protected path metadata. Disks from the profile that ran login
+directly on the console are refused: their product and service configuration
+differ. A maintenance disk, incomplete publication or changed product
 holds closed; select a fresh output or explicitly migrate the existing disk.
 Journalled image creation refuses an existing image or evidence sidecar. First boot shows
 `ObfuscationOS`, asks for the first administrator's name and password, and opens
@@ -55,7 +109,8 @@ The image never contains an initial password. This is native console login;
 the isolated graphical greeter and complete desktop session remain M8/M9 work.
 Closing QEMU is host retirement and does not establish clean shutdown.
 
-The ordinary unwrapped product passes separate x86_64 Debug and Release
+Before getty, login ran directly on the console as the `console` service (ABI
+69). That product passed separate x86_64 Debug and Release
 same-disk two-boot qualification through the actual xmake task, including hidden
 input, wrong-password retry, `/root` shell entry and logout/relogin. Independent
 readers bind original compile/dependency/link, serial input and PBKDF2/disk
