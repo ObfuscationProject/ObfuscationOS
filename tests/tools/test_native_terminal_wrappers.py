@@ -15,6 +15,7 @@ import unittest
 ROOT = Path(__file__).resolve().parents[2]
 SOURCES = (ROOT / 'lib/okcrt/src/syscalls.c', ROOT / 'lib/okcrt/src/termios.c')
 TEST = ROOT / 'tests/native_terminal_wrapper_tests.c'
+CASES = 118
 SANITIZE = ['-fsanitize=undefined', '-fno-sanitize-recover=all', '-fno-omit-frame-pointer']
 
 
@@ -58,8 +59,9 @@ class TerminalWrappers(unittest.TestCase):
             result = subprocess.run([str(binary)], capture_output=True, text=True, timeout=8)
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(result.stderr, '')
-        self.assertRegex(result.stdout, r'\ANATIVE_TERMINAL_WRAPPER_PASS long_bits=%d cases=[1-9][0-9]* '
-                                        r'host_mock_only=1\n\Z' % width)
+        # The case count is exact so a skipped table row fails as well.
+        self.assertEqual(result.stdout, 'NATIVE_TERMINAL_WRAPPER_PASS long_bits=%d cases=%d '
+                                        'host_mock_only=1\n' % (width, CASES))
 
     def test_typed_requests_pointer_arguments_scalar_arguments_and_errno_lp64(self):
         self.run_wrappers(64)

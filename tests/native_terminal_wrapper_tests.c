@@ -6,8 +6,10 @@
 #include <ok/uapi/termios.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <signal.h>
 #include <string.h>
 #include <sys/ioctl.h>
+#include <sys/wait.h>
 #include <termios.h>
 #include <unistd.h>
 
@@ -50,6 +52,17 @@ long ok_syscall3(long number, long fd, long request, long argument)
     default:
         break;
     }
+    return response;
+}
+static long wait_words[4];
+static int wait_status;
+long ok_syscall4(long number, long pid, long status, long options, long usage)
+{
+    ++calls;
+    selected = number;
+    wait_words[0] = pid; wait_words[1] = status; wait_words[2] = options; wait_words[3] = usage;
+    if (response < 0) return response;
+    if (number == (long)OK_SYS_WAIT4 && status) *(int *)status = wait_status;
     return response;
 }
 long ok_syscall_ret(long result)
@@ -343,6 +356,55 @@ static int pseudo_terminals(unsigned *cases)
     return 0;
 }
 
+static int waits(unsigned *cases)
+{
+    CHECK(WNOHANG == OK_WNOHANG && WUNTRACED == OK_WUNTRACED && WCONTINUED == OK_WCONTINUED);
+    CHECK(WNOHANG == 1 && WUNTRACED == 2 && WCONTINUED == 8);
+    /* waitpid passes the selector, status pointer and options; rusage is 0. */
+    const pid_t selectors[] = {41, -1, 0, -41};
+    const int options[] = {0, WNOHANG, WUNTRACED, WCONTINUED, WNOHANG | WUNTRACED | WCONTINUED};
+    for (unsigned selector = 0; selector < 4; ++selector)
+        for (unsigned option = 0; option < 5; ++option) {
+            int status = -1;
+            response = 42; wait_status = (OK_SIGTSTP << 8) | 0x7f; calls = 0;
+            CHECK(waitpid(selectors[selector], &status, options[option]) == 42 && calls == 1);
+            CHECK(selected == OK_SYS_WAIT4 && wait_words[0] == selectors[selector]);
+            CHECK(wait_words[1] == (long)&status && wait_words[2] == options[option] && !wait_words[3]);
+            CHECK(status == wait_status);
+            ++*cases;
+        }
+    response = -OK_ECHILD; errno = 0;
+    CHECK(waitpid(-1, NULL, WUNTRACED) == -1 && errno == ECHILD && !wait_words[1]);
+    response = -OK_EINVAL; errno = 0;
+    CHECK(waitpid(-1, NULL, 4) == -1 && errno == EINVAL && wait_words[2] == 4);
+    response = 0;
+    *cases += 2;
+
+    /* The kernel's status words classify into exactly one class each. */
+    const int stopped[] = {OK_SIGSTOP, OK_SIGTSTP, OK_SIGTTIN, OK_SIGTTOU};
+    for (unsigned index = 0; index < 4; ++index) {
+        const int status = (stopped[index] << 8) | 0x7f;
+        CHECK(WIFSTOPPED(status) && WSTOPSIG(status) == stopped[index]);
+        CHECK(!WIFEXITED(status) && !WIFSIGNALED(status) && !WIFCONTINUED(status));
+        ++*cases;
+    }
+    CHECK(WIFCONTINUED(0xffff) && !WIFSTOPPED(0xffff) && !WIFEXITED(0xffff) && !WIFSIGNALED(0xffff));
+    const int codes[] = {0, 1, 3, 255};
+    for (unsigned index = 0; index < 4; ++index) {
+        const int status = codes[index] << 8;
+        CHECK(WIFEXITED(status) && !WIFSIGNALED(status) && !WIFSTOPPED(status) && !WIFCONTINUED(status));
+        CHECK(WEXITSTATUS(status) == codes[index]);
+    }
+    const int signals[] = {OK_SIGHUP, OK_SIGINT, OK_SIGKILL, OK_SIGTERM};
+    for (unsigned index = 0; index < 4; ++index) {
+        CHECK(WIFSIGNALED(signals[index]) && WTERMSIG(signals[index]) == signals[index]);
+        CHECK(!WIFEXITED(signals[index]) && !WIFSTOPPED(signals[index]) && !WIFCONTINUED(signals[index]));
+    }
+    CHECK(SIGTSTP == OK_SIGTSTP && SIGCONT == OK_SIGCONT);
+    *cases += 3;
+    return 0;
+}
+
 int main(void)
 {
     _Static_assert(sizeof(pid_t) == 4, "four-byte native terminal PID");
@@ -350,7 +412,7 @@ int main(void)
     unsigned cases = 0;
     int line;
     if ((line = requests(&cases)) || (line = sessions(&cases)) || (line = attributes(&cases)) ||
-        (line = pseudo_terminals(&cases)))
+        (line = pseudo_terminals(&cases)) || (line = waits(&cases)))
         return line;
     printf("NATIVE_TERMINAL_WRAPPER_PASS long_bits=%u cases=%u host_mock_only=1\n",
            (unsigned)(sizeof(long) * 8), cases);
