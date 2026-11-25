@@ -67,8 +67,9 @@ its default action. Native processes have only SIG_DFL and SIG_IGN and receive
 no SIGCHLD, so the shell never installs handlers and learns about its children
 only through `waitpid`.
 
-- Foreground jobs are waited for with `WUNTRACED`. A job that stops is reported
-  as `[n]+ Stopped <command>` and its status is 128 plus the stop signal.
+- The interactive shell waits for foreground jobs with `WUNTRACED`. A job that
+  stops is reported as `[n]+ Stopped <command>` and its status is 128 plus the
+  stop signal.
 - A trailing `&` runs the last pipeline of a line in the background in its own
   process group without the terminal, and the interactive shell prints
   `[n] <pid of the last command>`. `&` must end the line and cannot follow an
@@ -103,8 +104,10 @@ control degrades instead of failing: no process groups are created and no
 terminal calls are made, `&` still runs the pipeline in the background with
 SIGINT and SIGQUIT ignored and standard input from `/dev/null` (POSIX
 asynchronous lists), and the job table, reports, `jobs`, `fg` and `bg` work
-with SIGCONT sent to each process of the job. `oksh -c` prints no job reports
-and does not wait for background jobs.
+with SIGCONT sent to each process of the job. `oksh -c` has no job control: it
+prints no job reports, keeps waiting for a stopped foreground command until
+something else continues it and it exits, does not wait for background jobs
+and never hangs them up.
 
 This is a bounded pipeline, list, redirection and job-control substrate.
 Variables, substitutions, globbing, functions, scripts, shell control

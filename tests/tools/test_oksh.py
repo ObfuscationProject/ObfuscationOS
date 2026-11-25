@@ -691,6 +691,27 @@ class JobControlTests(HostedShell):
         self.assertTrue((self.work / 'marker').exists())
         self.assertEqual([row[0] for row in rows_of(events, 'LEFTOVER')], ['LEFTOVER'])
 
+    def test_command_mode_keeps_waiting_for_a_stopped_command(self):
+        # Without job control a stop is not completion: the list waits until
+        # someone else continues the command, and nothing is reported or hung up.
+        events = self.work / 'terminal-events'
+        command = self.command('stop', 'log', '5')
+        process = subprocess.Popen(
+            [str(self.shell), '-c', f'{command}; echo after'], stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+            cwd=self.work, env={**os.environ, 'OKSH_REAP_LEFTOVERS': '1', 'OKSH_CONSOLE_EVENTS': str(events)})
+        self.addCleanup(lambda: process.poll() is None and process.kill())
+        wait_for(lambda: rows_of(self.work / 'log', 'STOP'), 'command did not start')
+        pid = int(rows_of(self.work / 'log', 'STOP')[0][1])
+        wait_for(lambda: process_state(pid) == 'T', 'command did not stop')
+        time.sleep(.3)
+        self.assertIsNone(process.poll())
+        self.assertEqual(rows_of(self.work / 'log', 'CONT'), [])
+        os.kill(pid, signal.SIGCONT)
+        stdout, stderr = process.communicate(timeout=8)
+        self.assertEqual((stdout, stderr, process.returncode), (b'after\n', b'', 0))
+        self.assertEqual(len(rows_of(self.work / 'log', 'CONT')), 1)
+        self.assertEqual(rows_of(events, 'LEFTOVER'), [])
+
     def test_job_builtins_validate_arguments_and_pipeline_use(self):
         result = self.run_shell('jobs extra; fg %9; bg %x; fg 1 2; fg|cat; jobs|cat')
         self.assertEqual(result.returncode, 0, result.stderr)

@@ -495,11 +495,14 @@ static void job_wait_process(struct job *job, int index, int options)
     job->failed = 1;
 }
 
-/* Wait until every process of a foreground job has exited or stopped. */
+/* Wait until every process of a foreground job has exited or stopped. Only
+ * the interactive shell treats a stop as the end of the wait; `oksh -c` has
+ * no job control and waits until the command is continued and exits. */
 static void job_wait(struct job *job)
 {
+    const int options = shell_jobs.interactive ? WUNTRACED : 0;
     for (int i = 0; i < job->count; ++i)
-        if (job->states[i] == JOB_RUNNING) job_wait_process(job, i, WUNTRACED);
+        if (job->states[i] == JOB_RUNNING) job_wait_process(job, i, options);
 }
 
 static void jobs_update(void)
@@ -552,10 +555,11 @@ static void jobs_notify(void)
 }
 
 /* Stopped jobs get the hangup a terminal would send to an orphaned stopped
- * group; running background jobs keep running after the shell exits. */
+ * group; running background jobs keep running after the shell exits. Only
+ * the interactive shell tracks stops, so `oksh -c` leaves its jobs alone. */
 static void jobs_hang_up(void)
 {
-    if (shell_jobs.subshell) return;
+    if (!shell_jobs.interactive || shell_jobs.subshell) return;
     jobs_update();
     for (int i = 0; i < JOB_CAPACITY; ++i) {
         struct job *job = &shell_jobs.table[i];
