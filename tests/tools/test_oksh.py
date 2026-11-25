@@ -527,6 +527,20 @@ class JobControlTests(HostedShell):
         self.assertEqual(status, 128 + signal.SIGSTOP)
         self.assertEqual(session.rows('LEFTOVER')[0][2], str(signal.SIGHUP))
 
+    def test_a_job_stopped_by_sigtstp_reports_128_plus_the_signal(self):
+        # The child's group is not orphaned (the shell is its parent in the same
+        # session), so SIGTSTP at its default action really stops it.
+        session = Session(self, mask='1')
+        command = self.command('tstp', 'log', '5')
+        self.assertEqual(session.send(command), f'[1]+ Stopped {command}\n'.encode())
+        self.assertEqual(session.send('fg'), f'{command}\n'.encode())
+        self.assertEqual(len(rows_of(self.work / 'log', 'CONT')), 1)
+        self.assertEqual(session.send(command), f'[1]+ Stopped {command}\n'.encode())
+        rest, status = session.finish(b'')
+        self.assertEqual(rest, b'oksh: there are stopped jobs\noksh> ')
+        self.assertEqual(status, 128 + signal.SIGTSTP)
+        self.assertEqual(session.rows('LEFTOVER')[0][2], str(signal.SIGHUP))
+
     def test_fg_gives_the_job_the_terminal_and_continues_it(self):
         session = Session(self, mask='1')
         command = self.command('stop', 'log', '5')

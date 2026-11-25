@@ -52,12 +52,18 @@ int main(int argc, char **argv)
         close(fd);
         if (result < 0) return 3;
     } else if (!strcmp(argv[1], "stop") && (argc == 4 || argc == 5)) {
-        /* Stop like a job sent SIGTSTP; SIGSTOP also works in an orphaned group. */
+        /* SIGSTOP stops even in an orphaned group and whatever the dispositions. */
         for (int stops = argc == 5 ? atoi(argv[4]) : 1; stops > 0; --stops) {
             if (record(argv[2], "STOP") < 0) return 3;
             raise(SIGSTOP);
             if (record(argv[2], "CONT") < 0) return 3;
         }
+        return atoi(argv[3]);
+    } else if (!strcmp(argv[1], "tstp") && argc == 4) {
+        /* Unlike SIGSTOP, SIGTSTP stops only when the shell left it at SIG_DFL. */
+        if (record(argv[2], "STOP") < 0) return 3;
+        raise(SIGTSTP);
+        if (record(argv[2], "CONT") < 0) return 3;
         return atoi(argv[3]);
     } else if (!strcmp(argv[1], "stop-wait") && argc == 4) {
         if (record(argv[2], "STOP") < 0) return 3;
