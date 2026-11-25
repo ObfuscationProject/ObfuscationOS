@@ -94,7 +94,11 @@ def main() -> int:
                     while b"\n" in pending:
                         raw, pending = pending.split(b"\n", 1)
                         line = raw.decode(errors="replace").rstrip("\r")
-                        if line.startswith("OK_NET_"):
+                        # The kernel probe and the shell share the console: a
+                        # marker may follow an unterminated prompt ("oksh> ").
+                        at = line.find("OK_NET_")
+                        if at >= 0:
+                            line = line[at:]
                             markers.append(line)
                             print(line, flush=True)
                             if line.startswith("OK_NET_PROBE "):
