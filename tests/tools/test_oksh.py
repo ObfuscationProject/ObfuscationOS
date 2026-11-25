@@ -573,6 +573,37 @@ class JobControlTests(HostedShell):
         self.assertEqual((rest, status), (b'', 9))
         self.assertEqual(session.rows('LEFTOVER'), [])
 
+    def test_a_job_after_a_separator_or_an_operand_is_named_by_its_own_pipeline(self):
+        session = Session(self, mask='1')
+        stop, other, wait = (self.command('stop', 'log', '5'), self.command('stop', 'other', '6'),
+                             self.command('wait-file', 'go'))
+        self.assertEqual(session.send(f'echo first; {stop}'), f'first\n[1]+ Stopped {stop}\n'.encode())
+        self.assertEqual(session.send(f'{self.command("status", "0")} &&  {other}'),
+                         f'[2]+ Stopped {other}\n'.encode())
+        self.assertRegex(session.send(f'echo first ;{wait}  &'), rb'\Afirst\n\[3\] \d+\n\Z')
+        self.assertEqual(session.send('jobs'),
+                         f'[1]  Stopped {stop}\n[2]- Stopped {other}\n[3]+ Running {wait}\n'.encode())
+        (self.work / 'go').touch()
+        self.assertEqual(session.send('fg %3'), f'{wait}\n'.encode())
+        rest, _ = session.finish(b'exit\nexit\n')
+        self.assertEqual(rest, b'oksh: there are stopped jobs\noksh> ')
+        self.assertEqual([row[2] for row in session.rows('LEFTOVER')], [str(signal.SIGHUP)] * 2)
+
+    def test_percent_percent_and_percent_plus_name_the_current_job(self):
+        session = Session(self, mask='1')
+        first, second = self.command('stop', 'log', '5'), self.command('stop', 'other', '6')
+        session.send(first)
+        session.send(second)
+        self.assertEqual(session.send('fg %%'), f'{second}\n'.encode())
+        self.assertEqual(len(rows_of(self.work / 'other', 'CONT')), 1)
+        output = session.send('bg %+')
+        pid = rows_of(self.work / 'log', 'STOP')[0][1]
+        wait_for(lambda: exited(pid), 'bg did not continue the job')
+        self.assertEqual(output + session.send(''), f'[1]+ {first} &\n[1]+ Exit 5 {first}\n'.encode())
+        rest, status = session.finish(b'exit\n')
+        self.assertEqual((rest, status), (b'', 0))
+        self.assertEqual(session.rows('LEFTOVER'), [])
+
     def test_bg_continues_a_stopped_job_without_the_terminal(self):
         session = Session(self, mask='1')
         first, second = self.command('stop-wait', 'log', 'go'), self.command('stop-wait', 'other', 'go')
