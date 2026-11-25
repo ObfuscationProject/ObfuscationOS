@@ -81,8 +81,8 @@ CI runs `xmake tty-sessions-test` on x86_64, arm32 and ppc after the QEMU
 acceptance boot.
 
 Result (QEMU 10.2.0 from SysToolchain 0.1.0, kernel main 5815814 SDKs, ABI
-81, debug): both runs pass all 19 cases on all ten profiles. A run takes
-1.4 s (x86_64) to 4 s (loongarch64) of guest time. This is single-CPU QEMU
+81, debug): both runs pass all 20 cases on all ten profiles. A run takes
+1 s (x86_64) to 3 s (aarch64) from typing the command to the next prompt. This is single-CPU QEMU
 execution; it makes no physical-hardware or SMP claim, and the probe runs
 as root in the maintenance session, so it does not exercise login, getty or
 the console's lease-gated job control.
