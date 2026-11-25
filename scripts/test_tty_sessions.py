@@ -34,6 +34,9 @@ from musl_source import inspect_elf  # noqa: E402
 PROMPT = b"oksh> "
 CASES = 19  # entries of cases[] in tests/native/native_tty_sessions.c
 FAILURES = (b"KERNEL PANIC", b"ASSERTION FAILED", b"OK_SYSTEM_GUI boot=failed", b"OK_TEST_FAIL")
+# init prints this only when it runs startup acceptance before the shell.
+STARTUP_ACCEPTANCE = b"OK_USERLAND scope=hardware"
+ACCEPTANCE_OPTIONS = ("native_init_acceptance", "native_vm_acceptance", "native_udp_probe")
 RESULT = re.compile(rb"TTY_SESSIONS_PROBE stage=(PASS|FAIL)[^\r\n]*")
 CASE_LINE = re.compile(rb"TTY_SESSIONS_CASE n=(\d+) name=([a-z_]+) result=pass")
 ARCH_ALIASES = {"x64": "x86_64", "amd64": "x86_64", "arm64": "aarch64", "riscv64": "rv64",
@@ -44,14 +47,29 @@ def sha(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
-def configured_profile(xmake: str) -> tuple[str, str]:
-    """Reads the arch and mode the project is configured for."""
+def configured_profile(xmake: str) -> tuple[str, str, Path]:
+    """Reads the arch, mode and configuration directory the project is configured for."""
     shown = subprocess.run([xmake, "show", "-P", str(ROOT)], check=True, capture_output=True, text=True, cwd=ROOT).stdout
     shown = re.sub(r"\x1b\[[0-9;]*m", "", shown)
-    fields = dict(re.findall(r"^\s*(arch|mode): (\S+)\s*$", shown.split("information of project", 1)[-1], re.M))
-    if "arch" not in fields or "mode" not in fields:
-        raise RuntimeError("xmake show did not report the configured arch and mode")
-    return ARCH_ALIASES.get(fields["arch"], fields["arch"]), fields["mode"]
+    fields = dict(re.findall(r"^\s*(arch|mode|configdir): (\S+)\s*$", shown.split("information of project", 1)[-1],
+                             re.M))
+    if not {"arch", "mode", "configdir"} <= fields.keys():
+        raise RuntimeError("xmake show did not report the configured arch, mode and configuration directory")
+    return ARCH_ALIASES.get(fields["arch"], fields["arch"]), fields["mode"], Path(fields["configdir"])
+
+
+def enabled_options(config: str) -> set[str]:
+    """Names of the options a saved xmake.conf holds with a value other than false."""
+    return {name for name, value in re.findall(r"^\s*([A-Za-z0-9_]+) = (.+?),?\s*$", config, re.M)
+            if value != "false"}
+
+
+def refuse_configuration(enabled: set[str]) -> None:
+    """The probe is typed at the maintenance shell, so nothing may run before it."""
+    acceptance = sorted(enabled.intersection(ACCEPTANCE_OPTIONS))
+    if acceptance:
+        raise ValueError("native startup acceptance runs before the maintenance shell; reconfigure without "
+                         + ", ".join(acceptance) + " (xmake tty-sessions-test does this)")
 
 
 def receive(process: subprocess.Popen, serial: bytearray, done, deadline: float) -> None:
@@ -67,6 +85,8 @@ def receive(process: subprocess.Popen, serial: bytearray, done, deadline: float)
         serial.extend(chunk)
         if any(failure in serial for failure in FAILURES):
             raise RuntimeError("guest reported a kernel or boot failure")
+        if STARTUP_ACCEPTANCE in serial:
+            raise RuntimeError("guest ran native startup acceptance before the maintenance shell")
 
 
 def main() -> None:
@@ -82,8 +102,10 @@ def main() -> None:
     args = parser.parse_args()
     if args.runs < 1:
         raise ValueError("--runs must be at least 1")
-    if configured_profile(args.xmake) != (args.arch, args.mode):
+    arch, mode, configdir = configured_profile(args.xmake)
+    if (arch, mode) != (args.arch, args.mode):
         raise ValueError(f"the project is not configured for {args.arch}/{args.mode}")
+    refuse_configuration(enabled_options((configdir / "xmake.conf").read_text(encoding="utf-8")))
     if not args.no_build:
         for target in ("app-tty-sessions-probe", "rootfs-stage", "distro_image"):
             subprocess.run([args.xmake, "-P", str(ROOT), "-y", "-b", target], check=True, cwd=ROOT)

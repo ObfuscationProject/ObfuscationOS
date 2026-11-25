@@ -40,7 +40,10 @@ the only one native PPC ELF admission accepts; it needs the pinned QEMU 10.2.0,
 as native userland stops after timer preemption on QEMU 8.2.
 The fast lane also runs `xmake tty-sessions-test`, the native TTY/session/
 job-control probe on its own `/dev/ptmx` pairs
-([GETTY_LOGIN](qualification/GETTY_LOGIN.md)).
+([GETTY_LOGIN](qualification/GETTY_LOGIN.md)). It reconfigures the tree
+without the startup acceptance that `--require-native` left on, so the image
+it boots reaches the maintenance shell directly and does not repeat the
+acceptance boot.
 `distro-test` still builds ext4 images on MIPS/MIPS64/PPC but explicitly skips
 their native ext4 boot check until those platforms have a block transport.
 Broader packaging checks remain available through `xmake distro-test`. The model

@@ -94,6 +94,7 @@ jobs:
       - name: Verify terminals, sessions and job control in QEMU
         # Native probe on its own /dev/ptmx pairs from the maintenance shell
         # of an ext4 root; about 40 s locally per profile, two runs per boot.
+        # The task drops the startup acceptance the previous step configured.
         run: xmake tty-sessions-test --timeout=240
       - name: Verify ext4 persistence across boots
         if: matrix.arch == 'x86_64'

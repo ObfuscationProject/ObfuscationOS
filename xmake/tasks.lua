@@ -339,6 +339,25 @@ task("tty-sessions-test")
         config.load()
         local arch, spec = task_require_arch(config.get("arch") or "x86_64")
         local mode = config.get("mode") or "release"
+        -- Startup acceptance (which `qemu-distro --require-native` leaves
+        -- configured) runs posix-check and the shell pipeline before the
+        -- maintenance shell; the probe needs only that shell.
+        local acceptance = {"native_init_acceptance", "native_vm_acceptance", "native_udp_probe"}
+        for _, name in ipairs(acceptance) do
+            if config.get(name) then
+                print("[tty-sessions] reconfiguring %s/%s without native startup acceptance", arch, mode)
+                local argv = task_configure_args(config, mode, arch)
+                for i, a in ipairs(argv) do
+                    for _, option_name in ipairs(acceptance) do
+                        local prefix = "--" .. option_name .. "="
+                        if a:sub(1, #prefix) == prefix then argv[i] = prefix .. "n" end
+                    end
+                end
+                os.execv("xmake", argv)
+                config.load()
+                break
+            end
+        end
         local out = option.get("out")
         if out then
             out = path.absolute(out)

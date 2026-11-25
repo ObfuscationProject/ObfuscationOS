@@ -45,7 +45,11 @@ wrong, given as `value`; -1: a case process was lost or a witness did not
 report). An optional argument runs one case by number.
 
 `scripts/test_tty_sessions.py` checks that the tree is configured for the
-requested profile, builds the probe, `rootfs-stage` and `distro_image`,
+requested profile and refuses a configuration with startup acceptance
+(`native_init_acceptance`, `native_vm_acceptance`, `native_udp_probe`),
+whose init runs posix-check and the shell pipeline before the shell; a
+guest that prints the acceptance marker fails at once instead of waiting
+for the prompt. It then builds the probe, `rootfs-stage` and `distro_image`,
 copies `build/<arch>/<mode>/rootfs`, adds the probe as `/bin/tty-sessions`,
 packs it with `tools/mkext4.py`, boots it with `qemu_distro.command_for`
 (`native_profile=True`, which selects the native e500v2 profile on ppc) and
@@ -53,7 +57,8 @@ types the probe at the maintenance `oksh> ` prompt, twice per boot so that
 PTY slots and case processes must be released. Each run must list all 19
 cases and print the exact PASS marker; `serial.log` and `result.json` are
 kept in the output directory. `xmake tty-sessions-test` resolves QEMU like
-`qemu-distro` and runs it for the configured profile:
+`qemu-distro`, reconfigures the tree without startup acceptance when it is
+on, and runs it for the configured profile:
 
 ```sh
 xmake f -y -m debug -a ARCH --kernel_sdk=SDK [--systoolchain_dir=TC]
