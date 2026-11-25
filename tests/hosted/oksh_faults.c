@@ -117,7 +117,14 @@ int main(int argc, char **argv)
     int result = oksh_main(argc, argv);
     for (int fd = 3; fd < 64; ++fd)
         if (before[fd] < 0 && fcntl(fd, F_GETFD) >= 0) return 125;
+    /* Children may outlive the shell only when a test asks to collect them. */
+    const int collect = getenv("OKSH_REAP_LEFTOVERS") != NULL;
     int status;
-    if (__real_waitpid(-1, &status, WNOHANG) != -1 || errno != ECHILD) return 125;
+    pid_t leftover;
+    while ((leftover = __real_waitpid(-1, &status, collect ? 0 : WNOHANG)) > 0) {
+        if (!collect) return 125;
+        terminal_event("LEFTOVER %ld %d\n", (long)leftover, status);
+    }
+    if (leftover != -1 || errno != ECHILD) return 125;
     return result;
 }
