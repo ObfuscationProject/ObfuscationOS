@@ -18,6 +18,8 @@
 #define LIST_CAPACITY 16
 #define LINE_COMMAND_CAPACITY 16
 #define REDIRECTION_CAPACITY 32
+#define JOB_CAPACITY 8
+#define JOB_TEXT_CAPACITY 64
 
 struct redirection {
     int target, source, flags;
@@ -28,7 +30,7 @@ struct command {
     int argc, first_redirection, redirections;
 };
 struct pipeline {
-    int first_command, count, condition;
+    int first_command, count, condition, background, text_start, text_end;
 };
 struct command_list {
     struct command commands[LINE_COMMAND_CAPACITY];
@@ -39,9 +41,29 @@ struct command_list {
 };
 struct lexer { const char *cursor; char *output; };
 struct token { int kind, target, source, flags; char *word; };
-enum { END, WORD, PIPE, REDIRECT, SEMICOLON, AND_IF, OR_IF, INVALID };
+enum { END, WORD, PIPE, REDIRECT, SEMICOLON, AND_IF, OR_IF, BACKGROUND, INVALID };
 
-static struct { int fd, failed; pid_t sid, group; } shell_console = {.fd = -1};
+/* fd is the shell's alias of its controlling terminal; input says whether
+ * standard input is that terminal. */
+static struct { int fd, input, failed; pid_t sid, group; } shell_console = {.fd = -1};
+
+/* Job control state. A job is one pipeline; its processes share a process
+ * group only when the shell manages a terminal. Native processes get no
+ * SIGCHLD, so the shell polls with WNOHANG before each prompt. */
+enum { JOB_RUNNING, JOB_STOPPED, JOB_DONE };
+struct job {
+    pid_t pids[PIPELINE_CAPACITY];
+    unsigned char states[PIPELINE_CAPACITY];
+    int count, status, failed, stop_signal, reported;
+    pid_t group;
+    unsigned order;
+    char text[JOB_TEXT_CAPACITY];
+};
+static struct {
+    struct job table[JOB_CAPACITY];
+    unsigned order;
+    int interactive, subshell, exit_warned, exit_warning;
+} shell_jobs;
 
 /* An interactive shell ignores the job-control signals: SIGTTOU lets it take
  * the console back from the background, SIGTTIN and SIGTSTP keep it running,
@@ -62,6 +84,7 @@ static int console_finish(int status)
     if (shell_console.fd >= 0) {
         if (close(shell_console.fd) < 0) status = 1;
         shell_console.fd = -1;
+        shell_console.input = 0;
     }
     return status;
 }
@@ -87,6 +110,7 @@ static int console_prepare(void)
             return -1;
         }
         shell_console.fd = control;
+        shell_console.input = fd == STDIN_FILENO;
         return 0;
     }
     return 0;
@@ -136,6 +160,12 @@ static int read_line(char *line, size_t capacity)
     }
 }
 
+static const char *skip_blanks(const char *p)
+{
+    while (*p == ' ' || *p == '\t') ++p;
+    return p;
+}
+
 static int special(char c)
 {
     return c == '|' || c == '<' || c == '>' || c == '&' || c == ';' || c == '(' || c == ')';
@@ -144,17 +174,16 @@ static int special(char c)
 static struct token next_token(struct lexer *lexer)
 {
     struct token token = {END, -1, -1, 0, NULL};
-    const char *p = lexer->cursor;
-    while (*p == ' ' || *p == '\t') ++p;
+    const char *p = skip_blanks(lexer->cursor);
     if (!*p) { lexer->cursor = p; return token; }
     if (*p == '|') {
         token.kind = p[1] == '|' ? OR_IF : PIPE;
         lexer->cursor = p + (token.kind == OR_IF ? 2 : 1);
         return token;
     }
-    if (*p == '&' && p[1] == '&') {
-        token.kind = AND_IF;
-        lexer->cursor = p + 2;
+    if (*p == '&') {
+        token.kind = p[1] == '&' ? AND_IF : BACKGROUND;
+        lexer->cursor = p + (token.kind == AND_IF ? 2 : 1);
         return token;
     }
     if (*p == ';') {
@@ -217,9 +246,11 @@ static int parse_line(const char *line, struct command_list *list)
     struct pipeline *pipeline = &list->pipelines[0];
     pipeline->count = 1;
     pipeline->condition = SEMICOLON;
+    pipeline->text_start = (int)(skip_blanks(line) - line);
     struct command *command = &list->commands[0];
     int pending = END;
     for (;;) {
+        const int at = (int)(skip_blanks(lexer.cursor) - line);
         struct token token = next_token(&lexer);
         if (token.kind == INVALID) return -1;
         if (pending != END) {
@@ -231,17 +262,27 @@ static int parse_line(const char *line, struct command_list *list)
             pipeline->first_command = list->command_count;
             pipeline->count = 1;
             pipeline->condition = pending;
+            pipeline->text_start = at;
             command = &list->commands[list->command_count++];
             command->first_redirection = list->redirection_count;
             pending = END;
         }
-        if (token.kind == END || token.kind == SEMICOLON || token.kind == AND_IF || token.kind == OR_IF) {
+        if (token.kind == END || token.kind == SEMICOLON || token.kind == AND_IF || token.kind == OR_IF ||
+            token.kind == BACKGROUND) {
             if (!command->argc && (pipeline->count > 1 || !command->redirections)) {
                 if (token.kind == END && list->count == 1 && list->command_count == 1) {
                     list->count = 0;
                     return 0;
                 }
                 return -1;
+            }
+            pipeline->text_end = at;
+            if (token.kind == BACKGROUND) {
+                /* Only a lone pipeline at the end of the line runs in the
+                 * background; an and-or list or a later command does not. */
+                if (pipeline->condition != SEMICOLON) return -1;
+                pipeline->background = 1;
+                return next_token(&lexer).kind == END ? 0 : -1;
             }
             if (token.kind == END) return 0;
             pending = token.kind;
@@ -295,21 +336,363 @@ static int apply_redirections(const struct command_list *list, const struct comm
 
 static int is_builtin(const struct command *command)
 {
-    return !command->argc || !strcmp(command->argv[0], "cd") || !strcmp(command->argv[0], "exit") ||
-           !strcmp(command->argv[0], "echo") || !strcmp(command->argv[0], "help");
+    static const char *const names[] = {"cd", "exit", "echo", "help", "jobs", "fg", "bg"};
+    if (!command->argc) return 1;
+    for (size_t i = 0; i < sizeof(names) / sizeof(names[0]); ++i)
+        if (!strcmp(command->argv[0], names[i])) return 1;
+    return 0;
 }
 
-static int write_text(const char *text)
+static int write_bytes(int fd, const char *text, size_t remaining)
 {
-    size_t remaining = strlen(text);
     while (remaining) {
-        ssize_t count = write(STDOUT_FILENO, text, remaining);
+        ssize_t count = write(fd, text, remaining);
         if (count < 0 && errno == EINTR) continue;
         if (count <= 0) return 1;
         text += count;
         remaining -= (size_t)count;
     }
     return 0;
+}
+
+static int write_text(const char *text)
+{
+    return write_bytes(STDOUT_FILENO, text, strlen(text));
+}
+
+/* Job reports are assembled first so each one reaches the terminal in a
+ * single write; native stdio writes byte by byte. */
+struct text_line { char data[128]; size_t used; };
+
+static void line_add(struct text_line *line, const char *text)
+{
+    while (*text && line->used + 1 < sizeof(line->data)) line->data[line->used++] = *text++;
+}
+
+static void line_number(struct text_line *line, unsigned long value)
+{
+    char digits[24];
+    int count = 0;
+    do { digits[count++] = (char)('0' + value % 10); value /= 10; } while (value);
+    while (count && line->used + 1 < sizeof(line->data)) line->data[line->used++] = digits[--count];
+}
+
+static int line_write(int fd, struct text_line *line)
+{
+    line->data[line->used] = '\0';
+    return write_bytes(fd, line->data, line->used);
+}
+
+static int job_used(const struct job *job) { return job->count != 0; }
+static int job_number(const struct job *job) { return (int)(job - shell_jobs.table) + 1; }
+
+static int job_in_table(const struct job *job)
+{
+    return job >= shell_jobs.table && job < shell_jobs.table + JOB_CAPACITY;
+}
+
+static struct job *job_free_slot(void)
+{
+    for (int i = 0; i < JOB_CAPACITY; ++i)
+        if (!job_used(&shell_jobs.table[i])) return &shell_jobs.table[i];
+    return NULL;
+}
+
+/* The current job (+) is the most recently started, stopped or resumed one;
+ * the previous job (-) comes before it. */
+static struct job *job_current(int previous)
+{
+    struct job *first = NULL, *second = NULL;
+    for (int i = 0; i < JOB_CAPACITY; ++i) {
+        struct job *job = &shell_jobs.table[i];
+        if (!job_used(job)) continue;
+        if (!first || job->order > first->order) { second = first; first = job; }
+        else if (!second || job->order > second->order) second = job;
+    }
+    return previous ? second : first;
+}
+
+static void job_touch(struct job *job) { job->order = ++shell_jobs.order; }
+
+static int job_state(const struct job *job)
+{
+    int state = JOB_DONE;
+    for (int i = 0; i < job->count; ++i) {
+        if (job->states[i] == JOB_RUNNING) return JOB_RUNNING;
+        if (job->states[i] == JOB_STOPPED) state = JOB_STOPPED;
+    }
+    return state;
+}
+
+static int job_status(const struct job *job)
+{
+    if (job->failed) return 1;
+    return WIFEXITED(job->status) ? WEXITSTATUS(job->status) : 128 + WTERMSIG(job->status);
+}
+
+static void job_set_text(struct job *job, const char *line, const struct pipeline *pipeline)
+{
+    int end = pipeline->text_end;
+    while (end > pipeline->text_start && (line[end - 1] == ' ' || line[end - 1] == '\t')) --end;
+    size_t length = (size_t)(end - pipeline->text_start);
+    if (length < sizeof(job->text)) {
+        memcpy(job->text, line + pipeline->text_start, length);
+        job->text[length] = '\0';
+    } else {
+        length = sizeof(job->text) - 4;
+        memcpy(job->text, line + pipeline->text_start, length);
+        memcpy(job->text + length, "...", 4);
+    }
+}
+
+/* `[n]+ Stopped text`, `[n]  Done text`, `[n]- Exit 3 text`, `[n]  Killed 15 text`. */
+static int job_report(int fd, const struct job *job, int state)
+{
+    struct text_line line = {.used = 0};
+    char mark[] = "]  ";
+    mark[1] = job == job_current(0) ? '+' : job == job_current(1) ? '-' : ' ';
+    line_add(&line, "[");
+    line_number(&line, (unsigned long)job_number(job));
+    line_add(&line, mark);
+    if (state == JOB_RUNNING) line_add(&line, "Running");
+    else if (state == JOB_STOPPED) line_add(&line, "Stopped");
+    else if (!job->failed && WIFSIGNALED(job->status)) {
+        line_add(&line, "Killed ");
+        line_number(&line, (unsigned long)WTERMSIG(job->status));
+    } else if (job_status(job)) {
+        line_add(&line, "Exit ");
+        line_number(&line, (unsigned long)job_status(job));
+    } else line_add(&line, "Done");
+    line_add(&line, " ");
+    line_add(&line, job->text);
+    line_add(&line, "\n");
+    return line_write(fd, &line);
+}
+
+static void job_record(struct job *job, int index, int status)
+{
+    if (WIFCONTINUED(status)) job->states[index] = JOB_RUNNING;
+    else if (WIFSTOPPED(status)) {
+        job->states[index] = JOB_STOPPED;
+        job->stop_signal = WSTOPSIG(status);
+    } else {
+        job->states[index] = JOB_DONE;
+        if (index + 1 == job->count) job->status = status;
+    }
+}
+
+/* A wait that fails for any reason but ECHILD loses track of the process,
+ * so it is killed and reaped; either way the job's status becomes 1. */
+static void job_wait_process(struct job *job, int index, int options)
+{
+    const pid_t pid = job->pids[index];
+    int status;
+    pid_t result;
+    do { result = waitpid(pid, &status, options); } while (result < 0 && errno == EINTR);
+    if (result == 0) return;
+    if (result == pid) { job_record(job, index, status); return; }
+    if (errno != ECHILD) {
+        (void)kill(pid, SIGKILL);
+        do { result = waitpid(pid, &status, 0); } while (result < 0 && errno == EINTR);
+    }
+    job->states[index] = JOB_DONE;
+    job->failed = 1;
+}
+
+/* Wait until every process of a foreground job has exited or stopped. Only
+ * the interactive shell treats a stop as the end of the wait; `oksh -c` has
+ * no job control and waits until the command is continued and exits. */
+static void job_wait(struct job *job)
+{
+    const int options = shell_jobs.interactive ? WUNTRACED : 0;
+    for (int i = 0; i < job->count; ++i)
+        if (job->states[i] == JOB_RUNNING) job_wait_process(job, i, options);
+}
+
+static void jobs_update(void)
+{
+    for (int i = 0; i < JOB_CAPACITY; ++i) {
+        struct job *job = &shell_jobs.table[i];
+        for (int process = 0; process < job->count; ++process)
+            if (job->states[process] != JOB_DONE)
+                job_wait_process(job, process, WNOHANG | WUNTRACED | WCONTINUED);
+    }
+}
+
+static int job_signal(const struct job *job, int signal_number)
+{
+    if (job->group > 0) return kill(-job->group, signal_number);
+    int result = 0;
+    for (int i = 0; i < job->count; ++i)
+        if (job->states[i] != JOB_DONE && kill(job->pids[i], signal_number) < 0) result = -1;
+    return result;
+}
+
+static void job_continue(struct job *job)
+{
+    for (int i = 0; i < job->count; ++i)
+        if (job->states[i] == JOB_STOPPED) job->states[i] = JOB_RUNNING;
+    job->reported = JOB_RUNNING;
+    if (job_signal(job, SIGCONT) < 0) perror("oksh: continue job");
+}
+
+/* Report finished and newly stopped jobs before a prompt, then forget the
+ * finished ones. */
+static void jobs_notify(void)
+{
+    jobs_update();
+    for (int i = 0; i < JOB_CAPACITY; ++i) {
+        struct job *job = &shell_jobs.table[i];
+        if (!job_used(job)) continue;
+        int state = job_state(job);
+        if (state == JOB_DONE) {
+            (void)job_report(STDERR_FILENO, job, state);
+            memset(job, 0, sizeof(*job));
+        } else if (state != job->reported) {
+            if (state == JOB_STOPPED) {
+                job_touch(job);
+                (void)job_report(STDERR_FILENO, job, state);
+            }
+            job->reported = state;
+        }
+    }
+}
+
+/* Stopped jobs get the hangup a terminal would send to an orphaned stopped
+ * group; running background jobs keep running after the shell exits. Only
+ * the interactive shell tracks stops, so `oksh -c` leaves its jobs alone. */
+static void jobs_hang_up(void)
+{
+    if (!shell_jobs.interactive || shell_jobs.subshell) return;
+    jobs_update();
+    for (int i = 0; i < JOB_CAPACITY; ++i) {
+        struct job *job = &shell_jobs.table[i];
+        if (!job_used(job) || job_state(job) != JOB_STOPPED) continue;
+        (void)job_signal(job, SIGHUP);
+        (void)job_signal(job, SIGCONT);
+    }
+}
+
+static int shell_finish(int status)
+{
+    jobs_hang_up();
+    return console_finish(status);
+}
+
+/* Like other shells, the first exit request with stopped jobs only warns. */
+static int exit_allowed(void)
+{
+    if (!shell_jobs.interactive || shell_jobs.subshell || shell_jobs.exit_warned) return 1;
+    for (int i = 0; i < JOB_CAPACITY; ++i) {
+        if (job_used(&shell_jobs.table[i]) && job_state(&shell_jobs.table[i]) == JOB_STOPPED) {
+            fputs("oksh: there are stopped jobs\n", stderr);
+            shell_jobs.exit_warning = 1;
+            return 0;
+        }
+    }
+    return 1;
+}
+
+/* Wait for a job that owns the terminal, then take the terminal back. A job
+ * that stops is kept in the table; when the table is full it is continued
+ * in the foreground instead, because nothing could resume it later. */
+static int job_foreground(struct job *job)
+{
+    struct job *slot = NULL;
+    for (;;) {
+        job_wait(job);
+        if (job_state(job) != JOB_STOPPED) break;
+        slot = job_in_table(job) ? job : job_free_slot();
+        if (slot) break;
+        fprintf(stderr, "oksh: job table full (%d jobs), continuing %s\n", JOB_CAPACITY, job->text);
+        job_continue(job);
+    }
+    const int restored = console_restore();
+    if (slot) {
+        if (slot != job) *slot = *job;
+        slot->reported = JOB_STOPPED;
+        job_touch(slot);
+        (void)job_report(STDERR_FILENO, slot, JOB_STOPPED);
+        return restored < 0 ? 1 : 128 + slot->stop_signal;
+    }
+    const int status = job_status(job);
+    if (job_in_table(job)) memset(job, 0, sizeof(*job));
+    return restored < 0 ? 1 : status;
+}
+
+static struct job *job_find(const char *name, const char *spec)
+{
+    struct job *job = NULL;
+    if (!spec || !strcmp(spec, "%%") || !strcmp(spec, "%+")) job = job_current(0);
+    else if (!strcmp(spec, "%-")) job = job_current(1);
+    else if (spec[0] == '%' && spec[1] >= '1' && spec[1] <= '9' && !spec[2] && spec[1] - '0' <= JOB_CAPACITY)
+        job = &shell_jobs.table[spec[1] - '1'];
+    if (job && job_used(job)) return job;
+    if (spec) fprintf(stderr, "oksh: %s: %s: no such job\n", name, spec);
+    else fprintf(stderr, "oksh: %s: no current job\n", name);
+    return NULL;
+}
+
+static int builtin_jobs(const struct command *command)
+{
+    if (command->argc > 1) { fputs("oksh: jobs: too many arguments\n", stderr); return 2; }
+    if (!shell_jobs.subshell) jobs_update();
+    int result = 0;
+    for (int i = 0; i < JOB_CAPACITY; ++i) {
+        const struct job *job = &shell_jobs.table[i];
+        if (job_used(job) && job_report(STDOUT_FILENO, job, job_state(job))) result = 1;
+    }
+    if (shell_jobs.subshell) return result;
+    for (int i = 0; i < JOB_CAPACITY; ++i) {
+        struct job *job = &shell_jobs.table[i];
+        if (!job_used(job)) continue;
+        if (job_state(job) == JOB_DONE) memset(job, 0, sizeof(*job));
+        else job->reported = job_state(job);
+    }
+    return result;
+}
+
+/* fg gives the job the terminal before continuing it; bg only continues it. */
+static int builtin_resume(const struct command *command)
+{
+    const char *name = command->argv[0];
+    if (shell_jobs.subshell) { fprintf(stderr, "oksh: %s: not available in a pipeline\n", name); return 1; }
+    if (command->argc > 2) { fprintf(stderr, "oksh: %s: too many arguments\n", name); return 2; }
+    jobs_update();
+    struct job *job = job_find(name, command->argc == 2 ? command->argv[1] : NULL);
+    if (!job) return 1;
+    if (job_state(job) == JOB_DONE) {
+        fprintf(stderr, "oksh: %s: job %d has finished\n", name, job_number(job));
+        return 1;
+    }
+    struct text_line line = {.used = 0};
+    if (!strcmp(name, "bg")) {
+        if (job_state(job) != JOB_STOPPED) {
+            fprintf(stderr, "oksh: bg: job %d is already running\n", job_number(job));
+            return 0;
+        }
+        job_touch(job);
+        line_add(&line, "[");
+        line_number(&line, (unsigned long)job_number(job));
+        line_add(&line, "]+ ");
+        line_add(&line, job->text);
+        line_add(&line, " &\n");
+        (void)line_write(STDOUT_FILENO, &line);
+        job_continue(job);
+        return 0;
+    }
+    line_add(&line, job->text);
+    line_add(&line, "\n");
+    (void)line_write(STDOUT_FILENO, &line);
+    job_touch(job);
+    if (shell_console.fd >= 0 && (tcsetpgrp(shell_console.fd, job->group) < 0 ||
+        tcgetpgrp(shell_console.fd) != job->group)) {
+        fputs("oksh: cannot give the job console input.\n", stderr);
+        (void)console_restore();
+        return 1;
+    }
+    job_continue(job);
+    return job_foreground(job);
 }
 
 static int builtin(struct command *command, int previous_status, int *exit_requested)
@@ -323,6 +706,7 @@ static int builtin(struct command *command, int previous_status, int *exit_reque
     }
     if (!strcmp(args[0], "exit")) {
         if (command->argc > 2) { fputs("oksh: exit: too many arguments\n", stderr); return 2; }
+        if (!exit_allowed()) return 1;
         *exit_requested = 1;
         if (command->argc == 1) return previous_status;
         const char *p = args[1];
@@ -341,6 +725,8 @@ static int builtin(struct command *command, int previous_status, int *exit_reque
             if ((i > 1 && write_text(" ")) || write_text(args[i])) return 1;
         return write_text("\n");
     }
+    if (!strcmp(args[0], "jobs")) return builtin_jobs(command);
+    if (!strcmp(args[0], "fg") || !strcmp(args[0], "bg")) return builtin_resume(command);
     return find_command(args[0])->run(command->argc, args);
 }
 
@@ -410,28 +796,36 @@ static int internal_pipe(int fds[2])
     return 0;
 }
 
-static int wait_child(pid_t child, int *status)
+/* Without job control an asynchronous command ignores the interactive
+ * interrupt signals (POSIX). Its first stage reads /dev/null unless the
+ * shell's input is the terminal it manages, where SIGTTIN guards reads, so
+ * it never consumes commands meant for the shell. */
+static void detach_background_child(int first_stage)
 {
-    pid_t result;
-    do { result = waitpid(child, status, 0); } while (result < 0 && errno == EINTR);
-    return result == child ? 0 : -1;
-}
-
-static int finish_child(pid_t child, int *status)
-{
-    if (wait_child(child, status) == 0) return 0;
-    if (errno != ECHILD) {
-        (void)kill(child, SIGKILL);
-        (void)wait_child(child, status);
+    if (shell_console.fd < 0 && (signal(SIGINT, SIG_IGN) == SIG_ERR || signal(SIGQUIT, SIG_IGN) == SIG_ERR)) {
+        perror("oksh: signal"); flush_streams(); _Exit(1);
     }
-    return -1;
+    if (!first_stage || shell_console.input) return;
+    int input = open("/dev/null", O_RDONLY);
+    if (input < 0 || (input != STDIN_FILENO && dup2(input, STDIN_FILENO) < 0)) {
+        perror("oksh: /dev/null"); flush_streams(); _Exit(1);
+    }
+    if (input != STDIN_FILENO) close(input);
 }
 
-static int run_pipeline(struct command_list *list, const struct pipeline *pipeline, int previous_status)
+static int run_pipeline(struct command_list *list, const struct pipeline *pipeline, int previous_status,
+                        const char *line)
 {
-    pid_t children[PIPELINE_CAPACITY];
+    struct job job;
+    memset(&job, 0, sizeof(job));
+    pid_t *children = job.pids;
     int launched = 0, previous = -1, gate[2];
     pid_t group = 0;
+    const int background = pipeline->background;
+    if (background && !job_free_slot()) {
+        fprintf(stderr, "oksh: job table full (%d jobs)\n", JOB_CAPACITY);
+        return 1;
+    }
     if (internal_pipe(gate) < 0) { perror("oksh: pipe"); (void)console_restore(); return 1; }
     flush_streams();
     for (int stage = 0; stage < pipeline->count; ++stage) {
@@ -444,7 +838,9 @@ static int run_pipeline(struct command_list *list, const struct pipeline *pipeli
             goto abort_launch;
         }
         if (!child) {
+            shell_jobs.subshell = 1;
             if (job_signals_ignored && job_signals_set(SIG_DFL) < 0) { perror("oksh: signal"); _Exit(1); }
+            if (background) detach_background_child(!stage);
             if (shell_console.fd >= 0) close(shell_console.fd);
             close(gate[1]);
             char abort_token;
@@ -475,7 +871,7 @@ static int run_pipeline(struct command_list *list, const struct pipeline *pipeli
         if (next[1] >= 0) close(next[1]);
         previous = next[0];
     }
-    if (shell_console.fd >= 0 && (tcsetpgrp(shell_console.fd, group) < 0 ||
+    if (!background && shell_console.fd >= 0 && (tcsetpgrp(shell_console.fd, group) < 0 ||
         tcgetpgrp(shell_console.fd) != group)) {
         fputs("oksh: cannot give the command console input.\n", stderr);
         goto abort_launch;
@@ -483,17 +879,23 @@ static int run_pipeline(struct command_list *list, const struct pipeline *pipeli
     /* EOF releases every child only after every stage exists. On a partial
      * launch, one abort byte per child prevents commands from running at all. */
     close(gate[0]); close(gate[1]);
-    int result = 0, failed_wait = 0;
-    for (int i = 0; i < launched; ++i) {
-        int status;
-        if (finish_child(children[i], &status) < 0) {
-            failed_wait = 1;
-            continue;
-        }
-        if (i + 1 == launched) result = WIFEXITED(status) ? WEXITSTATUS(status) : 128 + WTERMSIG(status);
+    job.count = launched;
+    job.group = group;
+    job_set_text(&job, line, pipeline);
+    if (!background) return job_foreground(&job);
+    struct job *slot = job_free_slot();
+    *slot = job;
+    job_touch(slot);
+    if (shell_jobs.interactive) {
+        struct text_line report = {.used = 0};
+        line_add(&report, "[");
+        line_number(&report, (unsigned long)job_number(slot));
+        line_add(&report, "] ");
+        line_number(&report, (unsigned long)children[launched - 1]);
+        line_add(&report, "\n");
+        (void)line_write(STDERR_FILENO, &report);
     }
-    if (console_restore() < 0) return 1;
-    return failed_wait ? 1 : result;
+    return 0;
 abort_launch:
     if (previous >= 0) close(previous);
     for (int i = 0; i < launched;) {
@@ -503,7 +905,8 @@ abort_launch:
         else break;
     }
     close(gate[0]); close(gate[1]);
-    for (int i = 0; i < launched; ++i) { int status; (void)finish_child(children[i], &status); }
+    job.count = launched;
+    job_wait(&job);
     (void)console_restore();
     return 1;
 }
@@ -523,9 +926,9 @@ static int run_line(const char *line, int previous_status, int *exit_requested)
         if ((pipeline->condition == AND_IF && status != 0) ||
             (pipeline->condition == OR_IF && status == 0)) continue;
         struct command *command = &list.commands[pipeline->first_command];
-        if (pipeline->count == 1 && is_builtin(command))
+        if (pipeline->count == 1 && is_builtin(command) && !pipeline->background)
             status = parent_builtin(&list, command, status, exit_requested);
-        else status = run_pipeline(&list, pipeline, status);
+        else status = run_pipeline(&list, pipeline, status, line);
         if (*exit_requested || shell_console.failed) break;
     }
     return status;
@@ -539,22 +942,34 @@ int main(int argc, char **argv)
             return 2;
         }
         int ignored = 0;
-        return run_line(argv[2], 0, &ignored);
+        return shell_finish(run_line(argv[2], 0, &ignored));
     }
     if (job_signals_set(SIG_IGN) < 0) { perror("oksh: signal"); return 1; }
     job_signals_ignored = 1;
+    shell_jobs.interactive = 1;
     if (console_prepare() < 0) return console_finish(1);
     char line[LINE_CAPACITY];
     int previous_status = 0, exit_requested = 0;
     puts("oksh: user processes, pipelines, lists, < > >> and descriptor redirections");
     while (!exit_requested) {
+        jobs_notify();
         fputs("oksh> ", stdout); flush_streams();
         int status = read_line(line, sizeof(line));
-        if (!status) return console_finish(previous_status);
-        if (status < 0) { perror("read"); return console_finish(1); }
-        if (status == 2) { fputs("oksh: input line too long\n", stderr); previous_status = 2; continue; }
-        previous_status = run_line(line, previous_status, &exit_requested);
-        if (shell_console.failed) return console_finish(1);
+        if (!status) {
+            if (exit_allowed()) break;
+        } else if (status < 0) {
+            perror("read");
+            return shell_finish(1);
+        } else if (status == 2) {
+            fputs("oksh: input line too long\n", stderr);
+            previous_status = 2;
+        } else {
+            previous_status = run_line(line, previous_status, &exit_requested);
+            if (shell_console.failed) return shell_finish(1);
+        }
+        /* A warning about stopped jobs lasts until the next input line. */
+        shell_jobs.exit_warned = shell_jobs.exit_warning;
+        shell_jobs.exit_warning = 0;
     }
-    return console_finish(previous_status);
+    return shell_finish(previous_status);
 }
