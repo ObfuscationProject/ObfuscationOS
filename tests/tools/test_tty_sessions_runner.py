@@ -51,6 +51,19 @@ class TtySessionsRunnerTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, name):
                 runner.refuse_configuration({name})
 
+    def test_console_login_is_refused(self):
+        with self.assertRaisesRegex(ValueError, 'native_console_login'):
+            runner.refuse_configuration(runner.enabled_options(
+                (CONFIG % 'false').replace('native_console_login = false', 'native_console_login = true')))
+
+    def test_staged_console_must_be_the_maintenance_shell(self):
+        root = Path(__file__).resolve().parents[2]
+        self.assertTrue(runner.maintenance_console((root / 'config/services.conf').read_text()))
+        self.assertFalse(runner.maintenance_console((root / 'config/services-login.conf').read_text()))
+        self.assertFalse(runner.maintenance_console('OK_SERVICE_MANIFEST 1\n'))
+        self.assertFalse(runner.maintenance_console('OK_SERVICE_MANIFEST 1\nservice console simple /bin/oksh -\n'
+                                                    'service console simple /bin/login - 0 0\n'))
+
     def test_acceptance_before_the_shell_fails_at_once(self):
         # A failed acceptance boot never reaches the prompt; it must not wait out the timeout.
         guest = FakeGuest(b'POSIX_CHECK failed: child_status(child) == 0 errno=16\r\n'

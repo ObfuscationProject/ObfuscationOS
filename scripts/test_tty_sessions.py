@@ -66,10 +66,19 @@ def enabled_options(config: str) -> set[str]:
 
 def refuse_configuration(enabled: set[str]) -> None:
     """The probe is typed at the maintenance shell, so nothing may run before it."""
+    if "native_console_login" in enabled:
+        raise ValueError("native_console_login makes /bin/login the console service; the probe needs the "
+                         "maintenance oksh console (reconfigure with --native_console_login=n)")
     acceptance = sorted(enabled.intersection(ACCEPTANCE_OPTIONS))
     if acceptance:
         raise ValueError("native startup acceptance runs before the maintenance shell; reconfigure without "
                          + ", ".join(acceptance) + " (xmake tty-sessions-test does this)")
+
+
+def maintenance_console(services: str) -> bool:
+    """Whether a staged services.conf runs the maintenance oksh as the console service."""
+    consoles = [line.split() for line in services.splitlines() if line.split()[:2] == ["service", "console"]]
+    return len(consoles) == 1 and consoles[0][3:4] == ["/bin/oksh"]
 
 
 def receive(process: subprocess.Popen, serial: bytearray, done, deadline: float) -> None:
@@ -118,6 +127,8 @@ def main() -> None:
             raise FileNotFoundError(path)
     if not (tree / "bin/oksh").is_file():
         raise FileNotFoundError(tree / "bin/oksh")
+    if not maintenance_console((tree / "etc/services.conf").read_text(encoding="utf-8")):
+        raise ValueError(f"{tree / 'etc/services.conf'} does not run /bin/oksh as the console service")
     inspect_elf(probe, args.arch)
     if probe.read_bytes()[7] != 0:
         raise ValueError("the probe lacks the native ELF personality")

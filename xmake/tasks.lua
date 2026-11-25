@@ -339,6 +339,9 @@ task("tty-sessions-test")
         config.load()
         local arch, spec = task_require_arch(config.get("arch") or "x86_64")
         local mode = config.get("mode") or "release"
+        if config.get("native_console_login") then
+            raise("native_console_login makes /bin/login the console service; the TTY probe needs the maintenance oksh console")
+        end
         -- Startup acceptance (which `qemu-distro --require-native` leaves
         -- configured) runs posix-check and the shell pipeline before the
         -- maintenance shell; the probe needs only that shell.
