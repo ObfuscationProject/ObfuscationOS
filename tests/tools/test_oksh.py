@@ -580,11 +580,13 @@ class JobControlTests(HostedShell):
         self.assertEqual(session.send(f'echo first; {stop}'), f'first\n[1]+ Stopped {stop}\n'.encode())
         self.assertEqual(session.send(f'{self.command("status", "0")} &&  {other}'),
                          f'[2]+ Stopped {other}\n'.encode())
-        self.assertRegex(session.send(f'echo first ;{wait}  &'), rb'\Afirst\n\[3\] \d+\n\Z')
+        launched = re.fullmatch(rb'first\n\[3\] (\d+)\n', session.send(f'echo first ;{wait}  &'))
+        self.assertIsNotNone(launched)
         self.assertEqual(session.send('jobs'),
                          f'[1]  Stopped {stop}\n[2]- Stopped {other}\n[3]+ Running {wait}\n'.encode())
         (self.work / 'go').touch()
-        self.assertEqual(session.send('fg %3'), f'{wait}\n'.encode())
+        wait_for(lambda: exited(launched.group(1).decode()), 'background job did not exit')
+        self.assertEqual(session.send(''), f'[3]+ Done {wait}\n'.encode())
         rest, _ = session.finish(b'exit\nexit\n')
         self.assertEqual(rest, b'oksh: there are stopped jobs\noksh> ')
         self.assertEqual([row[2] for row in session.rows('LEFTOVER')], [str(signal.SIGHUP)] * 2)
