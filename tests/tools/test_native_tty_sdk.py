@@ -96,8 +96,8 @@ class NativeTtySdkTests(unittest.TestCase):
             path = self.include / header
             good = path.read_text()
             attacks = [good + good, '/*\n' + good + '*/\n', '#if 0\n' + good + '#endif\n',
-                       good.replace('module_abi = 82', 'module_abi = 81'),
-                       good.replace('module_abi = 82', 'module_abi = 83'),
+                       good.replace('module_abi = 83', 'module_abi = 82'),
+                       good.replace('module_abi = 83', 'module_abi = 84'),
                        good.replace(profile, profile.replace('-v1', '-v2')),
                        good.replace('\n', ' '), good.replace('#pragma once', '#pragma once\\\n')]
             for name, value in re.findall(r'inline constexpr u32 (\w+) = (\d+);', good):
