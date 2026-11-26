@@ -194,6 +194,29 @@ and the ABI 80 kernel SDK.
 stops being opt-in once ten profiles pass. Session, foreground group and
 SIGHUP-on-hangup tests move from hosted fixtures to guest execution.
 
+Status (`feat/getty-login`, notes in
+[GETTY_LOGIN](qualification/GETTY_LOGIN.md), rebased onto main at ABI 82):
+okcrt and the SDK headers have the POSIX terminal API (termios, window size,
+devpts helpers, job wait macros); `/bin/getty` is the login profile's PID1
+console service and runs `login` and `oksh` on `/dev/pts/N`; `oksh` has
+bounded job control (`&`, `jobs`, `fg`, `bg`, Stopped/Done reports). Guest execution under single-CPU
+QEMU 10.2, debug, kernel main fd8abee SDKs, on all ten profiles: the 20-case
+TTY session/job-control probe (`xmake tty-sessions-test`, also in CI on
+x86_64, arm32 and ppc), the maintenance-console job runner
+(`scripts/test_oksh_jobs.py`; mips and mips64 need kernel
+`fix/jobctl-native-stop`, which fixes a dropped SIGSTOP in orphaned groups),
+and the login lane (`xmake getty-login-test`: enrollment, the shell leading
+its pts session, own job groups, ^C, ^Z with `jobs` and `fg`, `&`, the
+stopped-jobs warning, hangup at logout, getty's restart, wrong and right
+passwords, an ordinary account and a second boot). Console login is now the
+default for the journalled product image (`native_console_login` unset =
+auto); acceptance, simplefs, ext4, boot-archive and rescue images keep the
+maintenance console, `y` and `n` force either. The hosted models stay beside
+the guest tests. Not claimed: physical hardware, SMP, release-mode guests,
+BusyBox `ASH_JOB_CONTROL` (decision 0004), and recovery from background jobs
+that hold all eight pts pairs after logout. Receipts follow in
+ObfuscationEvidence.
+
 ### WT2.3 `feat/net-services` (L)
 
 IRQ-driven virtio-net path, `netd` with a DHCP client, DNS resolver replacing the

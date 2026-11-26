@@ -306,3 +306,155 @@ Open after S4:
   pair is free (`docs/native-init.md`). getty, like Linux getty, does not kill
   processes outside its session. S5 should cover this in the lane or its docs;
   more pairs are a kernel change.
+
+## S5: ten-profile login lane and console login by default
+
+### The lane
+
+`scripts/test_getty_login.py` (`xmake getty-login-test`) drives getty, login
+and oksh over the serial console. It builds the distribution kernel, the
+login tree and the journalled product image, admits the product image as
+`xmake qemu-distro` does, and packs a lane disk from a copy of the same login
+root with `tests/native/oksh_job_probe.c` added as `/bin/oksh-jobs`, with the
+same Linux journal activation. The admitted product files of the lane disk
+and the product image must be identical, so the helper changes nothing that
+`tools/console_login_disk.py` pins, and the product image itself is never
+booted. The first boot checks, in order:
+
+1. `GETTY event=open pts=0` and first-boot enrollment of the administrator;
+2. the shell on the pts: `whoami | cat`, `pwd`, `ls /dev/pts` lists only the
+   session's pair, `stat` shows `S_IFCHR|0620` with inode 34816+N;
+3. `oksh-jobs session` as a foreground job: its own group, which owns the
+   terminal, in the session that the shell (the pid getty reported, login's
+   pid after its exec) leads with the pts as controlling terminal;
+   `oksh-jobs session &`: its own group without the terminal, which the
+   shell's group keeps, then `[1]+ Done`;
+4. `^C` (0x03) kills a foreground `oksh-jobs hold` (its `|| echo` branch runs,
+   `^C` is echoed) and the prompt returns with an empty `jobs`;
+5. `^Z` (0x1a) stops the next one: `[1]+ Stopped`, `jobs` lists it, `exit`
+   warns `oksh: there are stopped jobs`, `fg` resumes it in the foreground
+   (no prompt for 2 s) and `^C` ends it;
+6. a job stopped with `^Z` at logout: `exit` warns, the second `exit` ends
+   the session; getty reports `GETTY event=close ... status=256
+   reason=hangup` (`exit` returns the warning's status 1), PID1 reaps getty
+   with status 0 and relaunches the console service under the next generation,
+   and the next session's `ls /dev/pts` shows that the old pair was released;
+7. a wrong password is refused (`Login incorrect.`), the right one logs in,
+   steps 2-3 again and logout;
+8. `:useradd` of `alice`, logout, a login as `alice` (`uid1000` in
+   `/home/alice`) with steps 2-3, logout.
+
+The second boot of the same disk logs the administrator in, runs steps 2-3
+and logs out. Every typed password is absent from the serial log and the
+echoed names have no extra blank line. The debug kernel's `OK_*` lines and
+PID1's `NATIVE_PID1` lines are filtered before matching, because they
+interleave with session output. Password timeouts are four times the largest
+enrollment and login times measured per profile before the final run (S4 on
+x86_64, the first S5 runs elsewhere), at least 300 s and 120 s; each other
+step has `--timeout` (300 s).
+
+```sh
+xmake f -c -y -m debug -a ARCH --kernel_sdk=SDK --systoolchain_dir=TC \
+  --linux_journal_image=bzImage --linux_journal_image_sha256=SHA256
+xmake getty-login-test [--out=DIR] [--timeout=300] [--no-second-boot]
+```
+
+The task refuses a configuration whose journalled image does not run login
+(`native_console_login=n`, startup acceptance, an alternative PID1) or that
+lacks the Linux image; CI does not run it because hosted runners have no
+Linux activation image.
+
+Result (QEMU 10.2.0 from SysToolchain 0.1.0, debug, kernel main fd8abee SDKs,
+ABI 82 / UAPI 0.17): both boots pass on all ten profiles, i386, x86_64,
+aarch64, arm32, rv64, rv32, loongarch64, mips, mips64 and ppc, in two runs:
+before the default changed, with `--native_console_login=y` and the lane
+script of f8548ac before its timeout table was updated from that run (script
+sha256 `4089d690e6c2...`; it differs only in that table), and on the final tree through `xmake getty-login-test` with
+the option left unset (script sha256 `291ccdfdeb15...`). All 100 logouts
+(five per run and profile) reported `reason=hangup`. Seconds under TCG on the development host, ranges
+over both runs, with up to three lanes or other QEMU jobs running at once:
+
+| Profile | boot to `GETTY event=open` | enrollment | login | wrong password to `Login:` | `:useradd` |
+|---|---|---|---|---|---|
+| i386 | 10-14 | 93-101 | 13-21 | 14-16 | 31-34 |
+| x86_64 | 7-9 | 88-99 | 11-14 | 12-15 | 27-34 |
+| aarch64 | 5-9 | 102-126 | 12-21 | 13-18 | 31-42 |
+| arm32 | 7-9 | 102-119 | 11-14 | 12-14 | 30-37 |
+| rv64 | 6-7 | 73-85 | 15-18 | 16 | 28-29 |
+| rv32 | 6 | 72-75 | 14-15 | 15-16 | 27-28 |
+| loongarch64 | 4-5 | 62-63 | 15-16 | 16-17 | 26 |
+| mips | 7 | 77-95 | 11-17 | 12-19 | 26-28 |
+| mips64 | 7 | 69-79 | 13-16 | 14-17 | 26-29 |
+| ppc | 5-8 | 65-78 | 14-17 | 15-16 | 26-35 |
+
+Enrollment is one PBKDF2 derive plus the store commits, login one PBKDF2
+verify. The final run was slower than the first on most profiles (more
+concurrent jobs); the largest enrollment, 126 s on aarch64, is well inside
+the 300 s floor, but the script's per-profile table still holds the earlier
+figures.
+
+What the lane does not show: physical hardware, SMP, release builds (debug
+only), a second concurrent session, `bg` on a pts (the maintenance runner
+covers `bg`), and getty's lock-out when background jobs left at logout hold
+all eight pts pairs (`docs/native-init.md`); that stays a documented limit.
+
+### Console login by default
+
+With the lane passing on ten profiles, `native_console_login` became
+tri-state (`docs/native-init.md`, "Persistent console login profile"). Unset,
+which xmake shows as `auto`, the journalled product image selects getty and
+login: it is packed from a separate login tree, `build/<arch>/<mode>/rootfs-login`,
+whose PID1 is `init-login.elf` with the getty fallback manifest. The full,
+rescue and release trees, and so the simplefs, plain ext4, boot archive,
+release and acceptance images, keep the maintenance `service console simple
+/bin/oksh -` without raising; so does the journalled image when startup
+acceptance or an alternative PID1 is configured. `y` keeps the strict
+behaviour (login on every tree, acceptance refused, `qemu-distro` only with
+`--fs=ext4-journalled --interactive`), and `n` the maintenance console
+everywhere. xmake itself refuses an explicit `=auto`; leaving the option out
+selects it.
+
+Checks:
+
+- Tool tests that pin the selection: `test_native_console_profile.py` (the
+  login tree's `/init` is `init-login.elf`, the maintenance one `init.elf`),
+  `test_rootfs_profiles.py` (only the journalled image packs `rootfs-login`),
+  `test_tty_sessions_runner.py` (only `y` is refused), `test_stage_rootfs.py`,
+  `test_logging.py` and `test_console_logging_disk.py`.
+- Configuration controls on x86_64: unset builds `rootfs`, `rootfs-rescue`
+  with the maintenance console and `rootfs-login` with getty, and the product
+  image passes `tools/console_login_disk.py` admission against `rootfs-login`;
+  with `native_init_acceptance=y` the journalled image is the maintenance
+  `rootfs.ext4-journalled.img`; `y` with acceptance, `qemu-distro
+  --require-native`, `--fs=simplefs` or `tty-sessions-test` is refused; with
+  `n` the journalled target selects `rootfs.ext4-journalled.img` and
+  `getty-login-test` is refused; a value other than y or n is refused.
+- The CI sequence of `.github/workflows/ci.yml` on x86_64, arm32 and ppc
+  (`xmake f` without the option, `kernel-sdk-check`, `uapi-test`,
+  `libc-test`, `compat-test` on x86_64, `distro_image`,
+  `linux-driver-compat`, `rootfs-simplefs`, `rootfs-ext4`, `qemu-distro
+  --fs=simplefs --require-native --timeout=90`, `tty-sessions-test
+  --timeout=240`, and on x86_64 `scripts/test_persistent_ext4.py` with the
+  host QEMU 8.2): passes on all three, with the local SysToolchain directory
+  standing in for CI's packaged one. `artifact-test` (the tool suite) ran
+  separately once.
+- The final ten-profile lane above ran with the option unset.
+
+Other runs on the final tree (kernel main fd8abee SDKs unless noted):
+`xmake tty-sessions-test` (both runs, 20 cases) and the acceptance boot
+(`kernel-sdk-check` plus `qemu-distro --fs=simplefs --require-native`) pass
+on all ten profiles; `scripts/test_oksh_jobs.py` passes on all ten (mips and
+mips64 with the fixed kernel, S3); the tool suite with the x86_64 debug SDK
+runs 1382 tests, 35 skipped, all passing.
+
+Open after S5:
+
+- The mips/mips64 orphaned-group SIGSTOP fix is on kernel
+  `fix/jobctl-native-stop`, not on kernel main; until it merges, the S3
+  maintenance runner fails on those two profiles with main SDKs.
+- `tests/native/native_password_rotation_input.c` still has its console-era
+  `getppid() == 1` check and wraps `ok_login_read_line` for the password
+  prompt; it has no runner. `tools/qualify_native_login.py` and
+  `tools/read_native_login.py` stay pinned to ABI 69 history.
+- BusyBox `ASH_JOB_CONTROL` and line editing stay disabled (decision 0004).
+- Receipts are packaged into ObfuscationEvidence in S6.
