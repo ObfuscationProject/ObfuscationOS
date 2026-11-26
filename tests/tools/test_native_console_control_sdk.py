@@ -42,7 +42,7 @@ class NativeConsoleControlSdkTests(unittest.TestCase):
 
     def test_exact_contract_and_all_ten_architectures(self):
         self.assertEqual(consumer.NATIVE_CONSOLE_CONTROL_PROFILE,
-                         'bootcpu-lease-epoch-explicit-session-foreground-eio-pid32-ioctl-v1')
+                         'bootcpu-lease-epoch-explicit-console-pty-session-foreground-sigttin-sigttou-pid32-ioctl-v2')
         self.assertEqual(consumer.NATIVE_CONSOLE_CONTROL_PROFILE, producer.NATIVE_CONSOLE_CONTROL_PROFILE)
         self.assertEqual(consumer.NATIVE_CONSOLE_CONTROL_HEADERS, producer.NATIVE_CONSOLE_CONTROL_HEADERS)
         self.assertEqual(consumer.NATIVE_CONSOLE_CONTROL_DEFINES, producer.NATIVE_CONSOLE_CONTROL_DEFINES)
@@ -52,7 +52,7 @@ class NativeConsoleControlSdkTests(unittest.TestCase):
             validate(kernel_checkout.INCLUDE)
         self.assertEqual(self.good, (kernel_checkout.INCLUDE /
                                     consumer.NATIVE_CONSOLE_CONTROL_PROFILE_HEADER).read_text())
-        self.assertEqual(consumer.validate_sdk(self.sdk, 'x86_64', 'debug')['abi_version'], 80)
+        self.assertEqual(consumer.validate_sdk(self.sdk, 'x86_64', 'debug')['abi_version'], 82)
         self.fixture.test_all_ten_profile_contracts()
 
     def test_manifest_requires_explicit_console_capability(self):
@@ -86,10 +86,10 @@ class NativeConsoleControlSdkTests(unittest.TestCase):
         attacks = [self.good + self.good, '/*\n' + self.good + '*/\n',
                    '#if 0\n' + self.good + '#endif\n',
                    'const char *example = R"(\n' + self.good + ')";\n',
-                   '#define native_console_control_module_abi 80\n' + self.good,
-                   self.good.replace('module_abi = 80', 'module_abi = 72'),
-                   self.good.replace('module_abi = 80', 'module_abi = 81'),
-                   self.good.replace('ioctl-v1', 'ioctl-v2'),
+                   '#define native_console_control_module_abi 82\n' + self.good,
+                   self.good.replace('module_abi = 82', 'module_abi = 72'),
+                   self.good.replace('module_abi = 82', 'module_abi = 83'),
+                   self.good.replace('ioctl-v2', 'ioctl-v1'), self.good.replace('ioctl-v2', 'ioctl-v3'),
                    self.good.replace('\n', '\u2028'),
                    self.good.replace('#pragma once', '#pragma once\\\n')]
         for name, value in re.findall(r'inline constexpr u32 (\w+) = (\d+);', self.good):
@@ -119,15 +119,15 @@ class NativeConsoleControlSdkTests(unittest.TestCase):
     def test_old_future_and_mixed_cohorts_are_refused(self):
         module = self.sdk / 'include/ok/core/module.hpp'
         good_module = module.read_text()
-        for abi in (72, 79, 81):
-            module.write_text(good_module.replace('= 80;', '= ' + str(abi) + ';'))
+        for abi in (72, 81, 83):
+            module.write_text(good_module.replace('= 82;', '= ' + str(abi) + ';'))
             self.rehash(module)
             with self.subTest(abi=abi):
                 self.refused()
         module.write_text(good_module)
         self.rehash(module)
-        for minor in (14, 15, 17):
-            self.uapi.write_text(self.good_uapi.replace('MINOR 16', 'MINOR ' + str(minor)))
+        for minor in (14, 15, 16, 18):
+            self.uapi.write_text(self.good_uapi.replace('MINOR 17', 'MINOR ' + str(minor)))
             self.rehash(self.uapi)
             with self.subTest(minor=minor):
                 self.refused()
@@ -154,8 +154,8 @@ class NativeConsoleControlSdkTests(unittest.TestCase):
         marker.write_bytes(b'prior SDK')
         args = argparse.Namespace(headers=self.sdk / 'include', output=output, mode='debug',
                                   arch='x86_64', define=['OK_NATIVE_SIGNAL_RUNTIME'], asflag=[], cxxflag=[])
-        for attack in (self.good.replace('module_abi = 80', 'module_abi = 72'),
-                       self.good.replace('pty = 0', 'pty = 1')):
+        for attack in (self.good.replace('module_abi = 82', 'module_abi = 72'),
+                       self.good.replace('pty = 1', 'pty = 0')):
             self.header.write_text(attack)
             with self.subTest(attack=attack), self.assertRaisesRegex(ValueError, 'native console control profile'):
                 producer.export(args)

@@ -10,7 +10,7 @@
 #define SELF_PATH "/bin/native-console-control"
 #define NONCE_BYTES 32
 #define STREAM_BYTES 12289
-_Static_assert(OK_NATIVE_CONSOLE_CONTROL_VERSION == 1 && sizeof(pid_t) == 4,
+_Static_assert(OK_NATIVE_CONSOLE_CONTROL_VERSION == 2 && sizeof(pid_t) == 4,
                "native controlling-console contract");
 
 enum { INITIAL = 1, PREPARE_EXEC, BEFORE_EXEC, AFTER_EXEC, EMPTY, BUFFERED, READ_NONCE, FINISH,

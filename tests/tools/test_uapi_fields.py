@@ -54,9 +54,11 @@ class UapiFieldsTests(unittest.TestCase):
         header = include / 'ok/uapi/syscall.h'
         self.assertTrue(header.is_file())
         values = parse_defines(header.read_text())
-        self.assertEqual(values['OK_UAPI_VERSION_MINOR'], 16)
-        self.assertEqual(values['OK_NATIVE_SESSIONS_VERSION'], 3)
-        self.assertEqual(values['OK_NATIVE_CONSOLE_CONTROL_VERSION'], 1)
+        self.assertEqual(values['OK_UAPI_VERSION_MINOR'], 17)
+        self.assertEqual(values['OK_NATIVE_SESSIONS_VERSION'], 4)
+        self.assertEqual(values['OK_NATIVE_CONSOLE_CONTROL_VERSION'], 2)
+        self.assertEqual(values['OK_NATIVE_TTY_VERSION'], 1)
+        self.assertEqual(values['OK_NATIVE_JOB_CONTROL_VERSION'], 1)
         self.assertEqual(values['OK_TIOCGSID'], 0x5429)
         result = subprocess.run([sys.executable, '-I', '-B', str(ROOT / 'tools/check_uapi.py'),
                                  '--include', str(include)], capture_output=True)
@@ -69,12 +71,13 @@ class UapiFieldsTests(unittest.TestCase):
         mode = os.environ.get('OK_TEST_KERNEL_MODE', 'debug')
         self.assertIn(mode, ('debug', 'release'))
         manifest = validate_sdk(sdk, os.environ.get('OK_TEST_KERNEL_ARCH', 'x86_64'), mode)
-        self.assertEqual(manifest['abi_version'], 80)
-        self.assertEqual(manifest['native_pty_profile'], 'bootcpu-native-raw-pair-ofd-waits-drain-eof-eio-v1')
+        self.assertEqual(manifest['abi_version'], 82)
+        self.assertEqual(manifest['native_pty_profile'], 'bootcpu-native-pair-devpts-counted-endpoints-ntty-hangup-v2')
+        self.assertEqual(manifest['native_tty_profile'], 'bootcpu-ntty-template-console-pts8-devfs-ptmx-tty-console-v1')
         values = parse_defines((sdk / 'include/ok/uapi/syscall.h').read_text())
         self.assertEqual(values['OK_AT_FDCWD'], -100)
         self.assertEqual([values['OK_UAPI_VERSION_' + component] for component in ('MAJOR', 'MINOR', 'PATCH')],
-                         [0, 16, 0])
+                         [0, 17, 0])
         self.assertEqual([values[name] for name in ('OK_SYS_PTY_PAIR', 'OK_NATIVE_PTY_PAIR_VERSION',
                          'OK_NATIVE_PTY_NONBLOCK', 'OK_NATIVE_PTY_CLOEXEC')], [1035, 1, 0x0800, 0x080000])
         result = subprocess.run([sys.executable, '-I', '-B', str(ROOT / 'tools/check_uapi.py'),
@@ -137,20 +140,20 @@ class UapiFieldsTests(unittest.TestCase):
                         for name, fields in EXPECTED_FIELDS.items())
         good += '#endif\n'
         cases = {
-            'numeric-prefix-expression': good.replace('#define OK_UAPI_VERSION_MINOR 16',
-                                                      '#define OK_UAPI_VERSION_MINOR 16 + 1'),
-            'conditional-definition': good.replace('#define OK_UAPI_VERSION_MINOR 16',
-                '#if 0\n#define OK_UAPI_VERSION_MINOR 16\n#endif'),
-            'undef-after-definition': good.replace('#define OK_UAPI_VERSION_MINOR 16',
-                '#define OK_UAPI_VERSION_MINOR 16\n#undef OK_UAPI_VERSION_MINOR'),
-            'spaced-redefinition': good.replace('#define OK_UAPI_VERSION_MINOR 16',
-                '#define OK_UAPI_VERSION_MINOR 16\n# define OK_UAPI_VERSION_MINOR 10'),
-            'function-like-duplicate': good.replace('#define OK_UAPI_VERSION_MINOR 16',
-                '#define OK_UAPI_VERSION_MINOR 16\n#define OK_UAPI_VERSION_MINOR() 13'),
-            'malformed-duplicate': good.replace('#define OK_UAPI_VERSION_MINOR 16',
-                '#define OK_UAPI_VERSION_MINOR 16\n#define OK_UAPI_VERSION_MINOR OTHER'),
-            'comment-decoy': good.replace('#define OK_UAPI_VERSION_MINOR 16',
-                '#define OK_UAPI_VERSION_MINOR 10 /* actual */\n/*\n#define OK_UAPI_VERSION_MINOR 16\n*/'),
+            'numeric-prefix-expression': good.replace('#define OK_UAPI_VERSION_MINOR 17',
+                                                      '#define OK_UAPI_VERSION_MINOR 17 + 1'),
+            'conditional-definition': good.replace('#define OK_UAPI_VERSION_MINOR 17',
+                '#if 0\n#define OK_UAPI_VERSION_MINOR 17\n#endif'),
+            'undef-after-definition': good.replace('#define OK_UAPI_VERSION_MINOR 17',
+                '#define OK_UAPI_VERSION_MINOR 17\n#undef OK_UAPI_VERSION_MINOR'),
+            'spaced-redefinition': good.replace('#define OK_UAPI_VERSION_MINOR 17',
+                '#define OK_UAPI_VERSION_MINOR 17\n# define OK_UAPI_VERSION_MINOR 10'),
+            'function-like-duplicate': good.replace('#define OK_UAPI_VERSION_MINOR 17',
+                '#define OK_UAPI_VERSION_MINOR 17\n#define OK_UAPI_VERSION_MINOR() 13'),
+            'malformed-duplicate': good.replace('#define OK_UAPI_VERSION_MINOR 17',
+                '#define OK_UAPI_VERSION_MINOR 17\n#define OK_UAPI_VERSION_MINOR OTHER'),
+            'comment-decoy': good.replace('#define OK_UAPI_VERSION_MINOR 17',
+                '#define OK_UAPI_VERSION_MINOR 10 /* actual */\n/*\n#define OK_UAPI_VERSION_MINOR 17\n*/'),
             'conditional-record': good.replace('struct ok_mount_info', '#if 0\nstruct ok_mount_info', 1),
             'type-shadow': good.replace('#endif', '#define uint32_t uint16_t\n#endif'),
             'pragma-pack': good.replace('#endif', '#pragma pack(1)\n#endif'),
