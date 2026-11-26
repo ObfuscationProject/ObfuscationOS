@@ -127,3 +127,4 @@ includes("xmake/musl_udp_sockname_fixture.lua")
 includes("xmake/musl_udp_connected_fixture.lua")
 
 includes("xmake/native_tcp_fixture.lua")
+includes("xmake/net_socketcall_fixture.lua")
