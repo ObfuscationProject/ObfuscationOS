@@ -11,7 +11,7 @@ import unittest
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "tools"))
 import package_net_socketcall_fixture as package
-from net_probe_peer import ECHO4, ECHO_PORT, TcpEcho, transport_checksum4
+from net_probe_peer import ECHO4, ECHO_PORT, REFUSED_PORT, TcpEcho, transport_checksum4
 
 GUEST = bytes((192, 0, 2, 2))
 
@@ -94,8 +94,8 @@ class Packaging(unittest.TestCase):
                 sys.argv = old
 
 
-def segment(port: int, sequence: int, ack: int, flags: int, payload: bytes = b"") -> bytes:
-    body = struct.pack("!HHIIBBHHH", port, ECHO_PORT, sequence, ack, 5 << 4, flags, 8192, 0, 0) + payload
+def segment(port: int, sequence: int, ack: int, flags: int, payload: bytes = b"", target: int = ECHO_PORT) -> bytes:
+    body = struct.pack("!HHIIBBHHH", port, target, sequence, ack, 5 << 4, flags, 8192, 0, 0) + payload
     value = transport_checksum4(GUEST, ECHO4, 6, body)
     return body[:16] + struct.pack("!H", value) + body[18:]
 
@@ -124,6 +124,22 @@ class EchoClients(unittest.TestCase):
         self.assertEqual(echo.receive(GUEST, segment(40000, 9000, 0, 0x02), 0.4), [])
         self.connect(echo, 40001, 0.5)
         self.assertEqual(echo.peer, (GUEST, 40001))
+
+
+class ClosedPort(unittest.TestCase):
+    def test_syn_is_refused_without_touching_the_echo(self):
+        echo = TcpEcho(random.Random(2))
+        replies = echo.receive(GUEST, segment(40100, 0xFFFFFFFF, 0, 0x02, target=REFUSED_PORT), 0.0)
+        self.assertEqual(len(replies), 1)
+        sport, dport, sequence, ack, _, flags = struct.unpack("!HHIIBB", replies[0][:14])
+        self.assertEqual((sport, dport, sequence, ack, flags), (REFUSED_PORT, 40100, 0, 0, 0x14))
+        self.assertEqual(transport_checksum4(ECHO4, GUEST, 6, replies[0]), 0)
+        self.assertEqual(echo.state, "listen")
+        # Only a SYN is refused; a stray ACK or RST to the closed port is dropped.
+        self.assertEqual(echo.receive(GUEST, segment(40100, 1, 1, 0x10, target=REFUSED_PORT), 0.1), [])
+        self.assertEqual(echo.receive(GUEST, segment(40100, 1, 1, 0x04, target=REFUSED_PORT), 0.1), [])
+        # The echo still serves a client afterwards.
+        EchoClients().connect(echo, 40101, 0.2)
 
 
 if __name__ == "__main__":
