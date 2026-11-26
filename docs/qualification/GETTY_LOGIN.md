@@ -385,9 +385,13 @@ aarch64, arm32, rv64, rv32, loongarch64, mips, mips64 and ppc, in two runs:
 before the default changed, with `--native_console_login=y` and the lane
 script of f8548ac before its timeout table was updated from that run (script
 sha256 `4089d690e6c2...`; it differs only in that table), and on the final tree through `xmake getty-login-test` with
-the option left unset (script sha256 `291ccdfdeb15...`). All 100 logouts
-(five per run and profile) reported `reason=hangup`. Seconds under TCG on the development host, ranges
-over both runs, with up to three lanes or other QEMU jobs running at once:
+the option left unset (script sha256 `291ccdfdeb15...`). A third run on the
+same configuration, after review, used the script of 5820bc4 (sha256
+`711c6e3a8cf5...`) with the checks of steps 4-6 as described above: on all
+ten profiles every session reused pts 0 and the job stopped at logout was
+gone. All 150 logouts (five per run and profile) reported `reason=hangup`.
+Seconds under TCG on the development host, ranges over the first two runs,
+with up to three lanes or other QEMU jobs running at once:
 
 | Profile | boot to `GETTY event=open` | enrollment | login | wrong password to `Login:` | `:useradd` |
 |---|---|---|---|---|---|
