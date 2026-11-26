@@ -284,11 +284,17 @@ class Session:
             raise Failure(f"the foreground job does not own the terminal: {job}")
         return job["pid"], sent
 
-    def interrupted(self, sent: int, marker: bytes, what: str) -> int:
+    def interrupted(self, sent: int, line: bytes, marker: bytes, what: str) -> int:
         """After ^C: the job died, the rest of its list ran and the prompt is back."""
         end = self.guest.receive(PROMPT, sent)
         output = self.output(sent, end)
-        if b"^C" not in output or marker + b"\n" not in output or b"OKSH_JOBS held" in output:
+        # The pts echoes the typed line, marker included: only the output after
+        # the echoed ^C shows that the || branch ran.
+        if not output.startswith(line + b"\n"):
+            raise Failure(f"{line!r} was not echoed on the pts: {output!r}")
+        output = output[len(line) + 1:]
+        interrupt = output.find(b"^C")
+        if interrupt < 0 or marker + b"\n" not in output[interrupt:] or b"OKSH_JOBS held" in output:
             raise Failure(f"^C did not end the {what}: {output!r}")
         output, start = self.command(b"jobs", end - len(PROMPT))
         if output.strip():
@@ -299,7 +305,8 @@ class Session:
         # oksh has no $?: the || branch runs only for a nonzero status.
         pid, sent = self.hold(start, b" || echo hold-interrupted")
         self.guest.send(b"\x03", newline=False)
-        start = self.interrupted(sent, b"hold-interrupted", "foreground job")
+        start = self.interrupted(sent, b"oksh-jobs hold %d || echo hold-interrupted" % HOLD, b"hold-interrupted",
+                                 "foreground job")
         self.step("interrupt", job=pid)
         return start
 
@@ -327,12 +334,13 @@ class Session:
         pid, start = self.suspend(start)
         start = self.stopped_exit(start)
         self.guest.receive(PROMPT, start)
-        sent = self.guest.send(b"fg || echo fg-interrupted")
-        self.guest.cleaned(b"fg || echo fg-interrupted\noksh-jobs hold %d\n" % HOLD, sent)
+        line = b"fg || echo fg-interrupted"
+        sent = self.guest.send(line)
+        self.guest.cleaned(line + b"\noksh-jobs hold %d\n" % HOLD, sent)
         # Resumed in the foreground: the shell waits, and ^C reaches the job.
         self.guest.quiet(PROMPT, sent, 2)
         self.guest.send(b"\x03", newline=False)
-        start = self.interrupted(sent, b"fg-interrupted", "resumed job")
+        start = self.interrupted(sent, line, b"fg-interrupted", "resumed job")
         self.step("stop-jobs-fg", job=pid)
         return start
 

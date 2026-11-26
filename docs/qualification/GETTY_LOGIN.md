@@ -329,11 +329,13 @@ booted. The first boot checks, in order:
    pid after its exec) leads with the pts as controlling terminal;
    `oksh-jobs session &`: its own group without the terminal, which the
    shell's group keeps, then `[1]+ Done`;
-4. `^C` (0x03) kills a foreground `oksh-jobs hold` (its `|| echo` branch runs,
-   `^C` is echoed) and the prompt returns with an empty `jobs`;
+4. `^C` (0x03) kills a foreground `oksh-jobs hold || echo hold-interrupted`:
+   after the echoed command line, `^C` is echoed and the `|| echo` branch's
+   output follows it, and the prompt returns with an empty `jobs`;
 5. `^Z` (0x1a) stops the next one: `[1]+ Stopped`, `jobs` lists it, `exit`
-   warns `oksh: there are stopped jobs`, `fg` resumes it in the foreground
-   (no prompt for 2 s) and `^C` ends it;
+   warns `oksh: there are stopped jobs`, `fg || echo fg-interrupted` resumes
+   it in the foreground (no prompt for 2 s) and `^C` ends it, again with the
+   branch's output after the echoed `^C`;
 6. a job stopped with `^Z` at logout: `exit` warns, the second `exit` ends
    the session; getty reports `GETTY event=close ... status=256
    reason=hangup` (`exit` returns the warning's status 1), PID1 reaps getty
@@ -351,7 +353,10 @@ PID1's `NATIVE_PID1` lines are filtered before matching, because they
 interleave with session output. Password timeouts are four times the largest
 enrollment and login times measured per profile before the final run (S4 on
 x86_64, the first S5 runs elsewhere), at least 300 s and 120 s; each other
-step has `--timeout` (300 s).
+step has `--timeout` (300 s). `tests/tools/test_getty_login_runner.py` feeds
+the lane's session checks synthetic serial transcripts; it shows what they
+accept and refuse (the echoed command line alone does not satisfy step 4 or
+5), not how the guest behaves.
 
 ```sh
 xmake f -c -y -m debug -a ARCH --kernel_sdk=SDK --systoolchain_dir=TC \
