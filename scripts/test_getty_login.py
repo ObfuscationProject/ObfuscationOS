@@ -467,10 +467,11 @@ def build_inputs(args) -> tuple[Path, Path, Path, Path]:
         arch, mode, _ = configured_profile(args.xmake)
         if (arch, mode) != (args.arch, args.mode):
             raise ValueError(f"the project is configured for {arch}/{mode}, not {args.arch}/{args.mode}")
-        for target in ("app-oksh-job-probe", "distro_image"):
+        for target in ("app-oksh-job-probe", "distro_image", "rootfs-login-stage"):
             subprocess.run([args.xmake, "-P", str(ROOT), "-y", "-b", target], check=True, cwd=ROOT)
         # Image creation refuses an existing image, which may hold an account
-        # enrolled through `xmake qemu-distro`; an existing one is admitted as it is.
+        # enrolled through `xmake qemu-distro`; an existing one is admitted as it
+        # is against the freshly staged login tree, so a stale image is refused.
         if not product.exists():
             subprocess.run([args.xmake, "-P", str(ROOT), "-y", "-b", "rootfs-ext4-journalled"], check=True, cwd=ROOT)
     kernel = build / "distro/kernel.bin"

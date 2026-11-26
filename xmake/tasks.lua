@@ -404,6 +404,53 @@ task("tty-sessions-test")
     end)
 task_end()
 
+-- Not in CI: the journalled image needs the pinned Linux activation image.
+task("getty-login-test")
+    set_menu {
+        usage = "xmake getty-login-test [--out=DIR]",
+        description = "Drive getty, login and oksh job control over serial on the journalled login image in QEMU",
+        options = {
+            {nil, "out", "kv", nil, "New output directory (default build/<arch>/<mode>/getty-login, replaced)"},
+            {nil, "qemu", "kv", nil, "Explicit QEMU executable override"},
+            {nil, "timeout", "kv", "300", "Seconds for the boot and each step without a password derivation"},
+            {nil, "no-second-boot", "k", nil, "Skip the second boot of the same disk"}
+        }
+    }
+    on_run(function ()
+        import("core.base.option")
+        import("core.project.config")
+        import("core.project.project")
+        config.load()
+        local arch, spec = task_require_arch(config.get("arch") or "x86_64")
+        local mode = config.get("mode") or "release"
+        if not task_login_product(config) then
+            raise("the login lane needs getty and login on the journalled image: leave native_console_login " ..
+                  "unset (auto) or y, without startup acceptance or an alternative PID1")
+        end
+        local linux, linux_sha256 = config.get("linux_journal_image"), config.get("linux_journal_image_sha256")
+        if not (linux and linux_sha256) then
+            raise("the login lane needs --linux_journal_image and --linux_journal_image_sha256")
+        end
+        local out = option.get("out")
+        if out then
+            out = path.absolute(out)
+        else
+            out = path.join(task_builddir(config), "getty-login")
+            os.tryrm(out)
+        end
+        local qemu = task_qemu(config, project, spec, option.get("qemu"))
+        assert(qemu and os.isfile(qemu), "QEMU executable is missing: %s", tostring(qemu))
+        local argv = {"-B", path.join(os.projectdir(), "scripts", "test_getty_login.py"),
+            "--arch", arch, "--mode", mode, "--qemu", qemu, "--out", out,
+            "--linux-image", path.absolute(linux), "--linux-image-sha256", linux_sha256,
+            "--timeout", option.get("timeout") or "300", "--ordinary"}
+        if option.get("no-second-boot") then
+            table.insert(argv, "--no-second-boot")
+        end
+        os.execv("python3", argv, {envs = {PYTHONDONTWRITEBYTECODE = "1"}})
+    end)
+task_end()
+
 task("qemu-distro-window")
     set_menu {
         usage = "xmake qemu-distro-window --fs=simplefs",
