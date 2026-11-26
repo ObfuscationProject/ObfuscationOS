@@ -25,14 +25,28 @@ multiuser policy or general shell `passwd` command.
 
 ## Persistent console login profile
 
-`--native_console_login=y` selects the ordinary native PID1 with `/bin/getty`
-as its `console` service (`service console simple /bin/getty - 0 0` in
-`config/services-login.conf`, and the compiled fallback when the leaf manifest
-is missing). It builds and stages the unwrapped getty and login executables.
-Malformed or unsafe manifests still hold PID1. The profile rejects Linux-init
-replacements and startup acceptance modes, which could run before
-authentication. The existing maintenance console remains the default while
-general journalled root qualification is open.
+The login profile is the ordinary native PID1 with `/bin/getty` as its
+`console` service (`service console simple /bin/getty - 0 0` in
+`config/services-login.conf`, and the compiled fallback of the login PID1,
+`init-login.elf`, when the leaf manifest is missing), plus the unwrapped getty
+and login executables. Malformed or unsafe manifests still hold PID1. Login
+needs a journalled ext4 root: enrollment and password changes are published
+with the kernel's persistent sync, which only an ordered-data journalled mount
+provides.
+
+Console login is on by default for the product image. `native_console_login`
+chooses where it runs:
+
+| Value | Login runs on | Everything else |
+|---|---|---|
+| unset (default, shown as `auto`) | the journalled product image (`rootfs-ext4-journalled`, `rootfs.login.ext4-journalled.img`), packed from its own tree `build/<arch>/<mode>/rootfs-login` | the full, rescue and release trees and so the simplefs, plain ext4, boot archive and release images keep the maintenance `service console simple /bin/oksh -`; with startup acceptance (`native_init_acceptance`, `native_vm_acceptance`, `native_udp_probe`, which `qemu-distro --require-native` selects) or a managed/service-graph PID1, the journalled image keeps it too |
+| `y` | every tree and image | startup acceptance and alternative PID1s are refused, and `qemu-distro` accepts only `--fs=ext4-journalled --interactive` |
+| `n` | nothing | the journalled image is the maintenance `rootfs.ext4-journalled.img` |
+
+xmake reserves the word `auto`: leave the option out, or reconfigure with `-c`
+without it, to return to the default (`--native_console_login=auto` is
+refused by xmake itself). Tasks that reconfigure the project pass an explicit
+`y` or `n` through; `distro-test` boots its acceptance images with `n`.
 
 ### getty, login and the pts
 
@@ -84,7 +98,7 @@ first; a logout can report either.
 
 The hangup reaches only the session leader and, when the leader exits, the
 foreground group. As on Linux, a process that keeps running in another group
-(for example a background job once oksh has `&`) is not signalled and keeps its
+(for example a job that oksh ran with `&`) is not signalled and keeps its
 descriptors on the old slave, and the kernel frees a pts pair only when both of
 its sides are closed. The kernel has 8 pairs (`OK_PTS_CAPACITY`) rather than
 Linux's thousands, so a few such processes left behind at logout can use them
@@ -94,7 +108,8 @@ getty does not kill processes outside the session it started; nobody can log in
 on the console until those processes exit. Hosted tests in
 `tests/tools/test_native_getty.py`, `test_native_login_main.py` and
 `test_native_login_input.py` model these paths over substituted system calls;
-`scripts/test_getty_login.py` drives the real guest over serial.
+`scripts/test_getty_login.py` drives the real guest over serial
+(`xmake getty-login-test`, below).
 
 Configure the selected architecture/mode SDK, compiler toolchain and explicit
 Linux journal-activation image with its SHA-256, then run:
@@ -103,6 +118,14 @@ Linux journal-activation image with its SHA-256, then run:
 xmake -y -b distro_image
 xmake qemu-distro --fs=ext4-journalled --interactive --qemu=/usr/bin/qemu-system-x86_64
 ```
+
+`xmake getty-login-test [--out=DIR]` runs the login lane for the configured
+profile: it builds the kernel, the login tree and the product image, packs a
+lane disk from the same login root with a test helper added, and drives
+first-boot enrollment, job control on the pts (`^C`, `^Z`, `jobs`, `fg`, `&`),
+logout and getty's restart, a wrong and a right password, an ordinary account
+and a second boot over serial. It needs the Linux activation image, so CI does
+not run it; `docs/qualification/GETTY_LOGIN.md` has its results.
 
 The console profile uses `rootfs.login.ext4-journalled.img` and reuses that disk
 so subsequent runs retain the account. Before each launch, it requires complete
