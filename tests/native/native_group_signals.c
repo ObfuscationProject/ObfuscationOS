@@ -330,15 +330,38 @@ done:
     return code ? fail(code) : 0;
 }
 
+/* Bounded wait for a stop or continue report (native parents get no SIGCHLD). */
+static int wait_report(pid_t pid, int options, int stop_signal)
+{
+    for (unsigned attempt = 0; attempt < 500; ++attempt) {
+        int status = 0;
+        pid_t found = waitpid(pid, &status, options | WNOHANG);
+        if (found == pid) return stop_signal ? (WIFSTOPPED(status) && WSTOPSIG(status) == stop_signal ? 0 : -1)
+                                             : (WIFCONTINUED(status) ? 0 : -1);
+        if (found < 0 && errno != EINTR) return -1;
+        const struct timespec delay = {0, 10000000};
+        (void)nanosleep(&delay, 0);
+    }
+    return -1;
+}
+
+/* kill() accepts every signal number; only the -1 broadcast is unsupported.
+ * A group stop and continue are reported through WUNTRACED and WCONTINUED,
+ * and SIGHUP at its default terminates the group. */
 static int rejections(void)
 {
     struct peers peers = {0}; int code = 60;
     struct peer *peer = spawn(&peers, 0, 0, "rejections");
     if (!peer || exact_failure(INT32_MIN, 0, ESRCH) || exact_failure(INT32_MIN, SIGTERM, ESRCH) ||
         exact_failure(-INT32_MAX, 0, ESRCH) || exact_failure(-1, 0, EOPNOTSUPP) ||
-        exact_failure(-1, SIGTERM, EOPNOTSUPP) || exact_failure(-peer->pgid, 1, EOPNOTSUPP) ||
-        exact_failure(-peer->pgid, 65, EINVAL) || exchange(peer, PING, 0, 0, 0, 0) || finish(peer)) goto done;
-    if (nf_marker("\nNATIVE_GROUP_SIGNALS case=rejections absent=ESRCH int_min=ESRCH broadcast=EOPNOTSUPP unsupported=EOPNOTSUPP invalid=EINVAL survivor=heartbeat\n")) goto done;
+        exact_failure(-1, SIGTERM, EOPNOTSUPP) || exact_failure(-1, SIGHUP, EOPNOTSUPP) ||
+        exact_failure(-peer->pgid, 65, EINVAL) || exchange(peer, PING, 0, 0, 0, 0)) goto done;
+    pid_t group = peer->pgid;
+    code = 61;
+    if (kill(-group, SIGSTOP) || wait_report(peer->pid, WUNTRACED, SIGSTOP) ||
+        kill(-group, SIGCONT) || wait_report(peer->pid, WCONTINUED, 0) || exchange(peer, PING, 0, 0, 0, 0) ||
+        kill(-group, SIGHUP) || retire(peer, SIGHUP) || exact_failure(-group, 0, ESRCH)) goto done;
+    if (nf_marker("\nNATIVE_GROUP_SIGNALS case=rejections absent=ESRCH int_min=ESRCH broadcast=EOPNOTSUPP invalid=EINVAL stop=WUNTRACED continue=WCONTINUED hangup=SIGHUP retired=ESRCH\n")) goto done;
     code = 0;
 done:
     cleanup(&peers);
@@ -363,5 +386,5 @@ int main(int argc, char **argv)
         permissions(SIGTERM) || permissions(SIGKILL) || rejections()) return fail(2);
     struct response final = observe(INITIAL);
     if (final.code || memcmp(&initial.identity, &final.identity, sizeof(initial.identity))) return fail(3);
-    return nf_marker("\nNATIVE_GROUP_SIGNALS_PASS native=1 cases=8 negative=term-kill self=deferred fork=pipe exec=pipe retained_group=pass permission=partial-and-denied survivor=heartbeat broadcast=unsupported tty=untested job_control=untested\n") ? fail(4) : 0;
+    return nf_marker("\nNATIVE_GROUP_SIGNALS_PASS native=1 cases=8 negative=term-kill self=deferred fork=pipe exec=pipe retained_group=pass permission=partial-and-denied survivor=heartbeat broadcast=unsupported stop_continue=pass hangup=pass tty=untested\n") ? fail(4) : 0;
 }

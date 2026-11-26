@@ -14,7 +14,7 @@ _Static_assert(OK_NATIVE_CONSOLE_CONTROL_VERSION == 2 && sizeof(pid_t) == 4,
                "native controlling-console contract");
 
 enum { INITIAL = 1, PREPARE_EXEC, BEFORE_EXEC, AFTER_EXEC, EMPTY, BUFFERED, READ_NONCE, FINISH,
-       WAIT_READ, WAIT_READV, WAIT_POLL, WAIT_READY, WAIT_REPORT, WAIT_REPORTED, PEER_RECLAIM };
+       WAIT_READ, WAIT_READV, WAIT_POLL, WAIT_READY, WAIT_REPORT, WAIT_REPORTED, PEER_RECLAIM, PEER_RECLAIM_STOP };
 struct identity { pid_t pid, parent, sid, group; uid_t uid, effective, saved; gid_t gid; };
 struct message { unsigned operation, code; struct identity identity; uint64_t hash; };
 struct peer { pid_t pid; int request, reply; };
@@ -140,9 +140,15 @@ static int expected(const struct message *value, const struct peer *peer, unsign
         value->identity.gid != uid ? -1 : 0;
 }
 
-static int background(const char *phase, pid_t sid, pid_t foreground)
+/* A background caller with SIGTTIN ignored reads EIO without consuming
+ * input; with SIGTTIN at its default the read would stop the caller's group
+ * instead (see READ_NONCE). Background poll reports readiness only: no
+ * POLLERR, and POLLIN once input is buffered. */
+static int background(const char *phase, pid_t sid, pid_t foreground, int buffered)
 {
     if (check_terminal(sid, foreground) || getpgrp() == foreground) return -1;
+    const sighandler_t previous = signal(SIGTTIN, SIG_IGN);
+    if (previous == SIG_ERR) return -1;
     unsigned char bytes[8]; memset(bytes, 0xa5, sizeof(bytes));
     int alias = fcntl(STDIN_FILENO, F_DUPFD, 3);
     if (alias < 0 || tcgetsid(alias) != sid || tcgetpgrp(alias) != foreground) {
@@ -159,22 +165,28 @@ static int background(const char *phase, pid_t sid, pid_t foreground)
     if (read(alias, bytes, sizeof(bytes)) != -1 || errno != EIO) goto done;
     for (unsigned i = 0; i < sizeof(bytes); ++i) if (bytes[i] != 0xa5) goto done;
     struct pollfd descriptors[2] = {{STDIN_FILENO, POLLIN, 0}, {alias, POLLIN, 0}};
-    if (poll(descriptors, 2, 0) != 2 || descriptors[0].revents != POLLERR || descriptors[1].revents != POLLERR) goto done;
+    const short ready = buffered ? POLLIN : 0;
+    if (poll(descriptors, 2, 0) != (buffered ? 2 : 0) || descriptors[0].revents != ready ||
+        descriptors[1].revents != ready || signal(SIGTTIN, previous) == SIG_ERR) goto done;
     struct native_fixture_record record = {0};
     nf_text(&record, "\nNATIVE_CONSOLE_CONTROL_BACKGROUND phase="); nf_text(&record, phase);
     nf_text(&record, " pid="); nf_number(&record, (unsigned)getpid());
     nf_text(&record, " pgid="); nf_number(&record, (unsigned)getpgrp());
     nf_text(&record, " foreground="); nf_number(&record, (unsigned)foreground);
     nf_text(&record, " uid="); nf_number(&record, getuid());
-    nf_text(&record, " read=EIO readv=EIO dup=EIO poll=ERR bytes=untouched\n");
+    nf_text(&record, buffered ? " sigttin=ignored read=EIO readv=EIO dup=EIO poll=IN bytes=untouched\n"
+                              : " sigttin=ignored read=EIO readv=EIO dup=EIO poll=none bytes=untouched\n");
     result = emit(&record);
 done:
     return close(alias) ? -1 : result;
 }
 
-static int receive_nonce(pid_t sid, uint64_t *hash)
+/* Entered in the background with SIGTTIN at its default: the first readv
+ * stops this group with SIGTTIN, and once the parent has handed over the
+ * foreground and continued it the same readv completes. */
+static int receive_nonce(pid_t sid, pid_t parent_group, uint64_t *hash)
 {
-    if (check_terminal(sid, getpgrp()) || getuid() != 1000) return -1;
+    if (check_terminal(sid, parent_group) || getuid() != 1000 || signal(SIGTTIN, SIG_DFL) == SIG_ERR) return -1;
     unsigned char bytes[NONCE_BYTES];
     size_t used = 0;
     struct pollfd descriptor;
@@ -197,7 +209,7 @@ static int receive_nonce(pid_t sid, uint64_t *hash)
         used += (size_t)count;
     }
     descriptor.revents = 0;
-    if (poll(&descriptor, 1, 0) != 0) return -1;
+    if (poll(&descriptor, 1, 0) != 0 || check_terminal(sid, getpgrp())) return -1;
     *hash = 14695981039346656037ULL;
     for (unsigned i = 0; i < sizeof(bytes); ++i) {
         if (!((bytes[i] >= '0' && bytes[i] <= '9') || (bytes[i] >= 'a' && bytes[i] <= 'f'))) return -1;
@@ -209,7 +221,7 @@ static int receive_nonce(pid_t sid, uint64_t *hash)
     nf_text(&record, " sid="); nf_number(&record, (unsigned)sid);
     nf_text(&record, " pgid="); nf_number(&record, (unsigned)getpgrp());
     nf_text(&record, " foreground="); nf_number(&record, (unsigned)tcgetpgrp(STDIN_FILENO));
-    nf_text(&record, " uid=1000 bytes=32 readv=8 read=24 hash="); nf_number(&record, *hash);
+    nf_text(&record, " uid=1000 bytes=32 readv=8 read=24 entry=background stop=SIGTTIN hash="); nf_number(&record, *hash);
     nf_text(&record, "\n");
     return emit(&record);
 }
@@ -219,18 +231,22 @@ static const char *wait_kind(unsigned operation)
     return operation == WAIT_READ ? "read" : operation == WAIT_READV ? "readv" : "poll";
 }
 
-static int peer_reclaim(pid_t sid, pid_t parent_group)
+/* A background TIOCSPGRP raises SIGTTOU. With the signal ignored it goes
+ * through at once; at its default it stops this group until the parent hands
+ * over the foreground and continues it, and then completes. */
+static int peer_reclaim(pid_t sid, pid_t parent_group, int stop)
 {
     pid_t group = getpgrp();
     if (getuid() != 1000 || check_terminal(sid, parent_group) || group == parent_group ||
-        tcsetpgrp(STDIN_FILENO, group) || check_terminal(sid, group)) return -1;
+        signal(SIGTTOU, stop ? SIG_DFL : SIG_IGN) == SIG_ERR ||
+        tcsetpgrp(STDIN_FILENO, group) || check_terminal(sid, group) || signal(SIGTTOU, SIG_DFL) == SIG_ERR) return -1;
     struct native_fixture_record record = {0};
     nf_text(&record, "\nNATIVE_CONSOLE_CONTROL_PEER_RECLAIM pid="); nf_number(&record, (unsigned)getpid());
     nf_text(&record, " sid="); nf_number(&record, (unsigned)sid);
     nf_text(&record, " pgid="); nf_number(&record, (unsigned)group);
     nf_text(&record, " previous="); nf_number(&record, (unsigned)parent_group);
     nf_text(&record, " foreground="); nf_number(&record, (unsigned)group);
-    nf_text(&record, " uid=1000 caller=background\n");
+    nf_text(&record, stop ? " uid=1000 caller=background sigttou=stop\n" : " uid=1000 caller=background sigttou=ignored\n");
     if (emit(&record) || tcsetpgrp(STDIN_FILENO, parent_group) || check_terminal(sid, parent_group)) return -1;
     record = (struct native_fixture_record){0};
     nf_text(&record, "\nNATIVE_CONSOLE_CONTROL_PEER_RETURN pid="); nf_number(&record, (unsigned)getpid());
@@ -250,15 +266,20 @@ static int wait_peer(unsigned operation, int request_fd, int reply_fd, pid_t sid
     nf_text(&record, " pgid="); nf_number(&record, (unsigned)getpgrp());
     nf_text(&record, " foreground="); nf_number(&record, (unsigned)tcgetpgrp(STDIN_FILENO));
     nf_text(&record, " proof=pre-syscall\n");
+    /* A blocked reader keeps its wait across the foreground change. The poll
+     * ends at its timeout without POLLERR; the reads (SIGTTIN ignored) are
+     * checked again only when the parent stops and continues this process,
+     * and then fail with EIO. */
     struct message value = observe(WAIT_READY);
-    if (emit(&record) || value.code || send_bytes(reply_fd, &value, sizeof(value))) return -1;
+    if (emit(&record) || value.code || (operation != WAIT_POLL && signal(SIGTTIN, SIG_IGN) == SIG_ERR) ||
+        send_bytes(reply_fd, &value, sizeof(value))) return -1;
     unsigned char bytes[8]; memset(bytes, 0xa5, sizeof(bytes));
     int valid;
     if (operation == WAIT_POLL) {
         struct pollfd descriptor = {STDIN_FILENO, POLLIN, 0};
         int ready;
-        do { ready = poll(&descriptor, 1, 5000); } while (ready < 0 && errno == EINTR);
-        valid = ready == 1 && descriptor.revents == POLLERR;
+        do { ready = poll(&descriptor, 1, 2000); } while (ready < 0 && errno == EINTR);
+        valid = ready == 0 && descriptor.revents == 0;
     } else {
         struct iovec vectors[2] = {{bytes, 3}, {bytes + 3, 5}};
         ssize_t count;
@@ -266,7 +287,7 @@ static int wait_peer(unsigned operation, int request_fd, int reply_fd, pid_t sid
             errno = 0;
             count = operation == WAIT_READ ? read(STDIN_FILENO, bytes, sizeof(bytes)) : readv(STDIN_FILENO, vectors, 2);
         } while (count < 0 && errno == EINTR);
-        valid = count == -1 && errno == EIO;
+        valid = count == -1 && errno == EIO && signal(SIGTTIN, SIG_DFL) != SIG_ERR;
         for (unsigned i = 0; i < sizeof(bytes); ++i) valid &= bytes[i] == 0xa5;
     }
     value = observe(operation);
@@ -281,7 +302,8 @@ static int wait_peer(unsigned operation, int request_fd, int reply_fd, pid_t sid
     nf_text(&record, " pid="); nf_number(&record, (unsigned)getpid());
     nf_text(&record, " pgid="); nf_number(&record, (unsigned)getpgrp());
     nf_text(&record, " foreground="); nf_number(&record, (unsigned)tcgetpgrp(STDIN_FILENO));
-    nf_text(&record, operation == WAIT_POLL ? " result=ERR bytes=none armed=unproven\n" : " result=EIO bytes=untouched armed=unproven\n");
+    nf_text(&record, operation == WAIT_POLL ? " result=timeout revents=0 bytes=none kept=1 armed=unproven\n"
+                                            : " result=EIO bytes=untouched kept=1 recheck=continue armed=unproven\n");
     value = observe(WAIT_REPORTED);
     return emit(&record) || value.code || send_bytes(reply_fd, &value, sizeof(value)) ? -1 : 0;
 }
@@ -303,15 +325,19 @@ static int exec_peer(int argc, char **argv)
         value = observe(command.operation);
         if (value.code) return fail(14);
         if (command.operation == FINISH) {
-            if (check_terminal(sid, parent_group)) return fail(15);
+            /* TIOCNOTTY by a member detaches only that member. */
+            if (check_terminal(sid, parent_group) || ioctl(STDIN_FILENO, TIOCNOTTY)) return fail(15);
+            errno = 0;
+            if (tcgetsid(STDIN_FILENO) != -1 || errno != ENOTTY) return fail(27);
             return close(request_fd) || close(reply_fd) ? fail(16) : 0;
         }
         if (command.operation == EMPTY || command.operation == BUFFERED) {
-            if (background(command.operation == EMPTY ? "empty" : "buffered", sid, parent_group)) return fail(17);
+            if (background(command.operation == EMPTY ? "empty" : "buffered", sid, parent_group,
+                           command.operation == BUFFERED)) return fail(17);
         } else if (command.operation == READ_NONCE) {
-            if (receive_nonce(sid, &value.hash)) return fail(18);
-        } else if (command.operation == PEER_RECLAIM) {
-            if (peer_reclaim(sid, parent_group)) return fail(26);
+            if (receive_nonce(sid, parent_group, &value.hash)) return fail(18);
+        } else if (command.operation == PEER_RECLAIM || command.operation == PEER_RECLAIM_STOP) {
+            if (peer_reclaim(sid, parent_group, command.operation == PEER_RECLAIM_STOP)) return fail(26);
         } else if (command.operation >= WAIT_READ && command.operation <= WAIT_POLL) {
             if (wait_peer(command.operation, request_fd, reply_fd, sid, parent_group)) return fail(25);
             continue;
@@ -391,6 +417,32 @@ static int wait_child(pid_t child, int success_required)
     return -1;
 }
 
+/* Native processes get no SIGCHLD: stops and continues are read from
+ * waitpid with WUNTRACED and WCONTINUED. */
+static int wait_report(pid_t child, int options, int (*accept)(int, int), int signal_number)
+{
+    for (unsigned attempt = 0; attempt < 500; ++attempt) {
+        int status;
+        pid_t found = waitpid(child, &status, options | WNOHANG);
+        if (found == child) return accept(status, signal_number) ? 0 : -1;
+        if (found < 0 && errno != EINTR) return -1;
+        const struct timespec delay = {0, 10000000};
+        (void)nanosleep(&delay, 0);
+    }
+    return -1;
+}
+
+static int stopped_by(int status, int signal_number) { return WIFSTOPPED(status) && WSTOPSIG(status) == signal_number; }
+static int continued(int status, int signal_number) { (void)signal_number; return WIFCONTINUED(status); }
+
+/* Hands the foreground to a peer stopped by `signal_number` and continues it. */
+static int resume_in_foreground(struct peer *peer, int signal_number)
+{
+    return wait_report(peer->pid, WUNTRACED, stopped_by, signal_number) ||
+        tcsetpgrp(STDIN_FILENO, peer->pid) || kill(peer->pid, SIGCONT) ||
+        wait_report(peer->pid, WCONTINUED, continued, 0) ? -1 : 0;
+}
+
 static void dispose_peer(struct peer *peer)
 {
     if (peer->pid > 1) { (void)kill(peer->pid, SIGKILL); (void)wait_child(peer->pid, 0); }
@@ -415,26 +467,44 @@ static int wait_transfer(struct peer *peer, unsigned operation, pid_t sid, pid_t
     nf_text(&record, " pid="); nf_number(&record, (unsigned)getpid());
     nf_text(&record, " peer="); nf_number(&record, (unsigned)peer->pid);
     nf_text(&record, " completed=no proof=pipe-snapshot\n");
-    if (emit(&record) || tcsetpgrp(STDIN_FILENO, group) || check_terminal(sid, group) ||
-        receive_bytes(peer->reply, &response, sizeof(response)) ||
+    if (emit(&record) || tcsetpgrp(STDIN_FILENO, group) || check_terminal(sid, group) || nanosleep(&delay, 0))
+        return -1;
+    /* The wait survives the foreground change. A stop and continue makes the
+     * blocked reads check again, now from the background. */
+    descriptor = (struct pollfd){peer->reply, POLLIN, 0};
+    if (poll(&descriptor, 1, 0) != 0) return -1;
+    if (operation != WAIT_POLL &&
+        (kill(peer->pid, SIGSTOP) || wait_report(peer->pid, WUNTRACED, stopped_by, SIGSTOP) ||
+         kill(peer->pid, SIGCONT) || wait_report(peer->pid, WCONTINUED, continued, 0))) return -1;
+    if (receive_bytes(peer->reply, &response, sizeof(response)) ||
         expected(&response, peer, operation, sid, peer->pid, 1000)) return -1;
     record = (struct native_fixture_record){0};
     nf_text(&record, "\nNATIVE_CONSOLE_CONTROL_WAIT_CHANGE kind="); nf_text(&record, wait_kind(operation));
     nf_text(&record, " pid="); nf_number(&record, (unsigned)getpid());
     nf_text(&record, " previous="); nf_number(&record, (unsigned)peer->pid);
-    nf_text(&record, " foreground="); nf_number(&record, (unsigned)group); nf_text(&record, "\n");
+    nf_text(&record, " foreground="); nf_number(&record, (unsigned)group);
+    nf_text(&record, operation == WAIT_POLL ? " wait=kept\n" : " wait=kept stop=SIGSTOP continue=WCONTINUED\n");
     command.operation = WAIT_REPORT;
     return emit(&record) || send_bytes(peer->request, &command, sizeof(command)) ||
         receive_bytes(peer->reply, &response, sizeof(response)) ||
         expected(&response, peer, WAIT_REPORTED, sid, peer->pid, 1000) ? -1 : 0;
 }
 
+/* The session process is the shell's foreground job in a login session on the
+ * console. Like a shell it ignores SIGTTOU (to take the console back from the
+ * background) and SIGTTIN; peers set their own dispositions per check. */
 static int session(void)
 {
     pid_t sid = getsid(0), group = getpgrp();
     struct peer peer = {.request = -1, .reply = -1};
     unsigned code = 30;
     if (identity_record("session", 0) || check_terminal(sid, group)) return fail(31);
+    /* Not a session leader: TIOCSCTTY is EPERM whatever the argument. */
+    errno = 0;
+    if (ioctl(STDIN_FILENO, TIOCSCTTY, 1) != -1 || errno != EPERM) return fail(39);
+    errno = 0;
+    if (ioctl(STDIN_FILENO, TIOCSCTTY, 0) != -1 || errno != EPERM) return fail(58);
+    if (signal(SIGTTOU, SIG_IGN) == SIG_ERR || signal(SIGTTIN, SIG_IGN) == SIG_ERR) return fail(31);
     if (spawn_peer(&peer, sid, group) || exchange(&peer, EMPTY, sid)) goto done;
     struct native_fixture_record record = {0};
     nf_text(&record, "\nNATIVE_CONSOLE_CONTROL_PROMPT pid="); nf_number(&record, (unsigned)getpid());
@@ -453,27 +523,45 @@ static int session(void)
     if (emit(&record) || exchange(&peer, BUFFERED, sid)) goto done;
     descriptor.revents = 0;
     if (poll(&descriptor, 1, 0) != 1 || descriptor.revents != POLLIN) goto done;
+    /* The peer's background readv stops it with SIGTTIN; the session hands it
+     * the foreground, checks its own background reads, and continues it. */
     code = 34;
-    if (tcsetpgrp(STDIN_FILENO, peer.pid) || background("handoff", sid, peer.pid) || exchange(&peer, READ_NONCE, sid)) goto done;
+    struct message command = {.operation = READ_NONCE}, response;
+    if (send_bytes(peer.request, &command, sizeof(command)) ||
+        wait_report(peer.pid, WUNTRACED, stopped_by, SIGTTIN) || tcsetpgrp(STDIN_FILENO, peer.pid) ||
+        background("handoff", sid, peer.pid, 1) || kill(peer.pid, SIGCONT) ||
+        wait_report(peer.pid, WCONTINUED, continued, 0) ||
+        receive_bytes(peer.reply, &response, sizeof(response)) ||
+        expected(&response, &peer, READ_NONCE, sid, peer.pid, 1000)) goto done;
+    record = (struct native_fixture_record){0};
+    nf_text(&record, "\nNATIVE_CONSOLE_CONTROL_SIGTTIN pid="); nf_number(&record, (unsigned)getpid());
+    nf_text(&record, " peer="); nf_number(&record, (unsigned)peer.pid);
+    nf_text(&record, " stop=SIGTTIN status=WUNTRACED continue=WCONTINUED foreground="); nf_number(&record, (unsigned)peer.pid);
+    nf_text(&record, "\n");
     code = 35;
-    if (tcsetpgrp(STDIN_FILENO, group) || check_terminal(sid, group)) goto done;
+    if (emit(&record) || tcsetpgrp(STDIN_FILENO, group) || check_terminal(sid, group)) goto done;
     record = (struct native_fixture_record){0};
     nf_text(&record, "\nNATIVE_CONSOLE_CONTROL_RECLAIM pid="); nf_number(&record, (unsigned)getpid());
     nf_text(&record, " pgid="); nf_number(&record, (unsigned)group);
     nf_text(&record, " previous="); nf_number(&record, (unsigned)peer.pid);
     nf_text(&record, " foreground="); nf_number(&record, (unsigned)tcgetpgrp(STDIN_FILENO));
-    nf_text(&record, " caller=background policy=no-sigttou\n");
+    nf_text(&record, " caller=background policy=sigttou-ignored\n");
     if (emit(&record) || exchange(&peer, PEER_RECLAIM, sid)) goto done;
+    code = 57;
+    command.operation = PEER_RECLAIM_STOP;
+    if (send_bytes(peer.request, &command, sizeof(command)) || resume_in_foreground(&peer, SIGTTOU) ||
+        receive_bytes(peer.reply, &response, sizeof(response)) ||
+        expected(&response, &peer, PEER_RECLAIM_STOP, sid, peer.pid, 1000) || check_terminal(sid, group)) goto done;
     code = 38;
     for (unsigned operation = WAIT_READ; operation <= WAIT_POLL; ++operation)
         if (wait_transfer(&peer, operation, sid, group)) goto done;
-    struct message command = {.operation = FINISH};
+    command.operation = FINISH;
     code = 36;
     if (send_bytes(peer.request, &command, sizeof(command)) || wait_child(peer.pid, 1)) goto done;
     peer.pid = 0;
     dispose_peer(&peer);
     code = 37;
-    if (check_terminal(sid, group) || marker("\nNATIVE_CONSOLE_CONTROL_PASS native=1 background=EIO no_consume=nonce transfer=exact reclaim=background peer_uid=1000 fork=pipe exec=pipe waiters=read-readv-poll armed=unproven select=untested\n")) goto done;
+    if (check_terminal(sid, group) || marker("\nNATIVE_CONSOLE_CONTROL_PASS native=1 sctty=EPERM background=SIGTTIN-stop ignored=EIO poll=no-error no_consume=nonce transfer=exact reclaim=sigttou-ignored peer_reclaim=sigttou-stop peer_uid=1000 fork=pipe exec=pipe waiters=kept read-readv=EIO-after-continue poll=timeout notty=member armed=unproven select=untested\n")) goto done;
     return 0;
 done:
     (void)tcsetpgrp(STDIN_FILENO, group);

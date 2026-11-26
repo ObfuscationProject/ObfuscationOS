@@ -22,6 +22,7 @@ BACKEND = r'''
 #include <errno.h>
 #include <fcntl.h>
 #include <setjmp.h>
+#include <signal.h>
 #include <stdarg.h>
 #include <stdint.h>
 #include <string.h>
@@ -57,7 +58,11 @@ static size_t event_count, output_count, input_index, input_count, random_used;
 static size_t prompt_count;
 static int random_calls, verify_calls, derives, commits, recoveries, rotations, close_calls;
 static int sleep_calls, exec_calls, backend_bad, store_live, home_entered, identity_calls;
-static int console_failures, session_ready, console_attached, terminal_sid_calls, terminal_group_calls;
+static int console_failures, terminal_sid_calls, terminal_group_calls;
+static uint32_t terminal_uid, terminal_gid;
+static unsigned terminal_mode;
+static char read_kinds[64], dispositions[64];
+static size_t read_kind_count;
 static const unsigned char *lines[64];
 static size_t sizes[64];
 static int statuses[64];
@@ -85,7 +90,10 @@ void login_main_begin(int state, int recovering, unsigned flags, int store_error
  event_count = output_count = input_index = input_count = random_used = prompt_count = 0;
  random_calls = verify_calls = derives = commits = recoveries = rotations = close_calls = 0;
  sleep_calls = exec_calls = backend_bad = store_live = home_entered = identity_calls = 0;
- console_failures = session_ready = console_attached = terminal_sid_calls = terminal_group_calls = 0;
+ console_failures = terminal_sid_calls = terminal_group_calls = 0;
+ terminal_uid = terminal_gid = 0; terminal_mode = 0620;
+ memset(read_kinds, 0, sizeof(read_kinds)); memset(dispositions, 0, sizeof(dispositions));
+ read_kind_count = 0;
 }
 void login_main_console_failures(int failures) { console_failures = failures; }
 void login_main_rotation(const unsigned char *salt, const unsigned char *verifier)
@@ -107,6 +115,8 @@ const char *login_main_events(void) { return events; }
 const char *login_main_output(void) { return output; }
 const char *login_main_environment(void) { return shell_env; }
 const char *login_main_prompts(void) { return prompts; }
+const char *login_main_read_kinds(void) { return read_kinds; }
+const char *login_main_dispositions(void) { return dispositions; }
 const unsigned char *login_main_rotated_salt(void) { return rotated_salt; }
 const unsigned char *login_main_rotated_verifier(void) { return rotated_verifier; }
 int login_main_bad(void) { return backend_bad; }
@@ -139,32 +149,50 @@ void test_password_clear(void *buffer, size_t size)
 
 pid_t test_getpid(void)
 { ++identity_calls; return (options & PID_ERROR) || ((options & FINAL_IDENTITY_ERROR) && identity_calls > 1) ? 1 : 7; }
-pid_t test_getppid(void) { return 1; }
-pid_t test_setsid(void)
-{
- event('s'); check(!store_live && !users_live && !session_uid && (verify_calls || commits));
- if (console_failures & 1) { errno = EPERM; return -1; }
- session_ready = 1; return console_failures & 2 ? 8 : 7;
-}
-pid_t test_getsid(pid_t pid) { check(session_ready && (pid == 0 || pid == 7)); return 7; }
-pid_t test_getpgid(pid_t pid) { check(session_ready && (pid == 0 || pid == 7)); return 7; }
-pid_t test_getpgrp(void) { check(session_ready); return 7; }
-int test_ioctl(int fd, unsigned long request, ...)
-{
- event('t'); check(fd == 0 && request == TIOCSCTTY && session_ready && !session_uid && !console_attached);
- va_list arguments; va_start(arguments, request); check(va_arg(arguments, int) == 0); va_end(arguments);
- if (console_failures & 4) { errno = EACCES; return -1; }
- console_attached = 1; return 0;
-}
+/* getty is login's parent; nothing in login may depend on PID1 being it. */
+pid_t test_getppid(void) { return 42; }
+/* getty's child already leads session 7, which controls the pts on fds 0..2. */
+pid_t test_getsid(pid_t pid) { check(pid == 0 || pid == 7); return console_failures & 1024 ? 8 : 7; }
+pid_t test_getpgid(pid_t pid) { check(pid == 0 || pid == 7); return 7; }
+pid_t test_getpgrp(void) { return 7; }
 pid_t test_tcgetsid(int fd)
 {
- event('j'); check(fd == 0 && console_attached); ++terminal_sid_calls;
- return (console_failures & 8) || ((console_failures & 32) && terminal_sid_calls > 1) ? 8 : 7;
+ event('j'); check(fd == 0); ++terminal_sid_calls;
+ return (console_failures & 8) || ((console_failures & 32) && terminal_sid_calls > 2) ? 8 : 7;
 }
 pid_t test_tcgetpgrp(int fd)
 {
- event('g'); check(fd == 0 && console_attached); ++terminal_group_calls;
- return (console_failures & 16) || ((console_failures & 64) && terminal_group_calls > 1) ? 8 : 7;
+ event('g'); check(fd == 0); ++terminal_group_calls;
+ return (console_failures & 16) || ((console_failures & 64) && terminal_group_calls > 2) ? 8 : 7;
+}
+int test_fchown(int fd, uid_t uid, gid_t gid)
+{
+ event('w'); check(fd == 0 && !session_uid && !store_live && !users_live && (verify_calls || commits));
+ check(uid == gid && (uid == 1000 || uid == 1001) && !terminal_uid);
+ if (console_failures & 1) { errno = EPERM; return -1; }
+ terminal_uid = uid; terminal_gid = gid; return 0;
+}
+int test_fchmod(int fd, mode_t mode)
+{
+ event('m'); check(fd == 0 && !session_uid && terminal_uid && mode == 0620);
+ if (console_failures & 2) { errno = EPERM; return -1; }
+ terminal_mode = mode; return 0;
+}
+int test_tcflush(int fd, int queue)
+{
+ event('F'); check(fd == 0 && queue == TCIFLUSH);
+ if (options & FINAL_FLUSH_ERROR) { errno = EIO; return -1; }
+ return 0;
+}
+void (*test_signal(int number, void (*handler)(int)))(int)
+{
+ check(read_kind_count == 0 && !store_live);
+ size_t used = strlen(dispositions);
+ check(used + 3 < sizeof(dispositions));
+ dispositions[used] = number == SIGHUP ? 'H' : number == SIGINT ? 'I' : number == SIGQUIT ? 'Q' :
+  number == SIGTSTP ? 'Z' : number == SIGTTIN ? 'R' : number == SIGTTOU ? 'W' : '?';
+ dispositions[used + 1] = handler == SIG_DFL ? 'd' : handler == SIG_IGN ? 'i' : '?';
+ return SIG_DFL;
 }
 int test_getresuid(uid_t *real, uid_t *effective, uid_t *saved)
 { *real = *effective = session_uid; *saved = options & CREDENTIAL_ERROR ? 1 : session_uid; return 0; }
@@ -175,12 +203,16 @@ int test_fcntl(int descriptor, int command, ...)
  check(descriptor >= 0 && descriptor < 3);
  if (command == F_GETFD) return options & STDIO_ERROR ? FD_CLOEXEC : 0;
  check(command == F_GETFL);
- return descriptor ? O_WRONLY : O_RDONLY;
+ return descriptor == 1 && (console_failures & 512) ? O_WRONLY : O_RDWR;
 }
 int test_fstat(int descriptor, struct stat *info)
 {
  memset(info, 0, sizeof(*info)); info->st_nlink = 1;
- if (descriptor >= 0 && descriptor < 3) info->st_mode = S_IFCHR | 0600;
+ if (descriptor >= 0 && descriptor < 3) {
+  info->st_mode = S_IFCHR | (console_failures & 256 ? 0666 : terminal_mode);
+  info->st_uid = console_failures & 128 ? 1000 : terminal_uid; info->st_gid = terminal_gid;
+  info->st_ino = descriptor == 2 && (console_failures & 4) ? 34820 : 34819;
+ }
  else if (descriptor == 11) info->st_mode = S_IFDIR | 0755;
  else if (descriptor == 12) info->st_mode = S_IFDIR | (options & HOME_MODE_ERROR ? 0755 : 0700);
  else { backend_bad = 1; errno = EBADF; return -1; }
@@ -240,12 +272,6 @@ ssize_t test_getrandom(void *buffer, size_t size, unsigned flags)
   ((unsigned char *)buffer)[i] = (unsigned char)(random_used + i + (initial_state ? 16 : 0));
  random_used += size; return (ssize_t)size;
 }
-int test_console_flush(uint32_t epoch)
-{
- event('F'); check(epoch == 17);
- if (options & FINAL_FLUSH_ERROR) { errno = EACCES; return -1; }
- return 0;
-}
 int test_write(int descriptor, const char *text)
 {
  check(descriptor == 1 || descriptor == 2);
@@ -256,7 +282,21 @@ int test_write(int descriptor, const char *text)
  if (size + output_count + 1 > sizeof(output)) { backend_bad = 1; return -1; }
  memcpy(output + output_count, text, size); output_count += size; return 0;
 }
+static int read_line(uint32_t, const char *, unsigned char *, size_t, size_t *);
+static int is_password_prompt(const char *prompt) { return prompt && strstr(prompt, "assword: ") != 0; }
 int test_read_line(uint32_t epoch, const char *prompt, unsigned char *buffer, size_t capacity, size_t *length)
+{
+ check(!is_password_prompt(prompt));
+ if (read_kind_count + 1 < sizeof(read_kinds)) read_kinds[read_kind_count++] = 'n';
+ return read_line(epoch, prompt, buffer, capacity, length);
+}
+int test_read_secret(uint32_t epoch, const char *prompt, unsigned char *buffer, size_t capacity, size_t *length)
+{
+ check(is_password_prompt(prompt));
+ if (read_kind_count + 1 < sizeof(read_kinds)) read_kinds[read_kind_count++] = 's';
+ return read_line(epoch, prompt, buffer, capacity, length);
+}
+static int read_line(uint32_t epoch, const char *prompt, unsigned char *buffer, size_t capacity, size_t *length)
 {
  event('I'); check(epoch == 17 && prompt && buffer && length);
  size_t prompt_size = strlen(prompt);
@@ -419,7 +459,7 @@ int ok_login_home_prepare(const struct ok_user *user)
 {event('B');check(!strcmp(user->name,user_mode==2?"bob":"carol"));if(user_failures&USERS_HOME_ERROR){errno=EIO;return -1;}return 0;}
 int ok_login_home_enter(const char *name,uint32_t uid,uint32_t gid)
 {
- event('E');check(console_attached&&!users_live&&!store_live&&((!strcmp(name,"alice")&&uid==1000&&gid==1000)||(!strcmp(name,"bob")&&uid==1001&&gid==1001)));
+ event('E');check(terminal_uid==uid&&terminal_gid==gid&&terminal_mode==0620&&!session_uid&&!users_live&&!store_live&&((!strcmp(name,"alice")&&uid==1000&&gid==1000)||(!strcmp(name,"bob")&&uid==1001&&gid==1001)));
  if(user_failures&USERS_ENTER_ERROR){errno=EACCES;return -1;}
  session_uid=uid;home_entered=1;return 0;
 }
@@ -427,7 +467,9 @@ int ok_login_home_enter(const char *name,uint32_t uid,uint32_t gid)
 int test_execve(const char *path, char *const arguments[], char *const environment[])
 {
  event('X'); ++exec_calls;
- check(!store_live && !users_live && home_entered && console_attached && terminal_sid_calls == 2 && terminal_group_calls == 2);
+ check(!store_live && !users_live && home_entered && terminal_uid == session_uid && terminal_gid == session_uid);
+ check(terminal_sid_calls == (session_uid ? 3 : 2) && terminal_group_calls == terminal_sid_calls);
+ check(!strcmp(dispositions, "HdIiQiWiRiZi"));
  check(!strcmp(path, "/bin/oksh") && !strcmp(arguments[0], path) && !arguments[1]);
  const char *wanted[] = {"HOME=/root", "PATH=/bin", "USER=chosen_admin", "LOGNAME=chosen_admin", "OK_CONSOLE_EPOCH=17", 0};
  const char *ordinary[] = {"HOME=/home/alice", "PATH=/bin", "USER=alice", "LOGNAME=alice", "OK_CONSOLE_EPOCH=17", 0};
@@ -481,7 +523,6 @@ class NativeLoginMainTests(unittest.TestCase):
         cls.directory = tempfile.TemporaryDirectory(prefix='native-login-main-host-')
         temporary = Path(cls.directory.name)
         (temporary / 'ok/uapi').mkdir(parents=True)
-        shutil.copyfile(ROOT / 'sdk/include/ok/console.h', temporary / 'ok/console.h')
         shutil.copyfile(ROOT / 'lib/okcrt/include/ok/syscall.h', temporary / 'ok/syscall.h')
         (temporary / 'ok/uapi/syscall.h').write_text(
             '#define OK_SYS_FCHDIR 81ULL\n#define OK_MODE_CHARACTER_DEVICE 0020000U\n')
@@ -492,22 +533,24 @@ class NativeLoginMainTests(unittest.TestCase):
                   '-I', str(ROOT / 'apps/login'), '-include', 'termios.h']
         substitutions = {
             'main': 'login_application_main', 'getpid': 'test_getpid', 'getppid': 'test_getppid',
-            'setsid': 'test_setsid', 'getsid': 'test_getsid', 'getpgid': 'test_getpgid',
-            'getpgrp': 'test_getpgrp', 'ioctl': 'test_ioctl', 'tcgetsid': 'test_tcgetsid',
-            'tcgetpgrp': 'test_tcgetpgrp',
+            'getsid': 'test_getsid', 'getpgid': 'test_getpgid',
+            'getpgrp': 'test_getpgrp', 'tcgetsid': 'test_tcgetsid',
+            'tcgetpgrp': 'test_tcgetpgrp', 'fchown': 'test_fchown', 'fchmod': 'test_fchmod',
+            'tcflush': 'test_tcflush', 'signal': 'test_signal',
             'getresuid': 'test_getresuid', 'getresgid': 'test_getresgid', 'fcntl': 'test_fcntl',
             'fstat': 'test_fstat', 'open': 'test_open', 'openat': 'test_openat', 'close': 'test_close',
             'clock_gettime': 'test_clock_gettime', 'clock_nanosleep': 'test_clock_nanosleep',
             'getrandom': 'test_getrandom', 'execve': 'test_execve', 'ok_syscall1': 'test_syscall1',
-            'ok_syscall_ret': 'test_syscall_ret', 'ok_console_flush': 'test_console_flush',
+            'ok_syscall_ret': 'test_syscall_ret',
             'ok_login_write': 'test_write', 'ok_login_read_line': 'test_read_line',
+            'ok_login_read_secret': 'test_read_secret',
             'ok_password_verify': 'test_password_verify', 'ok_password_derive': 'test_password_derive',
             'ok_password_clear': 'test_password_clear'}
         application = temporary / 'main.o'
         subprocess.run(common + [f'-D{key}={value}' for key, value in substitutions.items()] +
                        ['-c', str(ROOT / 'apps/login/main.c'), '-o', str(application)], check=True)
         output = temporary / 'login-main.so'
-        subprocess.run(common + ['-shared', '-Dok_console_flush=test_console_flush', str(application),
+        subprocess.run(common + ['-shared', str(application),
             str(ROOT / 'apps/login/input.c'), str(ROOT / 'apps/login/accounts.c'),
             str(ROOT / 'apps/login/password.c'), str(ROOT / 'apps/login/users.c'), str(temporary / 'backend.c'), '-o', str(output)], check=True)
         cls.lib = ctypes.CDLL(str(output), use_errno=True)
@@ -517,7 +560,7 @@ class NativeLoginMainTests(unittest.TestCase):
         cls.lib.login_main_rotation.argtypes = [ctypes.c_void_p, ctypes.c_void_p]
         cls.lib.login_main_fail_write.argtypes = [ctypes.c_char_p]
         cls.lib.login_main_run.argtypes = [ctypes.POINTER(ctypes.c_char_p)]
-        for name in ('events', 'output', 'environment', 'prompts'):
+        for name in ('events', 'output', 'environment', 'prompts', 'read_kinds', 'dispositions'):
             getattr(cls.lib, 'login_main_' + name).restype = ctypes.c_char_p
         for name in ('rotated_salt', 'rotated_verifier'):
             getattr(cls.lib, 'login_main_' + name).restype = ctypes.c_void_p
@@ -574,34 +617,61 @@ class NativeLoginMainTests(unittest.TestCase):
         self.assertLess(events.index(b'C'), events.index(b'H'))
         self.assertTrue(events.endswith(b'FX'))
 
-    def test_console_attachment_follows_authentication_and_precedes_credential_drop(self):
+    def test_terminal_handover_follows_authentication_and_precedes_credential_drop(self):
         for ordinary in (False, True):
             with self.subTest(ordinary=ordinary):
                 result, events = self.run_login(user_mode=int(ordinary),
                                                 lines=[b'alice' if ordinary else b'chosen_admin', b'secret'])
                 self.assertEqual(result, 0)
-                order = [events.index(marker) for marker in (b'V', b'C', b's', b't', b'j', b'g',
-                                                              b'E' if ordinary else b'H')]
-                self.assertEqual(order, sorted(order))
-                self.assertEqual(events.count(b't'), 1)
-                self.assertEqual(events.count(b'j'), 2)
-                self.assertEqual(events.count(b'g'), 2)
+                self.assertLess(events.index(b'j'), events.index(b'O'))
+                if ordinary:
+                    order = [events.index(marker) for marker in (b'V', b'C', b'w', b'm', b'E')]
+                    self.assertEqual(order, sorted(order))
+                else:
+                    self.assertNotIn(b'w', events)
+                    self.assertNotIn(b'm', events)
+                self.assertEqual(events.count(b'j'), 3 if ordinary else 2)
+                self.assertEqual(events.count(b'g'), 3 if ordinary else 2)
                 self.assertLess(events.rindex(b'g'), events.rindex(b'F'))
 
-    def test_console_attachment_and_both_identity_checks_fail_closed(self):
-        for failure in (1, 2, 4, 8, 16, 32, 64):
+    def test_pts_session_and_terminal_identity_fail_closed(self):
+        # Before authentication: another session, foreground or terminal, a
+        # non-root or over-permissive terminal, or the old console fd shape.
+        for failure in (4, 8, 16, 128, 256, 512, 1024):
+            with self.subTest(failure=failure):
+                result, events = self.run_login(user_mode=1, lines=[b'alice', b'secret'],
+                                                console_failures=failure)
+                self.assertEqual(result, 1)
+                self.assertNotIn(b'O', events)
+                self.assertNotIn(b'I', events)
+                self.assertNotIn(b'X', events)
+        # The handover itself, and the checks after the credentials dropped.
+        for failure, dropped in ((1, False), (2, False), (32, True), (64, True)):
             with self.subTest(failure=failure):
                 result, events = self.run_login(user_mode=1, lines=[b'alice', b'secret'],
                                                 console_failures=failure)
                 self.assertEqual(result, 1)
                 self.assertNotIn(b'X', events)
-                if failure <= 16:
-                    self.assertNotIn(b'E', events)
-                else:
-                    self.assertIn(b'E', events)
+                self.assertEqual(b'E' in events, dropped)
+                if dropped:
                     self.assertNotIn(b'F', events[events.index(b'E'):])
-                if failure <= 2:
-                    self.assertNotIn(b't', events)
+                if failure == 1:
+                    self.assertNotIn(b'm', events)
+
+    def test_hangup_is_default_and_keyboard_and_job_signals_are_ignored_before_input(self):
+        result, events = self.run_login()
+        self.assertEqual(result, 0)
+        self.assertEqual(self.lib.login_main_dispositions(), b'HdIiQiWiRiZi')
+
+    def test_names_are_echoed_and_every_password_is_a_secret_read(self):
+        cases = [(dict(state=0), b'nss'), (dict(), b'ns'),
+                 (dict(lines=self.rotation_lines()), b'nnsss'),
+                 (dict(user_mode=1, lines=self.add_lines()), b'nnsnss')]
+        for arguments, kinds in cases:
+            with self.subTest(kinds=kinds):
+                result, events = self.run_login(**arguments)
+                self.assertEqual(result, 0)
+                self.assertEqual(self.lib.login_main_read_kinds(), kinds)
 
     def test_pending_activates_only_after_password_authentication(self):
         result, events = self.run_login(state=1)
@@ -627,7 +697,7 @@ class NativeLoginMainTests(unittest.TestCase):
                 self.assertEqual(result, 0)
                 self.assertEqual(self.lib.login_main_verifies(), 2)
                 self.assertEqual(self.lib.login_main_sleeps(), 1)
-                self.assertTrue(events.startswith(b'OIIVZ'))
+                self.assertTrue(events.startswith(b'jgOIIVZ'))
                 self.assertGreater(events.index(b'r'), events.rindex(b'V'))
                 self.assertIn(b'Login incorrect.', self.lib.login_main_output())
 

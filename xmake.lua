@@ -99,13 +99,21 @@ option("native_init_control")
     set_description("Bounded native PID1 status and authenticated restart control")
 option_end()
 
+-- Unset (xmake shows it as auto) selects getty and login for the journalled
+-- product image only, and only when nothing runs before authentication; every
+-- other tree keeps the maintenance console. y selects them for every tree and
+-- refuses startup acceptance; n never selects them.
 option("native_console_login")
-    set_default(false)
+    set_default("auto")
     set_showmenu(true)
-    set_description("Native console account login on a persistent journalled root")
+    set_description("Native console login: auto (journalled product image), y (every image, strict) or n (none)")
     after_check(function ()
         import("core.project.config")
-        if not config.get("native_console_login") then return end
+        local login = config.get("native_console_login")
+        if login ~= nil and type(login) ~= "boolean" then
+            raise("native_console_login is y or n; leave it unset (reconfigure with -c) for auto")
+        end
+        if login ~= true then return end
         if config.get("managed_init_build") or config.get("service_graph_build") then
             raise("native_console_login requires the ordinary native PID1")
         end

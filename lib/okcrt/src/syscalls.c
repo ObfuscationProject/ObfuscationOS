@@ -2,6 +2,7 @@
 #include <ok/dirent.h>
 #include <ok/syscall.h>
 #include <ok/socket.h>
+#include <ok/uapi/termios.h>
 #include <stdarg.h>
 #include <stddef.h>
 #include <stdio.h>
@@ -18,21 +19,36 @@
 _Static_assert(sizeof(struct pollfd) == sizeof(struct ok_pollfd), "native poll layout");
 _Static_assert(offsetof(struct pollfd, revents) == 6, "native poll result offset");
 _Static_assert(sizeof(pid_t) == 4, "native terminal PID copy width");
+_Static_assert(sizeof(struct winsize) == sizeof(struct ok_winsize), "native window size");
+_Static_assert(offsetof(struct winsize, ws_col) == offsetof(struct ok_winsize, ws_col) &&
+               offsetof(struct winsize, ws_ypixel) == offsetof(struct ok_winsize, ws_ypixel),
+               "native window size layout");
 
 int ioctl(int fd, unsigned long request, ...)
 {
     long argument = 0;
     va_list arguments;
     va_start(arguments, request);
-    /* The kernel decodes the low request word. Unknown requests have no
-     * admitted argument shape, so do not read an optional argument for them. */
+    /* The kernel decodes the low request word. TIOCNOTTY and unknown
+     * requests have no admitted argument, so do not read one for them. */
     switch ((uint32_t)request) {
     case TIOCSCTTY:
+    case TCSBRK:
+    case TCFLSH:
         argument = va_arg(arguments, int);
         break;
+    case TCGETS:
+    case TCSETS:
+    case TCSETSW:
+    case TCSETSF:
     case TIOCGPGRP:
     case TIOCSPGRP:
+    case TIOCGWINSZ:
+    case TIOCSWINSZ:
+    case FIONREAD:
     case TIOCGSID:
+    case TIOCGPTN:
+    case TIOCSPTLCK:
         argument = (long)va_arg(arguments, void *);
         break;
     default:

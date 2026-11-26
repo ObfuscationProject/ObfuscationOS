@@ -63,7 +63,41 @@ local function task_configure_args(config, mode, arch)
     for _, name in ipairs({"native_init_acceptance", "native_vm_acceptance", "native_udp_probe"}) do
         table.insert(args, "--" .. name .. "=" .. (config.get(name) and "y" or "n"))
     end
+    -- Unset (auto) cannot be passed back explicitly, and needs no argument.
+    local login = config.get("native_console_login")
+    if login ~= nil then
+        table.insert(args, "--native_console_login=" .. (login and "y" or "n"))
+    end
     return args
+end
+
+-- Whether the journalled product image runs getty and login (xmake.lua): y,
+-- or unset (auto) without startup acceptance or an alternative PID1.
+local function task_login_product(config)
+    local login = config.get("native_console_login")
+    if login ~= nil then
+        return login == true
+    end
+    return not (config.get("native_init_acceptance") or config.get("native_vm_acceptance") or
+        config.get("native_udp_probe") or config.get("managed_init_build") or config.get("service_graph_build"))
+end
+
+-- The explicit override, else the configured SysToolchain directory or the
+-- resolved systoolchain package; nil when neither is available. (Description
+-- scope has no assert: the on_run callers check the result.)
+local function task_qemu(config, project, spec, explicit)
+    if explicit then
+        return path.absolute(explicit)
+    end
+    local prefix = config.get("systoolchain_dir")
+    if not prefix then
+        local systoolchain = project.required_package("systoolchain")
+        if not systoolchain then
+            return nil
+        end
+        prefix = systoolchain:installdir()
+    end
+    return path.absolute(path.join(prefix, "bin", spec.qemu_system))
 end
 
 task("arch-matrix")
@@ -149,6 +183,9 @@ task("distro-test")
             for i, arg in ipairs(acceptance_args) do
                 if arg:find("--native_init_acceptance=", 1, true) == 1 then
                     acceptance_args[i] = "--native_init_acceptance=y"
+                elseif arg == "--native_console_login=y" then
+                    -- Acceptance images keep the maintenance console.
+                    acceptance_args[i] = "--native_console_login=n"
                 end
             end
         end
@@ -213,9 +250,8 @@ task("qemu-distro")
         import("core.project.config")
         import("core.project.project")
         config.load()
-        local login = config.get("native_console_login")
-        if login and option.get("require-native") then
-            raise("native_console_login cannot run startup acceptance before authentication")
+        if config.get("native_console_login") == true and option.get("require-native") then
+            raise("native_console_login=y cannot run startup acceptance before authentication")
         end
         if option.get("fs") == "release" and option.get("require-native") then
             raise("the release image omits the acceptance programs that --require-native runs")
@@ -238,8 +274,17 @@ task("qemu-distro")
         if fs ~= "simplefs" and fs ~= "ext4" and fs ~= "ext4-journalled" and fs ~= "release" then
             raise("unsupported fs: %s", fs)
         end
-        if login and (fs ~= "ext4-journalled" or not option.get("interactive")) then
-            raise("native_console_login requires --fs=ext4-journalled --interactive")
+        -- With y every image runs login; with auto only the journalled product
+        -- image does, and the other images keep the maintenance console.
+        local login = task_login_product(config) and
+            (fs == "ext4-journalled" or config.get("native_console_login") == true)
+        if login and fs ~= "ext4-journalled" then
+            raise("native_console_login=y runs login on every image and requires --fs=ext4-journalled " ..
+                  "--interactive; leave it unset (auto) to boot this image with the maintenance console")
+        end
+        if login and not option.get("interactive") then
+            raise("the journalled image runs getty and login and requires --interactive; configure " ..
+                  "--native_console_login=n for a maintenance journalled image")
         end
         local images = {
             simplefs = {"rootfs-simplefs", "rootfs.simplefs.img"},
@@ -257,19 +302,8 @@ task("qemu-distro")
         end
 
         local arch, spec = task_require_arch(config.get("arch") or "x86_64")
-        local qemu = option.get("qemu")
-        if qemu then
-            qemu = path.absolute(qemu)
-        else
-            local prefix = config.get("systoolchain_dir")
-            if not prefix then
-                local systoolchain = project.required_package("systoolchain")
-                assert(systoolchain, "the systoolchain package is not resolved")
-                prefix = systoolchain:installdir()
-            end
-            qemu = path.absolute(path.join(prefix, "bin", spec.qemu_system))
-        end
-        assert(os.isfile(qemu), "QEMU executable is missing: %s", qemu)
+        local qemu = task_qemu(config, project, spec, option.get("qemu"))
+        assert(qemu and os.isfile(qemu), "QEMU executable is missing: %s", tostring(qemu))
         local project_dir = os.projectdir()
         local kernel = option.get("kernel")
         if not kernel then
@@ -278,7 +312,7 @@ task("qemu-distro")
         end
         if login then
             os.execv("python3", {"-B", path.join(project_dir, "tools", "console_login_disk.py"),
-                "--image", image, "--root", path.join(task_builddir(config), "rootfs")})
+                "--image", image, "--root", path.join(task_builddir(config), "rootfs-login")})
         end
 
         local args = {
@@ -311,6 +345,109 @@ task("qemu-distro")
             end
         end
         os.execv("python3", args)
+    end)
+task_end()
+
+task("tty-sessions-test")
+    set_menu {
+        usage = "xmake tty-sessions-test [--out=DIR]",
+        description = "Run the native TTY/session/job-control probe in QEMU for the configured profile",
+        options = {
+            {nil, "out", "kv", nil, "New output directory (default build/<arch>/<mode>/tty-sessions, replaced)"},
+            {nil, "qemu", "kv", nil, "Explicit QEMU executable override"},
+            {nil, "runs", "kv", "2", "Probe runs in one boot"},
+            {nil, "timeout", "kv", "300", "Seconds for the boot and for each run"}
+        }
+    }
+    on_run(function ()
+        import("core.base.option")
+        import("core.project.config")
+        import("core.project.project")
+        config.load()
+        local arch, spec = task_require_arch(config.get("arch") or "x86_64")
+        local mode = config.get("mode") or "release"
+        if config.get("native_console_login") == true then
+            raise("native_console_login=y makes getty the console service of every image; the TTY probe needs the maintenance oksh console")
+        end
+        -- Startup acceptance (which `qemu-distro --require-native` leaves
+        -- configured) runs posix-check and the shell pipeline before the
+        -- maintenance shell; the probe needs only that shell.
+        local acceptance = {"native_init_acceptance", "native_vm_acceptance", "native_udp_probe"}
+        for _, name in ipairs(acceptance) do
+            if config.get(name) then
+                print("[tty-sessions] reconfiguring %s/%s without native startup acceptance", arch, mode)
+                local argv = task_configure_args(config, mode, arch)
+                for i, a in ipairs(argv) do
+                    for _, option_name in ipairs(acceptance) do
+                        local prefix = "--" .. option_name .. "="
+                        if a:sub(1, #prefix) == prefix then argv[i] = prefix .. "n" end
+                    end
+                end
+                os.execv("xmake", argv)
+                config.load()
+                break
+            end
+        end
+        local out = option.get("out")
+        if out then
+            out = path.absolute(out)
+        else
+            out = path.join(task_builddir(config), "tty-sessions")
+            os.tryrm(out)
+        end
+        local qemu = task_qemu(config, project, spec, option.get("qemu"))
+        assert(qemu and os.isfile(qemu), "QEMU executable is missing: %s", tostring(qemu))
+        os.execv("python3", {"-B", path.join(os.projectdir(), "scripts", "test_tty_sessions.py"),
+            "--arch", arch, "--mode", mode, "--qemu", qemu,
+            "--out", out, "--runs", option.get("runs") or "2", "--timeout", option.get("timeout") or "300"},
+            {envs = {PYTHONDONTWRITEBYTECODE = "1"}})
+    end)
+task_end()
+
+-- Not in CI: the journalled image needs the pinned Linux activation image.
+task("getty-login-test")
+    set_menu {
+        usage = "xmake getty-login-test [--out=DIR]",
+        description = "Drive getty, login and oksh job control over serial on the journalled login image in QEMU",
+        options = {
+            {nil, "out", "kv", nil, "New output directory (default build/<arch>/<mode>/getty-login, replaced)"},
+            {nil, "qemu", "kv", nil, "Explicit QEMU executable override"},
+            {nil, "timeout", "kv", "300", "Seconds for the boot and each step without a password derivation"},
+            {nil, "no-second-boot", "k", nil, "Skip the second boot of the same disk"}
+        }
+    }
+    on_run(function ()
+        import("core.base.option")
+        import("core.project.config")
+        import("core.project.project")
+        config.load()
+        local arch, spec = task_require_arch(config.get("arch") or "x86_64")
+        local mode = config.get("mode") or "release"
+        if not task_login_product(config) then
+            raise("the login lane needs getty and login on the journalled image: leave native_console_login " ..
+                  "unset (auto) or y, without startup acceptance or an alternative PID1")
+        end
+        local linux, linux_sha256 = config.get("linux_journal_image"), config.get("linux_journal_image_sha256")
+        if not (linux and linux_sha256) then
+            raise("the login lane needs --linux_journal_image and --linux_journal_image_sha256")
+        end
+        local out = option.get("out")
+        if out then
+            out = path.absolute(out)
+        else
+            out = path.join(task_builddir(config), "getty-login")
+            os.tryrm(out)
+        end
+        local qemu = task_qemu(config, project, spec, option.get("qemu"))
+        assert(qemu and os.isfile(qemu), "QEMU executable is missing: %s", tostring(qemu))
+        local argv = {"-B", path.join(os.projectdir(), "scripts", "test_getty_login.py"),
+            "--arch", arch, "--mode", mode, "--qemu", qemu, "--out", out,
+            "--linux-image", path.absolute(linux), "--linux-image-sha256", linux_sha256,
+            "--timeout", option.get("timeout") or "300", "--ordinary"}
+        if option.get("no-second-boot") then
+            table.insert(argv, "--no-second-boot")
+        end
+        os.execv("python3", argv, {envs = {PYTHONDONTWRITEBYTECODE = "1"}})
     end)
 task_end()
 

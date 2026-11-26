@@ -535,6 +535,20 @@ static _Noreturn void ns_park(void)
     }
 }
 
+/* The console service when /etc/services.conf is missing. A login PID1
+ * (init-login.elf) keeps the console behind getty and login; only the
+ * maintenance PID1 falls back to an unauthenticated root shell. */
+#ifdef OK_NATIVE_CONSOLE_LOGIN
+static const char ns_fallback[] = "OK_SERVICE_MANIFEST 2\nservice console simple /bin/getty - 0 0\n";
+#else
+static const char ns_fallback[] = "OK_SERVICE_MANIFEST 1\nservice console simple /bin/oksh -\n";
+#endif
+
+static int ns_manifest_fallback(struct service_manifest *manifest)
+{
+    return sm_parse(manifest, ns_fallback, sizeof(ns_fallback) - 1);
+}
+
 int native_supervisor_run(void)
 {
     if (getpid() != 1) return 1;
@@ -545,14 +559,7 @@ int native_supervisor_run(void)
     struct service_manifest manifest;
     int loaded = ns_manifest_load(&manifest);
     if (loaded < 0) ns_hold(&runtime, errno);
-    if (loaded == NS_CONFIG_MISSING) {
-#ifdef OK_NATIVE_CONSOLE_LOGIN
-        static const char fallback[] = "OK_SERVICE_MANIFEST 2\nservice console simple /bin/login - 0 0\n";
-#else
-        static const char fallback[] = "OK_SERVICE_MANIFEST 1\nservice console simple /bin/oksh -\n";
-#endif
-        if (sm_parse(&manifest, fallback, sizeof(fallback) - 1)) ns_hold(&runtime, EINVAL);
-    }
+    if (loaded == NS_CONFIG_MISSING && ns_manifest_fallback(&manifest)) ns_hold(&runtime, EINVAL);
     if (ns_init(&runtime, &manifest) < 0) ns_hold(&runtime, errno);
 #ifdef OK_NATIVE_INIT_CONTROL
     int control_error = nc_open(&runtime.control) < 0 ? errno : 0;

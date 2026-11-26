@@ -49,7 +49,7 @@ APPS = (
 # refuses startup acceptance, which runs them.
 ACCEPTANCE_APPS = ("hello", "posix-check", "udp-probe")
 # Decision 0001 keeps these on okcrt even when the musl userland has the name.
-OKCRT_RESERVED = ("init", "oksh", "login", "posix-check", "sync")
+OKCRT_RESERVED = ("init", "oksh", "getty", "login", "posix-check", "sync")
 # musl name lookups (id, ls -l, whoami). No password hashes are ever staged.
 PASSWD = "root:x:0:0:root:/root:/bin/sh\n"
 GROUP = "root:x:0:\n"
@@ -208,7 +208,7 @@ def main() -> int:
     if args.console_login and service_config != CONSOLE_SERVICES:
         raise SystemExit("native console login requires the exact selected service configuration")
     hosts = hosts_snapshot(project / "config/hosts")
-    apps = APPS + ("login",) if args.console_login else APPS
+    apps = APPS + ("getty", "login") if args.console_login else APPS
     if args.profile == "release":
         apps = tuple(app for app in apps if app not in ACCEPTANCE_APPS)
     userland = None
@@ -271,8 +271,13 @@ def main() -> int:
 
     apps_dir = Path(args.apps_dir)
     system_gui_module = project / "modules" / "system-gui" / "system-gui.okmod"
+
+    def source(app: str) -> Path:
+        # A login tree's PID1 is built with the getty fallback manifest.
+        return apps_dir / ("init-login.elf" if app == "init" and args.console_login else f"{app}.elf")
+
     for app in apps:
-        src = apps_dir / f"{app}.elf"
+        src = source(app)
         if not src.is_file():
             raise SystemExit(f"missing app: {src}")
     if not system_gui_module.is_file():
@@ -299,7 +304,7 @@ def main() -> int:
 
     applets = set(userland["applets"]) if userland else set()
     for app in apps:
-        src = apps_dir / f"{app}.elf"
+        src = source(app)
         # An okcrt tool whose name a musl applet takes stays reachable as rescue.
         dst = out / "init" if app == "init" else out / "rescue" / app if app in applets else bin_dir / app
         shutil.copy2(src, dst)

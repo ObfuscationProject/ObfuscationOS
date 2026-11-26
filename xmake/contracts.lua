@@ -348,11 +348,16 @@ task("native-init-model-test")
         local out = path.absolute(option.get("out"))
         assert(not os.isdir(out) and not os.isfile(out), "native init model output already exists")
         os.mkdir(out)
-        for _, name in ipairs({"native_supervisor_tests", "native_manifest_load_tests", "pid1_policy_tests"}) do
-            local binary = path.join(out, name)
-            os.execv(path.absolute(option.get("host-cc")), {"-std=c11", "-Wall", "-Wextra", "-Werror",
-                "-fsanitize=undefined", "-fno-omit-frame-pointer",
-                path.join(os.projectdir(), "tests", name .. ".c"), "-o", binary})
+        -- The supervisor model runs once more as the login PID1 (init-login.elf),
+        -- whose missing-configuration fallback is getty.
+        for _, build in ipairs({{"native_supervisor_tests"}, {"native_supervisor_tests", "login"},
+                                {"native_manifest_load_tests"}, {"pid1_policy_tests"}}) do
+            local name, variant = build[1], build[2]
+            local binary = path.join(out, variant and name .. "_" .. variant or name)
+            local flags = {"-std=c11", "-Wall", "-Wextra", "-Werror", "-fsanitize=undefined",
+                "-fno-omit-frame-pointer", path.join(os.projectdir(), "tests", name .. ".c"), "-o", binary}
+            if variant then table.insert(flags, 1, "-DOK_NATIVE_CONSOLE_LOGIN=1") end
+            os.execv(path.absolute(option.get("host-cc")), flags)
             os.execv(binary, {})
         end
     end)

@@ -139,10 +139,11 @@ static int fake_getresuid(uid_t *real, uid_t *effective, uid_t *saved)
     *effective = child_uids[1] + (identity_mismatch == 5);
     *saved = child_uids[2] + (identity_mismatch == 6); return 0;
 }
+static const char *child_program = "/bin/oksh";
 static int fake_execve(const char *path, char *const argv[], char *const environment[])
 {
     trace_child('X'); ++child_execs;
-    assert(!strcmp(path, "/bin/oksh") && !strcmp(argv[0], path) && !argv[1] && environment[0]);
+    assert(!strcmp(path, child_program) && !strcmp(argv[0], path) && !argv[1] && environment[0]);
     errno = ENOENT; return -1;
 }
 static _Noreturn void fake_exit(int status)
@@ -306,6 +307,32 @@ static void permanent_child_identities(void)
     for (unsigned i = 0; i < 3; ++i) assert(!child_uids[i] && !child_gids[i]);
 }
 
+/* Built twice by native-init-model-test: the login PID1's fallback (with
+ * OK_NATIVE_CONSOLE_LOGIN, init-login.elf) must exec getty as root, never the
+ * maintenance root shell. */
+static void missing_configuration_fallback(void)
+{
+    struct ns_runtime runtime = actor_config("OK_SERVICE_MANIFEST 1\nservice other simple /bin/hello -\n");
+    assert(!ns_manifest_fallback(&manifest) && manifest.count == 1);
+    assert(!strcmp(manifest.records[0].name, "console") && manifest.records[0].mode == SG_SIMPLE);
+    assert(!ns_init(&runtime, &manifest));
+#ifdef OK_NATIVE_CONSOLE_LOGIN
+    child_program = "/bin/getty";
+    assert(!strstr(ns_fallback, "oksh"));
+#else
+    assert(!strstr(ns_fallback, "getty") && !strstr(ns_fallback, "login"));
+#endif
+    child_mode = 1;
+    if (!setjmp(child_return)) {
+        (void)launch_next(&runtime, 0);
+        assert(!"fork child returned without exit");
+    }
+    child_mode = 0;
+    child_program = "/bin/oksh";
+    assert(child_status == 127 && child_error == ENOENT && child_execs == 1 && !strcmp(child_trace, "CGUguXWE"));
+    for (unsigned i = 0; i < 3; ++i) assert(!child_uids[i] && !child_gids[i]);
+}
+
 static const char graph_configuration[] = "OK_SERVICE_MANIFEST 1\n"
     "service setup oneshot /bin/setup -\nservice provider notify /bin/provider setup\n"
     "service dependent simple /bin/dependent provider\n";
@@ -397,7 +424,12 @@ int main(void)
 {
     channels_and_reaping(); launch_failures(); pure_boundaries();
     dependencies_and_restarts(); independent_failure_and_notify();
-    permanent_child_identities();
+    permanent_child_identities(); missing_configuration_fallback();
+#ifdef OK_NATIVE_CONSOLE_LOGIN
+    puts("NATIVE_PID1_MODEL_FALLBACK console=/bin/getty uid=0 gid=0");
+#else
+    puts("NATIVE_PID1_MODEL_FALLBACK console=/bin/oksh");
+#endif
     puts("NATIVE_PID1_MODEL_PASS protocol=bounded readiness=reap-checked launch=owned restart=bounded graph=shared dependency=retired");
     return 0;
 }
