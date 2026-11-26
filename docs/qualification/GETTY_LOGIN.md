@@ -58,9 +58,13 @@ report). An optional argument runs one case by number.
 requested profile and refuses a configuration with startup acceptance
 (`native_init_acceptance`, `native_vm_acceptance`, `native_udp_probe`),
 whose init runs posix-check and the shell pipeline before the shell, and
-`native_console_login`, whose console service is `/bin/login` instead of
-the maintenance oksh; the staged `etc/services.conf` must name `/bin/oksh`
-as the console service. A guest that prints the acceptance marker fails at
+`native_console_login=y`, whose console service is `/bin/getty` (with
+login on the pts) instead of the maintenance oksh; the staged
+`etc/services.conf` must name `/bin/oksh` as the console service. When S2
+landed the option was a boolean and the login console ran `/bin/login`
+directly; since S5 it is tri-state and only `y` is refused: under the
+default `auto`, which CI uses, and under `n` the full tree keeps the
+maintenance oksh and is accepted. A guest that prints the acceptance marker fails at
 once instead of waiting for the prompt. It then builds the probe,
 `rootfs-stage` and `distro_image`, copies `build/<arch>/<mode>/rootfs`, adds the probe as `/bin/tty-sessions`,
 packs it with `tools/mkext4.py`, boots it with `qemu_distro.command_for`
@@ -72,7 +76,7 @@ slots, so a slot that any earlier case failed to release fails that run;
 process-table slots are not counted. Each run must list all 20
 cases and print the exact PASS marker; `serial.log` and `result.json` are
 kept in the output directory. `xmake tty-sessions-test` resolves QEMU like
-`qemu-distro`, refuses `native_console_login` before building,
+`qemu-distro`, refuses `native_console_login=y` before building,
 reconfigures the tree without startup acceptance when it is on, and runs it for the configured profile:
 
 ```sh
