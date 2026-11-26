@@ -1,11 +1,14 @@
 # getty and login on a PTY (WT2.2 feat/getty-login)
 
 Slice log of the ObfuscationOS side of WT2.2 (`docs/PLAN.md`), built against
-the ABI 81 / UAPI 0.17 kernel SDK of kernel `feat/tty-jobctl`. Each section
-says what a slice changed and which evidence class backs it: hosted model
-tests substitute system calls and establish no guest behaviour; guest runs
-execute the real programs under QEMU. Receipts are packaged into
-ObfuscationEvidence at the end of the worktree, never into this tree.
+the ABI 81 / UAPI 0.17 kernel SDK of kernel `feat/tty-jobctl`. The branch was
+later rebased onto OS main at module ABI 82 (UAPI still 0.17; the ABI 82
+delta is network-only), and S5 ran against SDKs exported from kernel main
+fd8abee. Each section says what a slice changed and which evidence class
+backs it: hosted model tests substitute system calls and establish no guest
+behaviour; guest runs execute the real programs under QEMU. Receipts are
+packaged into ObfuscationEvidence at the end of the worktree, never into this
+tree.
 
 ## S2: guest TTY, session and job-control probe
 
@@ -120,6 +123,73 @@ receipt and keeps its claim text. The hosted models (`test_oksh.py`
 console tests, `test_native_login_main.py`, the wrapper tests) stay; the
 guest probe runs beside them.
 
+## S3: oksh job control
+
+What changed: `oksh` has bounded job control (`apps/oksh/README.md`, "Job
+control"). Every pipeline is a job; when one of descriptors 0-2 is the
+shell's controlling terminal and its group is in the foreground, each job
+gets its own process group and the terminal while it runs in the foreground.
+The shell waits with `WUNTRACED`, reports `[n]+ Stopped`, `Done`, `Exit` and
+`Killed`, runs a trailing `&` in the background, and has `jobs`, `fg [%n]` and
+`bg [%n]` over an 8-entry table. At its prompt it ignores SIGINT, SIGQUIT,
+SIGTSTP, SIGTTIN and SIGTTOU and resets them in children; SIGHUP stays at its
+default. Native processes have no handlers and no SIGCHLD, so everything is
+learned from `waitpid`. Without a controlling terminal (the maintenance
+console, `oksh -c`, redirected input) job control degrades: no groups, `&`
+jobs read `/dev/null`, and the table still works. The first `exit` with
+stopped jobs warns; the second exits after SIGHUP and SIGCONT to each stopped
+job. The SDK's `sys/wait.h` gained `WUNTRACED`, `WCONTINUED` and the
+stop/continue status macros. BusyBox `ash` keeps `ASH_JOB_CONTROL` disabled;
+enabling it is out of this worktree's scope (decision 0004).
+
+Hosted model tests (no guest execution):
+
+```sh
+python3 -B -m unittest discover -s tests/tools -p test_oksh.py   # 50 tests, 17 of them job control
+```
+
+`JobControlTests` stop and continue real hosted children against the modelled
+terminal of `tests/hosted/oksh_faults.c`: the stop report and terminal
+reclaim, `fg`, `bg`, `&`, `jobs` and job specifications, completion reports,
+a full table, `exit` with stopped jobs and the degraded mode.
+
+Guest execution: `scripts/test_oksh_jobs.py` stages
+`tests/native/oksh_job_probe.c` as `/bin/oksh-jobs` into a copy of the
+maintenance root, packs it as plain ext4 and types at `oksh> `: a probe that
+stops itself with SIGSTOP is reported Stopped through `WUNTRACED`, `jobs`
+lists it, `exit` warns, `fg` continues it and the `||`/`&&` branches see a
+nonzero and a zero status, `bg` continues one without the terminal, `&` jobs
+are reported Done and read `/dev/null`, and `fg` waits for a running
+background job. The maintenance console is not the shell's controlling
+terminal and has ISIG off, so this is the degraded mode; ^C, ^Z and terminal
+hand-over on a pts are the login lane's (S5).
+
+```sh
+PYTHONDONTWRITEBYTECODE=1 python3 -B scripts/test_oksh_jobs.py --arch ARCH --mode debug \
+  --qemu TC/bin/qemu-system-... --out OUT
+```
+
+Kernel issue found by this runner, fixed in kernel `fix/jobctl-native-stop`
+(72eb905, not merged at the time of writing): on mips and mips64 the probe's
+SIGSTOP to itself was dropped while `kill` returned 0, so the shell never saw
+a stop and the first step failed. The maintenance oksh's group is orphaned
+(its parent, PID1, is in another session), and the kernel's orphaned-group
+rule, which discards SIGTSTP, SIGTTIN and SIGTTOU but not SIGSTOP, compared
+the native signal number with the Linux profile's SIGSTOP, which is 23 on
+MIPS instead of 19. The fix compares in the recipient's numbering, with
+hosted kernel tests for x86_64, mips and mips64. The login lane is not
+affected: job groups that oksh creates on a pts are not orphaned (the shell,
+their parent, is in the same session), and ^Z sends SIGTSTP from the line
+discipline.
+
+Result (QEMU 10.2.0 from SysToolchain 0.1.0, debug, ABI 82 SDKs): the runner
+passes on i386, x86_64, aarch64, arm32, rv64, rv32, loongarch64 and ppc with
+kernel main fd8abee, and on mips and mips64 with SDKs exported from kernel
+`fix/jobctl-native-stop` 72eb905 (same ABI). A control run on mips with the
+fd8abee SDK still fails at the first step: the probe reports that it was
+continued without the shell ever seeing a stop. On every profile the jobs stay
+in the shell's group, as they must without a controlling terminal. Single-CPU
+QEMU only; no physical-hardware or SMP claim.
 ## S4: getty and login on a pts
 
 What changed:

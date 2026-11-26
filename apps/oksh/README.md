@@ -131,11 +131,14 @@ with `tests/native/oksh_job_probe.c` staged as `/bin/oksh-jobs`: a self-stop
 seen through `WUNTRACED`, `jobs`, the exit warning, `fg` with a nonzero and a
 zero job status (oksh has no `$?`, so exact statuses are checked only by the
 hosted tests), `bg`, `&` with completion reports, `/dev/null` input and `fg`
-of a running job. It passes on x86_64 only. On mips its first step fails: the
-probe's SIGSTOP to itself does not stop it, so the shell never sees a stop.
-That is unresolved, and the runner is no evidence for the other profiles. That console is not the shell's
+of a running job. It passes on all ten profiles; on mips and mips64 only with
+a kernel that carries `fix/jobctl-native-stop`, because earlier kernels drop
+the probe's SIGSTOP to itself in the maintenance shell's orphaned group there
+(`docs/qualification/GETTY_LOGIN.md`, S3). That console is not the shell's
 controlling terminal and has ISIG off, so this exercises the degraded mode
-only; `^Z` and terminal handoff on a pseudo-terminal belong to the login lane.
+only. Job control on a pseudo-terminal (own groups, terminal hand-over, `^C`,
+`^Z`, `jobs`, `fg`, `&` and the exit warning under getty and login) is driven
+by the login lane, `scripts/test_getty_login.py` (`xmake getty-login-test`).
 `tests/native/oksh_pipeline.c`, packaged explicitly as
 `/bin/oksh-acceptance`, runs the native execution suite. The independent observer
 `tools/qualify_oksh_guest.py` records its actual QEMU output; hosted success is not
