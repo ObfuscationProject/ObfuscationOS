@@ -472,12 +472,16 @@ Checks:
   separately once.
 - The final ten-profile lane above ran with the option unset.
 
-Other runs on the final tree (kernel main fd8abee SDKs unless noted):
-`xmake tty-sessions-test` (both runs, 20 cases) and the acceptance boot
+Other S5 runs (kernel main fd8abee SDKs unless noted): `xmake
+tty-sessions-test` (both runs, 20 cases) and the acceptance boot
 (`kernel-sdk-check` plus `qemu-distro --fs=simplefs --require-native`) pass
 on all ten profiles; `scripts/test_oksh_jobs.py` passes on all ten (mips and
 mips64 with the fixed kernel, S3); the tool suite with the x86_64 debug SDK
-runs 1382 tests, 35 skipped, all passing.
+runs 1382 tests, 35 skipped, all passing. The oksh-jobs runs built the helper
+of e5f4c8e (`tests/native/oksh_job_probe.c` sha256 `7df6a6eed249...`); only
+ppc was re-run with the helper of 5820bc4 (`27f099dcd69d...`), which adds the
+`alive` mode that runner does not use. The final review below re-ran all of
+these on its tree.
 
 Open after S5:
 
@@ -490,3 +494,44 @@ Open after S5:
   `tools/read_native_login.py` stay pinned to ABI 69 history.
 - BusyBox `ASH_JOB_CONTROL` and line editing stay disabled (decision 0004).
 - Receipts are packaged into ObfuscationEvidence in S6.
+
+## Final review
+
+Three findings of the whole-branch review changed code or tests:
+
+- The login shell hangs up its running jobs too. A job left running with `&`
+  at logout kept its pts pair, so eight such logouts left getty without a
+  pair (`stage=open errno=11`) and nobody able to log in. oksh, when it
+  leads the session of its terminal, now sends SIGHUP and SIGCONT to every
+  job it still tracks, running or stopped; other shells are unchanged. Step 6
+  of the lane also starts `oksh-jobs sleep 600 &` beside the stopped job and
+  requires both pids gone in the next session (step `logout-jobs-gone`).
+  Before the oksh change that lane fails on x86_64 with `the new session got
+  pts 1, not the released pts 0`; the hosted test
+  `test_a_session_leading_shell_hangs_up_running_jobs_at_exit` (the shell
+  started as a session leader) hangs until its job is released. The risk
+  that remains is in `docs/native-init.md`: processes the shell does not
+  track, such as background jobs of a nested `oksh -c`, can still hold pairs
+  past logout and lock the console out until a reboot.
+- The login PID1's compiled fallback, used when `/etc/services.conf` is
+  missing, is now checked: the supervisor model runs in both builds and the
+  init targets check the linked ELFs (S5 "Checks" above).
+- The S2 text on the TTY probe runner's refusal now says that only
+  `native_console_login=y` is refused.
+
+Result on the review tree b0fc7d1 (QEMU 10.2.0 from SysToolchain 0.1.0,
+debug, kernel main fd8abee SDKs; mips and mips64 oksh-jobs with
+`fix/jobctl-native-stop` 72eb905 SDKs), all on the same ten profiles:
+
+- `xmake getty-login-test` with `native_console_login` unset (script sha256
+  `3a23cca76126...`): both boots pass; every one of the five logouts per
+  profile reported `reason=hangup` and gave the next session pts 0, and the
+  stopped and the running job were both gone after the first.
+- `scripts/test_oksh_jobs.py` (script `c5fd9b5a2e29...`, helper
+  `27f099dcd69d...`, the helper source at this tree): passes.
+- `xmake tty-sessions-test`: both runs print the 20-case PASS marker.
+- The acceptance boot (`kernel-sdk-check`, `qemu-distro --fs=simplefs
+  --require-native`): `acceptance=pass shell_pipeline=pass`.
+- Hosted: `xmake native-init-model-test` (both supervisor builds), and the
+  tool suite with the x86_64 debug SDK, run in six pattern groups: 1392
+  tests, 35 skipped, all passing.
