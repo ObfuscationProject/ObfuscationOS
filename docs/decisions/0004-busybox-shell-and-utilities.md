@@ -45,3 +45,10 @@ ELF per profile instead of two.
   on all ten profiles.
 - Job control (`ASH_JOB_CONTROL`) and line editing wait for termios and
   sessions on a PTY (`feat/getty-login`, kernel WT2.2).
+- Note (2026-11-26, `feat/getty-login`): WT2.2 delivered termios, sessions and
+  job control on a pts for the native shell: getty runs login and `oksh`
+  (bounded `&`, `jobs`, `fg`, `bg`) on `/dev/pts/N`. Enabling BusyBox
+  `ASH_JOB_CONTROL` and line editing stays out of that worktree's scope and
+  remains open here: no guest gate yet checks the Linux-personality terminal,
+  signal and wait paths that ash's job control uses on the ten profiles
+  (`docs/qualification/GETTY_LOGIN.md`).
