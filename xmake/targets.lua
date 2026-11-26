@@ -122,6 +122,17 @@ local function define_app(name, login)
                 add_defines("OK_NATIVE_INIT_CONTROL=1")
                 add_files(path.join(project, "apps", "init", "native_control.c"))
             end
+            -- The compiled fallback is the console service when /etc/services.conf
+            -- is missing: a login PID1 must never fall back to a root oksh.
+            after_build(function (target)
+                local elf = io.readfile(target:targetfile(), {encoding = "binary"})
+                local getty = elf:find("\nservice console simple /bin/getty - 0 0\n", 1, true) ~= nil
+                local oksh = elf:find("\nservice console simple /bin/oksh -\n", 1, true) ~= nil
+                local login_pid1 = target:name() == "app-init-login"
+                assert(getty == login_pid1 and oksh == not login_pid1,
+                    "%s carries the wrong fallback console (getty=%s oksh=%s)",
+                    target:targetfile(), tostring(getty), tostring(oksh))
+            end)
         end
         if name == "service-ctl" then
             add_files(path.join(project, "apps", "init", "native_control_client.c"))

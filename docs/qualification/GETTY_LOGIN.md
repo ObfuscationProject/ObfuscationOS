@@ -444,6 +444,14 @@ Checks:
   `test_rootfs_profiles.py` (only the journalled image packs `rootfs-login`),
   `test_tty_sessions_runner.py` (only `y` is refused), `test_stage_rootfs.py`,
   `test_logging.py` and `test_console_logging_disk.py`.
+- The compiled fallback, which PID1 runs when `/etc/services.conf` is
+  missing and which the lane never reaches: `xmake native-init-model-test`
+  builds `tests/native_supervisor_tests.c` a second time with
+  `OK_NATIVE_CONSOLE_LOGIN`, and that build must exec `/bin/getty` as root
+  for the fallback console while the plain build execs `/bin/oksh`; the
+  `app-init` and `app-init-login` targets check after linking that
+  `init.elf` carries only the oksh fallback and `init-login.elf` only the
+  getty one, so a login PID1 built without the define fails its build.
 - Configuration controls on x86_64: unset builds `rootfs`, `rootfs-rescue`
   with the maintenance console and `rootfs-login` with getty, and the product
   image passes `tools/console_login_disk.py` admission against `rootfs-login`;
