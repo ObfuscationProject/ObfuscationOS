@@ -2,8 +2,9 @@
 """Login lane: drive getty, login and oksh over the serial console of a journalled login image.
 
 For the configured profile the runner builds the distribution kernel, the
-journalled product image (`rootfs-ext4-journalled` with getty and login
-selected) and the lane-only native helper tests/native/oksh_job_probe.c. It
+journalled product image (`rootfs-ext4-journalled`, packed from the login
+tree build/<arch>/<mode>/rootfs-login that `native_console_login` auto or y
+selects) and the lane-only native helper tests/native/oksh_job_probe.c. It
 admits the product image like `xmake qemu-distro`, then packs a lane disk from
 a copy of the same login root with the helper added as /bin/oksh-jobs, with
 the same Linux journal activation; the admitted product files of both disks
@@ -473,7 +474,7 @@ def build_inputs(args) -> tuple[Path, Path, Path, Path]:
         if not product.exists():
             subprocess.run([args.xmake, "-P", str(ROOT), "-y", "-b", "rootfs-ext4-journalled"], check=True, cwd=ROOT)
     kernel = build / "distro/kernel.bin"
-    root = build / "rootfs"
+    root = build / "rootfs-login"
     helper = build / "apps/oksh-jobs.elf"
     for path in (kernel, product, helper, root / "bin/getty", root / "bin/login", args.qemu):
         if not path.is_file():

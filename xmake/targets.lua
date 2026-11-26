@@ -8,6 +8,15 @@ local build = ok_user_builddir()
 local sdk = ok_user_kernel_sdk()
 local mode = get_config("mode") or "release"
 
+-- native_console_login (xmake.lua): y (true) puts getty and login on every
+-- tree; unset (auto) only on the journalled product image (the rootfs-login
+-- tree), and only when nothing runs before authentication; n (false) nowhere.
+local startup_acceptance = get_config("native_init_acceptance") or get_config("native_vm_acceptance") or
+    get_config("native_udp_probe")
+local login_everywhere = get_config("native_console_login") == true
+local login_product = login_everywhere or (get_config("native_console_login") == nil and not startup_acceptance and
+    not get_config("managed_init_build") and not get_config("service_graph_build"))
+
 local function add_sdk_identity(target)
     -- A downloaded/relocated SDK may preserve timestamps older than existing
     -- objects. Bind the compile signature to content, not file modification time.
@@ -76,11 +85,13 @@ target("app-getty")
     add_syslinks("gcc")
 target_end()
 
-for _, name in ipairs(app_names) do
-    target("app-" .. name)
+-- login selects the login trees' PID1 (app-init-login, init-login.elf), whose
+-- compiled fallback manifest runs getty instead of the maintenance oksh.
+local function define_app(name, login)
+    target(login and "app-init-login" or "app-" .. name)
         set_kind("binary")
         set_default(false)
-        set_filename(name .. ".elf")
+        set_filename((login and "init-login" or name) .. ".elf")
         set_targetdir(path.join(build, "apps"))
         add_deps("okcrt")
         add_ok_user_toolchain()
@@ -105,7 +116,7 @@ for _, name in ipairs(app_names) do
         end
         if name == "init" then
             add_defines("OK_NATIVE_CONSOLE_LEASE=1")
-            if get_config("native_console_login") then add_defines("OK_NATIVE_CONSOLE_LOGIN=1") end
+            if login then add_defines("OK_NATIVE_CONSOLE_LOGIN=1") end
             add_files(path.join(project, "apps", "init", "native_supervisor.c"))
             if get_config("native_init_control") then
                 add_defines("OK_NATIVE_INIT_CONTROL=1")
@@ -115,7 +126,7 @@ for _, name in ipairs(app_names) do
         if name == "service-ctl" then
             add_files(path.join(project, "apps", "init", "native_control_client.c"))
         end
-        if name == "init" and (get_config("native_init_acceptance") or get_config("native_udp_probe") or get_config("native_vm_acceptance")) then
+        if name == "init" and not login and startup_acceptance then
             add_defines("OK_USERLAND_SELFTEST=1")
             if get_config("native_udp_probe") then add_defines("OK_NATIVE_UDP_PROBE=1") end
         end
@@ -130,6 +141,13 @@ for _, name in ipairs(app_names) do
         add_ok_user_linkflags()
         add_syslinks("gcc")
     target_end()
+end
+
+for _, name in ipairs(app_names) do
+    define_app(name, false)
+end
+if login_product then
+    define_app("init", true)
 end
 
 target("app-musl-test-runner")
@@ -300,7 +318,7 @@ target("apps")
     for _, name in ipairs(app_names) do
         add_deps("app-" .. name)
     end
-    if get_config("native_console_login") then add_deps("app-getty", "app-login") end
+    if login_product then add_deps("app-init-login", "app-getty", "app-login") end
 target_end()
 
 target("sysroot")
@@ -423,16 +441,18 @@ target_end()
 
 -- Rootfs profiles: full (build/rootfs: every program, the musl userland and its
 -- tests), rescue (build/rootfs-rescue: okcrt only, packed into SimpleFS) and
--- release (build/rootfs-release: no acceptance programs or test suites).
-local function stage_rootfs(batchcmds, profile, out)
+-- release (build/rootfs-release: no acceptance programs or test suites). The
+-- login tree (build/rootfs-login) is the full profile with getty and login as
+-- the console; it feeds only the journalled product image.
+local function stage_rootfs(batchcmds, profile, out, login)
     local project = os.projectdir()
     local args = {
         "--apps-dir", path.join(build, "apps"),
         "--out", path.join(build, out),
         "--profile", profile,
     }
-    if get_config("native_console_login") then table.insert(args, "--console-login") end
-    if get_config("native_init_acceptance") or get_config("native_vm_acceptance") or get_config("native_udp_probe") then
+    if login or login_everywhere then table.insert(args, "--console-login") end
+    if startup_acceptance then
         table.insert(args, "--acceptance")
     end
     local userland = get_config("userland_build")
@@ -508,6 +528,18 @@ target("rootfs-release-stage")
     end)
 target_end()
 
+if login_product then
+    target("rootfs-login-stage")
+        set_kind("phony")
+        set_default(false)
+        set_policy("build.fence", true)
+        add_deps("apps")
+        on_buildcmd(function (target, batchcmds)
+            stage_rootfs(batchcmds, "full", "rootfs-login", true)
+        end)
+    target_end()
+end
+
 -- SimpleFS is the fixed 32-entry rescue/test image; its on-disk format is kept
 -- unchanged. It packs the okcrt-only rescue tree, which still exceeds that cap,
 -- so the supervised service programs (started only from ext4 roots through
@@ -568,21 +600,23 @@ target("rootfs-release")
     end)
 target_end()
 
+-- The journalled product image: the login tree when login_product, else the
+-- maintenance full tree.
 target("rootfs-ext4-journalled")
     set_kind("phony")
     set_default(false)
-    add_deps("rootfs-stage")
+    add_deps(login_product and "rootfs-login-stage" or "rootfs-stage")
     on_buildcmd(function (target, batchcmds)
         assert(get_config("linux_journal_image") and get_config("linux_journal_image_sha256"),
             "journalled root requires explicit pinned Linux activation image")
         local args = {
-            "--root", path.join(build, "rootfs"),
-            "--out", path.join(build, get_config("native_console_login") and
+            "--root", path.join(build, login_product and "rootfs-login" or "rootfs"),
+            "--out", path.join(build, login_product and
                 "rootfs.login.ext4-journalled.img" or "rootfs.ext4-journalled.img"),
             "--linux-image", get_config("linux_journal_image"),
             "--linux-image-sha256", get_config("linux_journal_image_sha256"),
         }
-        if get_config("native_console_login") then table.insert(args, "--console-login") end
+        if login_product then table.insert(args, "--console-login") end
         run_python(batchcmds, "mkext4_journalled.py", args)
     end)
 target_end()

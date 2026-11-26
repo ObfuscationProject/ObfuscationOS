@@ -63,7 +63,23 @@ local function task_configure_args(config, mode, arch)
     for _, name in ipairs({"native_init_acceptance", "native_vm_acceptance", "native_udp_probe"}) do
         table.insert(args, "--" .. name .. "=" .. (config.get(name) and "y" or "n"))
     end
+    -- Unset (auto) cannot be passed back explicitly, and needs no argument.
+    local login = config.get("native_console_login")
+    if login ~= nil then
+        table.insert(args, "--native_console_login=" .. (login and "y" or "n"))
+    end
     return args
+end
+
+-- Whether the journalled product image runs getty and login (xmake.lua): y,
+-- or unset (auto) without startup acceptance or an alternative PID1.
+local function task_login_product(config)
+    local login = config.get("native_console_login")
+    if login ~= nil then
+        return login == true
+    end
+    return not (config.get("native_init_acceptance") or config.get("native_vm_acceptance") or
+        config.get("native_udp_probe") or config.get("managed_init_build") or config.get("service_graph_build"))
 end
 
 -- The explicit override, else the configured SysToolchain directory or the
@@ -167,6 +183,9 @@ task("distro-test")
             for i, arg in ipairs(acceptance_args) do
                 if arg:find("--native_init_acceptance=", 1, true) == 1 then
                     acceptance_args[i] = "--native_init_acceptance=y"
+                elseif arg == "--native_console_login=y" then
+                    -- Acceptance images keep the maintenance console.
+                    acceptance_args[i] = "--native_console_login=n"
                 end
             end
         end
@@ -231,9 +250,8 @@ task("qemu-distro")
         import("core.project.config")
         import("core.project.project")
         config.load()
-        local login = config.get("native_console_login")
-        if login and option.get("require-native") then
-            raise("native_console_login cannot run startup acceptance before authentication")
+        if config.get("native_console_login") == true and option.get("require-native") then
+            raise("native_console_login=y cannot run startup acceptance before authentication")
         end
         if option.get("fs") == "release" and option.get("require-native") then
             raise("the release image omits the acceptance programs that --require-native runs")
@@ -256,8 +274,17 @@ task("qemu-distro")
         if fs ~= "simplefs" and fs ~= "ext4" and fs ~= "ext4-journalled" and fs ~= "release" then
             raise("unsupported fs: %s", fs)
         end
-        if login and (fs ~= "ext4-journalled" or not option.get("interactive")) then
-            raise("native_console_login requires --fs=ext4-journalled --interactive")
+        -- With y every image runs login; with auto only the journalled product
+        -- image does, and the other images keep the maintenance console.
+        local login = task_login_product(config) and
+            (fs == "ext4-journalled" or config.get("native_console_login") == true)
+        if login and fs ~= "ext4-journalled" then
+            raise("native_console_login=y runs login on every image and requires --fs=ext4-journalled " ..
+                  "--interactive; leave it unset (auto) to boot this image with the maintenance console")
+        end
+        if login and not option.get("interactive") then
+            raise("the journalled image runs getty and login and requires --interactive; configure " ..
+                  "--native_console_login=n for a maintenance journalled image")
         end
         local images = {
             simplefs = {"rootfs-simplefs", "rootfs.simplefs.img"},
@@ -285,7 +312,7 @@ task("qemu-distro")
         end
         if login then
             os.execv("python3", {"-B", path.join(project_dir, "tools", "console_login_disk.py"),
-                "--image", image, "--root", path.join(task_builddir(config), "rootfs")})
+                "--image", image, "--root", path.join(task_builddir(config), "rootfs-login")})
         end
 
         local args = {
@@ -339,8 +366,8 @@ task("tty-sessions-test")
         config.load()
         local arch, spec = task_require_arch(config.get("arch") or "x86_64")
         local mode = config.get("mode") or "release"
-        if config.get("native_console_login") then
-            raise("native_console_login makes /bin/login the console service; the TTY probe needs the maintenance oksh console")
+        if config.get("native_console_login") == true then
+            raise("native_console_login=y makes getty the console service of every image; the TTY probe needs the maintenance oksh console")
         end
         -- Startup acceptance (which `qemu-distro --require-native` leaves
         -- configured) runs posix-check and the shell pipeline before the

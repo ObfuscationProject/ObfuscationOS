@@ -39,7 +39,7 @@ class LoggingImplementationTests(unittest.TestCase):
 class LoggingPackagingTests(unittest.TestCase):
     def fixture(self, work):
         apps = work / 'apps'; apps.mkdir()
-        for name in (*stage.APPS, 'getty', 'login'):
+        for name in (*stage.APPS, 'init-login', 'getty', 'login'):
             (apps / (name + '.elf')).write_bytes(b'Hosted fixture ' + name.encode())
         root = work / 'root'
         subprocess.run([sys.executable, str(ROOT / 'tools/stage_rootfs.py'),

@@ -271,8 +271,13 @@ def main() -> int:
 
     apps_dir = Path(args.apps_dir)
     system_gui_module = project / "modules" / "system-gui" / "system-gui.okmod"
+
+    def source(app: str) -> Path:
+        # A login tree's PID1 is built with the getty fallback manifest.
+        return apps_dir / ("init-login.elf" if app == "init" and args.console_login else f"{app}.elf")
+
     for app in apps:
-        src = apps_dir / f"{app}.elf"
+        src = source(app)
         if not src.is_file():
             raise SystemExit(f"missing app: {src}")
     if not system_gui_module.is_file():
@@ -299,7 +304,7 @@ def main() -> int:
 
     applets = set(userland["applets"]) if userland else set()
     for app in apps:
-        src = apps_dir / f"{app}.elf"
+        src = source(app)
         # An okcrt tool whose name a musl applet takes stays reachable as rescue.
         dst = out / "init" if app == "init" else out / "rescue" / app if app in applets else bin_dir / app
         shutil.copy2(src, dst)

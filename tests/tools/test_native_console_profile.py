@@ -23,7 +23,7 @@ class NativeConsoleProfileTests(unittest.TestCase):
         module.write_bytes(b'module fixture')
         apps = work / 'apps'
         apps.mkdir()
-        for name in (*stage.APPS, 'getty', 'login'):
+        for name in (*stage.APPS, 'init-login', 'getty', 'login'):
             (apps / (name + '.elf')).write_bytes(name.encode())
         return project, apps
 
@@ -41,6 +41,8 @@ class NativeConsoleProfileTests(unittest.TestCase):
                 self.assertEqual(self.run_stage(project, apps, out, *(['--console-login'] if selected else [])), 0)
                 self.assertEqual((out / 'bin/login').exists(), selected)
                 self.assertEqual((out / 'bin/getty').exists(), selected)
+                # The login tree's PID1 falls back to getty, the maintenance one to oksh.
+                self.assertEqual((out / 'init').read_bytes(), b'init-login' if selected else b'init')
                 for name in ('timed', 'timectl', 'mountctl', 'resolved', 'resolvectl'):
                     self.assertEqual((out / 'bin' / name).read_bytes(), name.encode())
                     self.assertEqual((out / 'bin' / name).stat().st_mode & 0o7777, 0o755)
@@ -73,7 +75,7 @@ class NativeConsoleProfileTests(unittest.TestCase):
                                 ('--service-graph-build', '--service-graph-manifest-sha256')):
                 with self.assertRaises(SystemExit):
                     self.run_stage(project, apps, out, '--console-login', option, str(work / 'external'), pin, '0' * 64)
-            for name in ('getty', 'login'):
+            for name in ('init-login', 'getty', 'login'):
                 with self.subTest(missing=name):
                     (apps / (name + '.elf')).rename(work / (name + '.elf'))
                     with self.assertRaises(SystemExit):
