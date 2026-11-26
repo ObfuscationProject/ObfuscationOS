@@ -16,11 +16,13 @@ terminal; a foreground job runs in its own group, which owns the terminal; a
 background job runs in its own group without it and is reported Done; ^C
 kills a foreground job; ^Z stops one (`[1]+ Stopped`), `jobs` lists it,
 `exit` warns, `fg` resumes it in the foreground and ^C ends it; a job stopped
-with ^Z at logout is hung up by the second `exit`. Each logout is followed by
-getty's close event, PID1's restart of the console service and a new session;
-a wrong password is refused before the right one logs in, and every session's
-pts list shows that earlier pairs were released. An ordinary account can also
-be created and logged in. The second boot of the same disk logs the
+with ^Z at logout is hung up by the second `exit`: the next shell finds its
+pid gone. Each logout is followed by getty's close event, PID1's restart of
+the console service and a new session on the same pts index (the kernel hands
+out the lowest free pair, so that shows the old pair was freed); a wrong
+password is refused before the right one logs in, and every session's pts
+list holds only its own pair. An ordinary account can also be created and
+logged in. The second boot of the same disk logs the
 administrator in and out. This is guest execution under QEMU, not physical
 hardware.
 """
@@ -60,7 +62,7 @@ OPEN = re.compile(rb"GETTY event=open pts=([0-9]+) pid=([0-9]+)\r*\n")
 CLOSE = re.compile(rb"GETTY event=close pts=([0-9]+) pid=([0-9]+) status=(-?[0-9]+) reason=([a-z]+)\r*\n")
 REAP = re.compile(rb"event=reap service=console pid=([0-9]+) generation=([0-9]+) [^\r\n]* status=([0-9]+)\r*\n")
 LAUNCH = re.compile(rb"event=launch service=console pid=([0-9]+) generation=([0-9]+) ")
-REPORT = re.compile(rb"OKSH_JOBS (session|hold)((?: [a-z_]+=-?[0-9]+)+)\n")
+REPORT = re.compile(rb"OKSH_JOBS (session|hold|alive)((?: [a-z_]+=-?[0-9]+)+)\n")
 # stat prints st_mode in hex: S_IFCHR | 0620. Slave inodes are 34816 + N.
 PTS_MODE = b"mode=2190 "
 PTS_INODE = 34816
@@ -189,6 +191,8 @@ class Session:
         self.guest, self.steps = guest, steps
         self.enroll_timeout, self.login_timeout = enroll_timeout, login_timeout
         self.reasons: list[str] = []
+        # The job left stopped at the last logout, which that logout hangs up.
+        self.hung_up: int | None = None
 
     def step(self, name: str, **facts) -> None:
         facts.update(step=name, serial_offset=len(self.guest.data),
@@ -346,7 +350,7 @@ class Session:
 
     def logout(self, pts: int, pid: int, start: int, stopped_job: bool = False) -> tuple[int, int, int]:
         if stopped_job:
-            job, start = self.suspend(start)
+            self.hung_up, start = self.suspend(start)
             start = self.stopped_exit(start)
         self.guest.receive(PROMPT, start)
         sent = self.guest.send(b"exit")
@@ -369,8 +373,31 @@ class Session:
         new_pts, new_pid, end = self.opened(close.end())
         if new_pid == pid:
             raise Failure("getty did not start a new login child")
+        # The kernel allocates the lowest free pair and the lane runs one
+        # session: a different index means the old pair is still open, e.g.
+        # held by a job that outlived the logout.
+        if new_pts != pts:
+            raise Failure(f"the new session got pts {new_pts}, not the released pts {pts}")
         self.step("getty-restart", pts=new_pts, pid=new_pid)
         return new_pts, new_pid, end
+
+    def alive(self, pid: int, start: int) -> tuple[int, int]:
+        output, start = self.command(b"oksh-jobs alive %d" % pid, start)
+        report = REPORT.search(output)
+        if not report or report[1] != b"alive" or fields(report)["pid"] != pid:
+            raise Failure(f"no alive report for pid {pid}: {output!r}")
+        return fields(report)["alive"], start
+
+    def gone(self, pid: int, leader: int, start: int) -> int:
+        """The job stopped at the last logout no longer exists; the shell does."""
+        alive, start = self.alive(leader, start)
+        if alive != 1:
+            raise Failure(f"the probe does not see the session's shell {leader}")
+        alive, start = self.alive(pid, start)
+        if alive != 0:
+            raise Failure(f"the job {pid} stopped at logout survived it")
+        self.step("stopped-job-gone", job=pid, leader=leader)
+        return start
 
     def login(self, start: int, wrong_first: bool, name: bytes = NAME, password: bytes = PASSWORD) -> int:
         at = self.guest.receive(b"Login: ", start)
@@ -447,6 +474,7 @@ def boot(args, image: Path, label: str, steps: list, first: bool) -> tuple[bytes
             pts, pid, at = session.logout(pts, pid, at, stopped_job=True)
             at = session.login(at, wrong_first=True)
             at = session.shell(pts, at, b"root")
+            at = session.gone(session.hung_up, pid, at)
             at = session.session(pts, pid, at)
             pts, pid, at = session.logout(pts, pid, at)
             if args.ordinary:

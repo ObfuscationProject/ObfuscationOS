@@ -7,6 +7,7 @@
  *   oksh-jobs session       report its process, group, session and terminal identity
  *   oksh-jobs hold SECONDS  report its group and the terminal's foreground group,
  *                           then exit after SECONDS (a target for ^C and ^Z)
+ *   oksh-jobs alive PID     report whether process PID still exists (kill with signal 0)
  *
  * Each report is one write so it cannot interleave with the shell's prompt. A
  * failed call is reported as -1.
@@ -117,6 +118,13 @@ int main(int argc, char **argv)
         report("hold", fields, (int)(sizeof(fields) / sizeof(fields[0])));
         if (pause_seconds(atoi(argv[2])) != 0) return 3;
         say("OKSH_JOBS held seconds=", atoi(argv[2]));
+        return 0;
+    }
+    if (argc == 3 && !strcmp(argv[1], "alive")) {
+        long pid = strtol(argv[2], 0, 10);
+        int alive = pid > 0 && (kill((pid_t)pid, 0) == 0 || errno == EPERM);
+        const struct field fields[] = {{"pid", pid}, {"alive", alive}};
+        report("alive", fields, (int)(sizeof(fields) / sizeof(fields[0])));
         return 0;
     }
     return 2;

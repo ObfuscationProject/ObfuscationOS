@@ -108,6 +108,46 @@ class GettyLoginRunnerTests(unittest.TestCase):
         with self.assertRaisesRegex(runner.Failure, r'\^C did not end the resumed job'):
             session.job_control(0)
 
+    def stopped_logout_answers(self, new_pts: int) -> list:
+        stopped = b'[1]+ Stopped oksh-jobs hold 600\n'
+        pid1 = b'NATIVE_PID1 scope=hardware profile=dependency-graph-v1 event=%s service=console pid=%d ' \
+               b'generation=%d time_ms=1 next_ms=0 errno=0 status=0\r\n'
+        return [
+            pts(b'oksh-jobs hold 600\nOKSH_JOBS hold pid=73 pgrp=73 tty_pgrp=73 seconds=600\n'),
+            b'^Z' + pts(stopped) + b'oksh> ',
+            pts(b'jobs\n' + stopped) + b'oksh> ',
+            pts(b'exit\noksh: there are stopped jobs\n') + b'oksh> ',
+            pts(b'exit\n') + b'GETTY event=close pts=0 pid=60 status=256 reason=exit\r\n'
+            + pid1 % (b'reap', 58, 1) + pid1 % (b'launch', 74, 2)
+            + b'GETTY event=open pts=%d pid=75\r\n' % new_pts,
+        ]
+
+    def test_stopped_job_logout_reuses_the_released_pts(self):
+        session = self.session(self.stopped_logout_answers(0))
+        self.assertEqual(session.logout(0, 60, 0, stopped_job=True)[:2], (0, 75))
+        self.assertEqual(session.hung_up, 73)
+
+    def test_stopped_job_logout_refuses_a_session_on_another_pts(self):
+        # The old pair is gone from /dev/pts once getty closes the master,
+        # so only the new index shows a slave still held open.
+        session = self.session(self.stopped_logout_answers(1))
+        with self.assertRaisesRegex(runner.Failure, r'got pts 1, not the released pts 0'):
+            session.logout(0, 60, 0, stopped_job=True)
+
+    def alive_answers(self, shell: int, job: int) -> list:
+        return [pts(b'oksh-jobs alive %d\nOKSH_JOBS alive pid=%d alive=%d\n' % (pid, pid, alive)) + b'oksh> '
+                for pid, alive in ((74, shell), (73, job))]
+
+    def test_hung_up_job_must_be_gone_in_the_next_session(self):
+        session = self.session(self.alive_answers(1, 0))
+        session.gone(73, 74, 0)
+        self.assertEqual((session.steps[-1]['step'], session.steps[-1]['job']), ('stopped-job-gone', 73))
+        with self.assertRaisesRegex(runner.Failure, r'job 73 stopped at logout survived'):
+            self.session(self.alive_answers(1, 1)).gone(73, 74, 0)
+
+    def test_alive_probe_must_see_the_session_shell(self):
+        with self.assertRaisesRegex(runner.Failure, r'does not see the session'):
+            self.session(self.alive_answers(0, 0)).gone(73, 74, 0)
 
 if __name__ == '__main__':
     unittest.main()

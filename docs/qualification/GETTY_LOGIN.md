@@ -337,14 +337,24 @@ booted. The first boot checks, in order:
    it in the foreground (no prompt for 2 s) and `^C` ends it, again with the
    branch's output after the echoed `^C`;
 6. a job stopped with `^Z` at logout: `exit` warns, the second `exit` ends
-   the session; getty reports `GETTY event=close ... status=256
-   reason=hangup` (`exit` returns the warning's status 1), PID1 reaps getty
-   with status 0 and relaunches the console service under the next generation,
-   and the next session's `ls /dev/pts` shows that the old pair was released;
+   the session; getty reports `GETTY event=close ... status=256` (`exit`
+   returns the warning's status 1), PID1 reaps getty with status 0 and
+   relaunches the console service under the next generation, the next
+   session gets the same pts index, and in that session `oksh-jobs alive`
+   (`kill(pid, 0)`) finds its own shell but no longer the stopped job;
 7. a wrong password is refused (`Login incorrect.`), the right one logs in,
    steps 2-3 again and logout;
 8. `:useradd` of `alice`, logout, a login as `alice` (`uid1000` in
    `/home/alice`) with steps 2-3, logout.
+
+Every logout must give the next session the same pts index. The kernel hands
+out the lowest free pair and the lane runs one session at a time, so the same
+index shows that both ends of the old pair were closed; `ls /dev/pts` cannot
+show it, because `/dev/pts/N` disappears at the master's last close even while
+a slave stays open. The close event's `reason` is recorded, not checked:
+`hangup` when the slave's last close reaches getty before it reaps the shell,
+`exit` otherwise; a job that kept the slave open would also give `exit`, and
+the pts index and the pid check catch that case.
 
 The second boot of the same disk logs the administrator in, runs steps 2-3
 and logs out. Every typed password is absent from the serial log and the
