@@ -53,19 +53,25 @@ with `/bin/socketcall-probe` added to its rescue root.
   calls instead.
 - **Run**: `scripts/test_net_socketcall.py` waits for the kernel link probe to
   pass, then types the program's path at the shell. The program:
-  - creates a nonblocking TCP socket and connects it, unbound, to the peer's
-    echo service;
-  - checks `SO_ERROR`, `SO_TYPE` and both names;
+  - creates a nonblocking TCP socket, sets `SO_REUSEADDR`, `TCP_NODELAY` and
+    `SO_SNDBUF` and reads them back with `SO_PROTOCOL`, `SO_DOMAIN` and
+    `SO_ACCEPTCONN`; an unknown name and a set of `SO_TYPE` are ENOPROTOOPT;
+  - connects it, unbound, to the peer's closed port 9: `SO_ERROR` reports
+    ECONNREFUSED, the next connect ECONNABORTED (kernel module ABI 83);
+  - connects the same socket to the peer's echo service, checks `SO_ERROR`,
+    that a later connect returns 0 and then EISCONN, `SO_TYPE` and both names;
   - echoes bytes with send/recv and sendto/recvfrom, then shuts down the write
     side;
-  - checks `SO_TYPE` and `SO_ERROR` on a UDP socket.
+  - checks `SO_TYPE`, `SO_ERROR`, `SO_PROTOCOL` and an unknown option on a
+    UDP socket.
 
   The run passes when the program prints
-  `OK_NET_SOCKETCALL ... result=pass tcp=pass udp=pass`.
+  `OK_NET_SOCKETCALL ... result=pass tcp=pass reconnect=pass options=pass udp=pass`.
 - **ppc**: the run uses the native e500v2 single-CPU QEMU profile, because
   the PPC kernel admits native userland only there. The plain net_probe run
   does not use that profile, so its PPC image reports
   `OK_NATIVE startup=private PPC ELF profile is not admitted`. The kernel link
   probe does not need userland and still passes.
 - **Peer**: the scripted peer's echo service accepts a second client once the
-  previous one has sent its FIN and acknowledged every echoed byte.
+  previous one has sent its FIN and acknowledged every echoed byte. A SYN to
+  its closed port 9 is answered with RST|ACK.

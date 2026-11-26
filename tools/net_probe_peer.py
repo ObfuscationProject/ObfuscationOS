@@ -19,6 +19,8 @@ ECHO4 = ipaddress.IPv4Address("192.0.2.100").packed
 PREFIX6 = ipaddress.IPv6Address("2001:db8:1::").packed
 ALL_NODES = ipaddress.IPv6Address("ff02::1").packed
 ECHO_PORT = 7
+# A closed port: a SYN to it is refused with RST|ACK (RFC 9293 section 3.10.7.1).
+REFUSED_PORT = 9
 
 
 def link_local(mac: bytes) -> bytes:
@@ -65,6 +67,13 @@ def icmp6(source: bytes, destination: bytes, body: bytes, hop_limit: int = 64) -
     return ipv6(source, destination, 58, body[:2] + struct.pack("!H", value) + body[4:], hop_limit)
 
 
+def refusal(guest_ip: bytes, guest_port: int, sequence: int) -> bytes:
+    """RST|ACK for a SYN to the closed port: SEQ 0, ACK the SYN."""
+    body = struct.pack("!HHIIBBHHH", REFUSED_PORT, guest_port, 0, (sequence + 1) & 0xFFFFFFFF, 5 << 4, 0x14, 0, 0, 0)
+    value = transport_checksum4(ECHO4, guest_ip, 6, body)
+    return body[:16] + struct.pack("!H", value) + body[18:]
+
+
 class TcpEcho:
     """One passive TCP connection that echoes every byte back.
 
@@ -104,6 +113,8 @@ class TcpEcho:
         if len(segment) < 20 or transport_checksum4(source, ECHO4, 6, segment):
             return []
         sport, dport, sequence, ack, offset_byte, flags, window = struct.unpack("!HHIIBBH", segment[:16])
+        if dport == REFUSED_PORT and flags & 0x02 and not flags & 0x04:
+            return [refusal(source, sport, sequence)]
         if dport != ECHO_PORT:
             return []
         header = (offset_byte >> 4) * 4
