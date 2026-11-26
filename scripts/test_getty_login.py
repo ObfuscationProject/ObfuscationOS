@@ -15,9 +15,9 @@ pts: the shell is the session leader with the pts as its controlling
 terminal; a foreground job runs in its own group, which owns the terminal; a
 background job runs in its own group without it and is reported Done; ^C
 kills a foreground job; ^Z stops one (`[1]+ Stopped`), `jobs` lists it,
-`exit` warns, `fg` resumes it in the foreground and ^C ends it; a job stopped
-with ^Z at logout is hung up by the second `exit`: the next shell finds its
-pid gone. Each logout is followed by getty's close event, PID1's restart of
+`exit` warns, `fg` resumes it in the foreground and ^C ends it; at logout a
+job stopped with ^Z and a running background job are both hung up by the
+second `exit`: the next shell finds their pids gone. Each logout is followed by getty's close event, PID1's restart of
 the console service and a new session on the same pts index (the kernel hands
 out the lowest free pair, so that shows the old pair was freed); a wrong
 password is refused before the right one logs in, and every session's pts
@@ -191,8 +191,9 @@ class Session:
         self.guest, self.steps = guest, steps
         self.enroll_timeout, self.login_timeout = enroll_timeout, login_timeout
         self.reasons: list[str] = []
-        # The job left stopped at the last logout, which that logout hangs up.
-        self.hung_up: int | None = None
+        # The jobs left stopped and running at the last logout, which that
+        # logout hangs up.
+        self.hung_up: tuple[int, int] | None = None
 
     def step(self, name: str, **facts) -> None:
         facts.update(step=name, serial_offset=len(self.guest.data),
@@ -350,7 +351,9 @@ class Session:
 
     def logout(self, pts: int, pid: int, start: int, stopped_job: bool = False) -> tuple[int, int, int]:
         if stopped_job:
-            self.hung_up, start = self.suspend(start)
+            stopped, start = self.suspend(start)
+            running, start = self.background(start)
+            self.hung_up = stopped, running
             start = self.stopped_exit(start)
         self.guest.receive(PROMPT, start)
         sent = self.guest.send(b"exit")
@@ -381,6 +384,14 @@ class Session:
         self.step("getty-restart", pts=new_pts, pid=new_pid)
         return new_pts, new_pid, end
 
+    def background(self, start: int) -> tuple[int, int]:
+        """Starts a long background job beside the stopped job 1; returns its pid."""
+        output, start = self.command(b"oksh-jobs sleep %d &" % HOLD, start)
+        launched = re.fullmatch(rb"\[2\] ([0-9]+)\n", output)
+        if not launched:
+            raise Failure(f"the background job was not launched as job 2: {output!r}")
+        return int(launched[1]), start
+
     def alive(self, pid: int, start: int) -> tuple[int, int]:
         output, start = self.command(b"oksh-jobs alive %d" % pid, start)
         report = REPORT.search(output)
@@ -388,15 +399,16 @@ class Session:
             raise Failure(f"no alive report for pid {pid}: {output!r}")
         return fields(report)["alive"], start
 
-    def gone(self, pid: int, leader: int, start: int) -> int:
-        """The job stopped at the last logout no longer exists; the shell does."""
+    def gone(self, jobs: tuple[int, int], leader: int, start: int) -> int:
+        """The jobs left stopped and running at the last logout no longer exist; the shell does."""
         alive, start = self.alive(leader, start)
         if alive != 1:
             raise Failure(f"the probe does not see the session's shell {leader}")
-        alive, start = self.alive(pid, start)
-        if alive != 0:
-            raise Failure(f"the job {pid} stopped at logout survived it")
-        self.step("stopped-job-gone", job=pid, leader=leader)
+        for pid, state in zip(jobs, ("stopped", "running")):
+            alive, start = self.alive(pid, start)
+            if alive != 0:
+                raise Failure(f"the job {pid} {state} at logout survived it")
+        self.step("logout-jobs-gone", stopped_job=jobs[0], running_job=jobs[1], leader=leader)
         return start
 
     def login(self, start: int, wrong_first: bool, name: bytes = NAME, password: bytes = PASSWORD) -> int:

@@ -100,7 +100,11 @@ only through `waitpid`.
 - The first `exit` or end of input with stopped jobs prints `oksh: there are
   stopped jobs` and does not exit; a second request on the next input line
   exits. On exit the shell sends SIGHUP and then SIGCONT to each stopped job,
-  like the kernel's orphaned-group rule; running background jobs keep running.
+  like the kernel's orphaned-group rule. A shell that leads the session of its
+  terminal, as the login shell on a pts does, sends them to its running jobs
+  too, like a ksh login shell, so that no job it started keeps the pts pair
+  open after logout (`docs/native-init.md`); other shells leave running
+  background jobs running.
 
 When none of descriptors 0..2 is the controlling terminal (the maintenance
 console when it is not the shell's controlling terminal, redirected or piped

@@ -418,8 +418,9 @@ figures.
 
 What the lane does not show: physical hardware, SMP, release builds (debug
 only), a second concurrent session, `bg` on a pts (the maintenance runner
-covers `bg`), and getty's lock-out when background jobs left at logout hold
-all eight pts pairs (`docs/native-init.md`); that stays a documented limit.
+covers `bg`), and getty's lock-out once processes that outlive their session
+hold all eight pts pairs (`docs/native-init.md`); that stays a documented
+limit, narrowed by the final review below.
 
 ### Console login by default
 

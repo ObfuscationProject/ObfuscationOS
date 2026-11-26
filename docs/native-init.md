@@ -34,8 +34,9 @@ needs a journalled ext4 root: enrollment and password changes are published
 with the kernel's persistent sync, which only an ordered-data journalled mount
 provides.
 
-Console login is on by default for the product image. `native_console_login`
-chooses where it runs:
+Console login is on by default for the product image (see the pts pair limit
+under "getty, login and the pts" below for the availability risk this
+carries). `native_console_login` chooses where it runs:
 
 | Value | Login runs on | Everything else |
 |---|---|---|
@@ -98,14 +99,26 @@ first; a logout can report either.
 
 The hangup reaches only the session leader and, when the leader exits, the
 foreground group. As on Linux, a process that keeps running in another group
-(for example a job that oksh ran with `&`) is not signalled and keeps its
-descriptors on the old slave, and the kernel frees a pts pair only when both of
-its sides are closed. The kernel has 8 pairs (`OK_PTS_CAPACITY`) rather than
-Linux's thousands, so a few such processes left behind at logout can use them
-all up. getty then reports `GETTY event=error stage=open errno=11` (`EAGAIN`) and
-exits 1, and PID1 restarts it after its back-off until a pair is free again.
-getty does not kill processes outside the session it started; nobody can log in
-on the console until those processes exit. Hosted tests in
+of the session is not signalled by the kernel and keeps its descriptors on the
+old slave, and the kernel frees a pts pair only when both of its sides are
+closed. The kernel has 8 pairs (`OK_PTS_CAPACITY`) rather than Linux's
+thousands. The login shell therefore hangs up its own jobs when it exits:
+oksh, as the leader of the pts session, sends SIGHUP and SIGCONT to every job
+still in its table, running or stopped, like a ksh login shell
+(`apps/oksh/README.md`). That covers jobs left with `&` at logout, and the
+login lane checks that a running one is gone and its pair reused. It does not
+cover processes the shell no longer tracks, such as a background job of a
+nested `oksh -c`, or a process that ignores SIGHUP: any account, ordinary
+users included, can keep such processes and their pairs past logout, and
+each `/dev/ptmx` such a process opens (mode 0666) holds one more pair. Once all
+8 are held getty reports `GETTY event=error stage=open errno=11` (`EAGAIN`) and
+exits 1, and PID1 restarts it after its back-off until a pair is free again;
+nobody, root included, can log in on the console until those processes exit,
+and there is no other login path, so in practice that means a reboot. getty
+does not signal the rest of the session (the kernel offers no way to name its
+members), so with console login on by default this remains a denial-of-service
+risk on the product image; closing it needs the kernel to hang up the whole
+session or to provide more pairs. Hosted tests in
 `tests/tools/test_native_getty.py`, `test_native_login_main.py` and
 `test_native_login_input.py` model these paths over substituted system calls;
 `scripts/test_getty_login.py` drives the real guest over serial

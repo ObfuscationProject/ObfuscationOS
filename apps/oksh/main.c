@@ -559,15 +559,21 @@ static void jobs_notify(void)
 }
 
 /* Stopped jobs get the hangup a terminal would send to an orphaned stopped
- * group; running background jobs keep running after the shell exits. Only
- * the interactive shell tracks stops, so `oksh -c` leaves its jobs alone. */
+ * group. A shell that leads the session of its terminal, as the login shell
+ * on a pts does, hangs up its running jobs too, like a ksh login shell: they
+ * would keep the pts pair open after logout, and the kernel has only a few
+ * pairs for getty. Other shells leave running jobs alone. Only the
+ * interactive shell tracks stops, so `oksh -c` leaves its jobs alone. */
 static void jobs_hang_up(void)
 {
     if (!shell_jobs.interactive || shell_jobs.subshell) return;
+    const int leader = shell_console.fd >= 0 && shell_console.sid == getpid();
     jobs_update();
     for (int i = 0; i < JOB_CAPACITY; ++i) {
         struct job *job = &shell_jobs.table[i];
-        if (!job_used(job) || job_state(job) != JOB_STOPPED) continue;
+        if (!job_used(job)) continue;
+        int state = job_state(job);
+        if (state == JOB_DONE || (state == JOB_RUNNING && !leader)) continue;
         (void)job_signal(job, SIGHUP);
         (void)job_signal(job, SIGCONT);
     }

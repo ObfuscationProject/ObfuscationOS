@@ -9,6 +9,7 @@ import select
 import signal
 import subprocess
 import tempfile
+import threading
 import time
 import unittest
 
@@ -18,11 +19,12 @@ ROOT = Path(__file__).resolve().parents[2]
 class Session:
     """Drive the interactive shell one line at a time; stderr joins stdout."""
 
-    def __init__(self, case, *, mask, env=None):
+    def __init__(self, case, *, mask, env=None, leader=False):
         self.events = case.work / 'terminal-events'
+        # leader: the shell leads its session, as the login shell on a pts does.
         self.process = subprocess.Popen(
             [str(case.shell)], stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-            cwd=case.work, env={**os.environ, 'OKSH_CONSOLE_MASK': mask, 'OKSH_CONSOLE_EVENTS': str(self.events),
+            start_new_session=leader, cwd=case.work, env={**os.environ, 'OKSH_CONSOLE_MASK': mask, 'OKSH_CONSOLE_EVENTS': str(self.events),
                                 'OKSH_REAP_LEFTOVERS': '1', **(env or {})})
         case.addCleanup(self.close)
         self.output = bytearray()
@@ -518,6 +520,30 @@ class JobControlTests(HostedShell):
         # The second request exits and hangs up the stopped job (HUP, then CONT).
         self.assertEqual([row[1:] for row in session.rows('LEFTOVER')], [[pid, str(signal.SIGHUP)]])
         self.assertEqual(rows_of(self.work / 'log', 'CONT'), [])
+
+    def test_a_session_leading_shell_hangs_up_running_jobs_at_exit(self):
+        # A running job left by the login shell would keep its pts pair open
+        # after logout; a shell that does not lead its session leaves it alone.
+        for leader in (True, False):
+            with self.subTest(leader=leader):
+                (self.work / 'terminal-events').unlink(missing_ok=True)
+                (self.work / 'go').unlink(missing_ok=True)
+                session = Session(self, mask='1', leader=leader)
+                self.assertEqual(session.rows('SHELL')[0][1] == session.rows('SHELL')[0][2], leader)
+                running, stopped = self.command('wait-file', 'go'), self.command('stop', 'log', '5')
+                pid, pending = self.launch(session, running + ' &')
+                self.assertEqual(pending, b'')
+                self.assertEqual(session.send(stopped), f'[2]+ Stopped {stopped}\n'.encode())
+                stopped_pid = rows_of(self.work / 'log', 'STOP')[-1][1]
+                if not leader:
+                    # The job outlives the shell until the file appears.
+                    threading.Timer(1, (self.work / 'go').touch).start()
+                rest, status = session.finish(b'exit\nexit\n')
+                self.assertEqual(rest, b'oksh: there are stopped jobs\noksh> ')
+                self.assertEqual(status, 1)
+                leftovers = {row[1]: row[2] for row in session.rows('LEFTOVER')}
+                self.assertEqual(leftovers, {pid: str(signal.SIGHUP) if leader else '0',
+                                             stopped_pid: str(signal.SIGHUP)})
 
     def test_end_of_input_with_stopped_jobs_warns_once(self):
         session = Session(self, mask='1')
