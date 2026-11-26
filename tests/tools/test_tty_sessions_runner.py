@@ -52,9 +52,14 @@ class TtySessionsRunnerTests(unittest.TestCase):
                 runner.refuse_configuration({name})
 
     def test_console_login_is_refused(self):
-        with self.assertRaisesRegex(ValueError, 'native_console_login'):
+        with self.assertRaisesRegex(ValueError, 'native_console_login=y'):
             runner.refuse_configuration(runner.enabled_options(
                 (CONFIG % 'false').replace('native_console_login = false', 'native_console_login = true')))
+
+    def test_default_console_login_is_accepted(self):
+        # Unset (auto) is not saved: only the journalled image runs login.
+        runner.refuse_configuration(runner.enabled_options(
+            (CONFIG % 'false').replace('    native_console_login = false,\n', '')))
 
     def test_staged_console_must_be_the_maintenance_shell(self):
         root = Path(__file__).resolve().parents[2]

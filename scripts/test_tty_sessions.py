@@ -67,8 +67,8 @@ def enabled_options(config: str) -> set[str]:
 def refuse_configuration(enabled: set[str]) -> None:
     """The probe is typed at the maintenance shell, so nothing may run before it."""
     if "native_console_login" in enabled:
-        raise ValueError("native_console_login makes /bin/login the console service; the probe needs the "
-                         "maintenance oksh console (reconfigure with --native_console_login=n)")
+        raise ValueError("native_console_login=y makes getty the console service of every tree; the probe needs "
+                         "the maintenance oksh console (leave the option unset for auto, or n)")
     acceptance = sorted(enabled.intersection(ACCEPTANCE_OPTIONS))
     if acceptance:
         raise ValueError("native startup acceptance runs before the maintenance shell; reconfigure without "
