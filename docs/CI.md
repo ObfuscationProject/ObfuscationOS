@@ -44,6 +44,12 @@ job-control probe on its own `/dev/ptmx` pairs
 without the startup acceptance that `--require-native` left on, so the image
 it boots reaches the maintenance shell directly and does not repeat the
 acceptance boot.
+CI leaves `native_console_login` unset (auto): only the journalled product
+image runs getty and login, and CI builds no journalled image, so every image
+it boots keeps the maintenance console. The login lane, `xmake
+getty-login-test`, is not part of CI because it needs the pinned Linux
+journal-activation image, which hosted runners do not have; it runs locally
+([GETTY_LOGIN](qualification/GETTY_LOGIN.md)).
 `distro-test` still builds ext4 images on MIPS/MIPS64/PPC but explicitly skips
 their native ext4 boot check until those platforms have a block transport.
 Broader packaging checks remain available through `xmake distro-test`. The model
