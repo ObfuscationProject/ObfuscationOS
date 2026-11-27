@@ -51,6 +51,7 @@ pid_t getpgrp(void);
 pid_t tcgetpgrp(int fd);
 int tcsetpgrp(int fd, pid_t group);
 pid_t tcgetsid(int fd);
+int isatty(int fd);
 uid_t getuid(void);
 uid_t geteuid(void);
 gid_t getgid(void);

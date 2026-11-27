@@ -155,6 +155,17 @@ class RootfsProfileTests(unittest.TestCase):
         self.assertIn('stage_rootfs(batchcmds, "release", "rootfs-release")', targets)
         simplefs = targets[targets.index('target("rootfs-simplefs")'):targets.index('target("boot-archive")')]
         self.assertIn('add_deps("rootfs-rescue-stage")', simplefs)
+        # Only the journalled product image packs the login tree; with
+        # native_console_login unset (auto) every other tree keeps the
+        # maintenance console, and only y puts login on all of them.
+        self.assertIn('stage_rootfs(batchcmds, "full", "rootfs-login", true)', targets)
+        self.assertIn('if login or login_everywhere then table.insert(args, "--console-login") end', targets)
+        self.assertIn('local login_everywhere = get_config("native_console_login") == true', targets)
+        journalled = targets[targets.index('target("rootfs-ext4-journalled")'):]
+        journalled = journalled[:journalled.index('target_end()')]
+        self.assertIn('add_deps(login_product and "rootfs-login-stage" or "rootfs-stage")', journalled)
+        self.assertIn('path.join(build, login_product and "rootfs-login" or "rootfs")', journalled)
+        self.assertEqual(targets.count('"rootfs-login"'), 2)
 
 
 if __name__ == "__main__":

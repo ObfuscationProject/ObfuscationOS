@@ -1,8 +1,9 @@
 # Bounded native persistent logging
 
-This OS-only slice supplies `/bin/logd` and `/bin/logger`. The explicit
-`native_console_login=y` profile starts logd as an independent UID/GID 0 notify
-service. Maintenance does not start it. Console login, recovery and HALT do not
+This OS-only slice supplies `/bin/logd` and `/bin/logger`. The console login
+profile (the journalled product image by default, every image with
+`native_console_login=y`; `docs/native-init.md`) starts logd as an independent
+UID/GID 0 notify service. Maintenance does not start it. Console login, recovery and HALT do not
 depend on a logging reply. The system name is ObfuscationOS. This does not
 complete M7 or the deferred M11 physical and M12 manual desktop acceptance.
 

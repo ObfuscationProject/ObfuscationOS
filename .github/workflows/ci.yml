@@ -68,7 +68,7 @@ jobs:
       - name: Install host dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y build-essential e2fsprogs qemu-system-x86 \
+          sudo apt-get install -y build-essential gcc-multilib e2fsprogs qemu-system-x86 \
             libglib2.0-0t64 libpixman-1-0 libsdl2-2.0-0
       - name: Configure distro using artifacts
         run: xmake f -y -m debug -a ${{ matrix.arch }} --kernel_sdk=kernel-sdk
@@ -91,6 +91,11 @@ jobs:
         # posix-check's quota, fork-copy and bulk-mapping probes push the
         # emulated x86_64 boot past 30 s on hosted runners.
         run: xmake qemu-distro --fs=simplefs --require-native --timeout=90
+      - name: Verify terminals, sessions and job control in QEMU
+        # Native probe on its own /dev/ptmx pairs from the maintenance shell
+        # of an ext4 root; about 40 s locally per profile, two runs per boot.
+        # The task drops the startup acceptance the previous step configured.
+        run: xmake tty-sessions-test --timeout=240
       - name: Verify ext4 persistence across boots
         if: matrix.arch == 'x86_64'
         run: |

@@ -12,6 +12,7 @@
 #define O_RDWR OK_O_RDWR
 #define O_CREAT OK_O_CREAT
 #define O_EXCL OK_O_EXCL
+#define O_NOCTTY OK_O_NOCTTY
 #define O_TRUNC OK_O_TRUNC
 #define O_APPEND OK_O_APPEND
 #define O_NONBLOCK OK_O_NONBLOCK

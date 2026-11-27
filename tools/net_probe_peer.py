@@ -110,7 +110,10 @@ class TcpEcho:
         payload = segment[header:]
         out: list[bytes] = []
         if flags & 0x02:  # SYN
-            if self.state in ("listen", "closed"):
+            # A new client may connect once the previous one sent its FIN and
+            # every echoed byte was acknowledged (the echo never closes itself).
+            finished = self.fin_received and not self.pending and self.peer != (source, sport)
+            if self.state in ("listen", "closed") or finished:
                 self.reset()
                 self.peer = (source, sport)
                 self.rcv_nxt = (sequence + 1) & 0xFFFFFFFF

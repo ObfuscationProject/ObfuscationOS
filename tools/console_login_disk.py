@@ -11,8 +11,8 @@ import stat
 import subprocess
 import tempfile
 
-PROFILE = 'ordinary-native-console-login-logging-time-mount-resolver-v1'
-SERVICES = (b'OK_SERVICE_MANIFEST 2\nservice console simple /bin/login - 0 0\n'
+PROFILE = 'ordinary-native-console-getty-login-logging-time-mount-resolver-v1'
+SERVICES = (b'OK_SERVICE_MANIFEST 2\nservice console simple /bin/getty - 0 0\n'
             b'service logd notify /bin/logd - 0 0\n'
             b'service timed notify /bin/timed - 0 0\n'
             b'service resolved notify /bin/resolved - 0 0\n')
@@ -20,7 +20,7 @@ HOSTS_LIMIT = 4096
 HOSTS_SEED = b'127.0.0.1 localhost\n'
 # Exact lg_base(0) bytes: fresh images allocate the first data block offline.
 CHECKPOINT0 = b'OKLB1 0000000000000000 #077a2810\n'
-PRODUCTS = ('/init', '/bin/login', '/bin/oksh', '/bin/logd', '/bin/logger',
+PRODUCTS = ('/init', '/bin/getty', '/bin/login', '/bin/oksh', '/bin/logd', '/bin/logger',
             '/bin/timed', '/bin/timectl', '/bin/mountctl', '/bin/resolved', '/bin/resolvectl',
             '/etc/services.conf')
 
@@ -133,7 +133,8 @@ def admit(image, root, debugfs):
                 ('/bin', 'directory', 0o755, False), ('/var', 'directory', 0o755, False),
                 ('/var/log', 'directory', 0o700, False),
                 ('/root', 'directory', 0o700, False), ('/etc/accounts.db', 'regular', 0o600, True),
-                ('/init', 'regular', 0o755, True), ('/bin/login', 'regular', 0o755, True),
+                ('/init', 'regular', 0o755, True), ('/bin/getty', 'regular', 0o755, True),
+                ('/bin/login', 'regular', 0o755, True),
                 ('/bin/oksh', 'regular', 0o755, True), ('/bin/logd', 'regular', 0o755, True),
                 ('/bin/logger', 'regular', 0o755, True), ('/bin/timed', 'regular', 0o755, True),
                 ('/bin/timectl', 'regular', 0o755, True), ('/bin/mountctl', 'regular', 0o755, True),

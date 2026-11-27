@@ -39,7 +39,7 @@ class LoggingImplementationTests(unittest.TestCase):
 class LoggingPackagingTests(unittest.TestCase):
     def fixture(self, work):
         apps = work / 'apps'; apps.mkdir()
-        for name in (*stage.APPS, 'login'):
+        for name in (*stage.APPS, 'init-login', 'getty', 'login'):
             (apps / (name + '.elf')).write_bytes(b'Hosted fixture ' + name.encode())
         root = work / 'root'
         subprocess.run([sys.executable, str(ROOT / 'tools/stage_rootfs.py'),
@@ -51,7 +51,7 @@ class LoggingPackagingTests(unittest.TestCase):
         self.assertEqual((root / 'bin/logger').read_bytes(), (apps / 'logger.elf').read_bytes())
         manifest = (root / 'etc/services.conf').read_text()
         self.assertIn('service logd notify /bin/logd - 0 0\n', manifest)
-        self.assertIn('service console simple /bin/login - 0 0\n', manifest)
+        self.assertIn('service console simple /bin/getty - 0 0\n', manifest)
         # Deliberately hostile host modes must not determine guest permissions.
         (root / 'var/log').chmod(0o2777)
         for name in ('system.log', 'system.prev'):
