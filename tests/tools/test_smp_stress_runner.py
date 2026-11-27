@@ -102,6 +102,50 @@ class SmpStressRunnerTests(unittest.TestCase):
                 with self.assertRaises(RuntimeError):
                     runner.hotplug_boot(bad)
 
+    def test_user_hotplug_accepts_only_reported_online_timing_failures(self):
+        result_line = (b'SMP_STRESS_PASS arch=x86_64 workers=6 rounds=40 hotplug_cycles=10 pinned=1 racing=2 '
+                       b'killed=3 killed_filed=1 refusals=5\r\n')
+        counts = dict(hotplug_cycles='10', pinned='1', racing='2', killed='3', killed_filed='1', refusals='5')
+
+        def run(before, failures, wedged=0):
+            report = (b'OK_SMP_HOTPLUG_USER scope=hardware requests=30 offline=10 online=10 noop=4 '
+                      b'failures=%d busy=0 orphaned=0 wedged=%d affinity_broken=1 max_us=11440099\r\n'
+                      b'OK_SMP_HOTPLUG_RECORDS scope=hardware abandoned=0 dropped_waiting=0 dropped_done=0\r\n'
+                      % (failures, wedged))
+            serial = (b'SMP_STRESS_PINNED pid=40 cpu=1\r\nOK_SMP_AFFINITY_BROKEN pid=40 tid=40 cpu=1\r\n' +
+                      before + result_line + report)
+            match = runner.RESULT.search(serial)
+            return runner.user_hotplug(serial, match, counts, 2)
+
+        def fail(number, reason=b'tsc-loose', want=b'1', errno=b'5', cpu=b'1'):
+            return (b'OK_SMP_HOTPLUG_FAIL scope=hardware failure=%d cpu=%s want=%s errno=%s reason=%s us=11440099\r\n'
+                    % (number, cpu, want, errno, reason))
+
+        eio = b'SMP_STRESS_ONLINE_EIO cpu=1 site=racer\r\n'
+        self.assertEqual(run(b'', 0)['failures'], [])
+        accepted = run(fail(1) + eio + fail(2, b'start-timeout') + eio.replace(b'racer', b'plain'), 2)
+        self.assertEqual([failure['reason'] for failure in accepted['failures']], ['tsc-loose', 'start-timeout'])
+        self.assertEqual(accepted['online_eio'], [(1, 'racer'), (1, 'plain')])
+        # A writer killed in its wait may leave a failure unannounced.
+        self.assertEqual(len(run(fail(1), 1)['failures']), 1)
+        for before, failures in (
+                (fail(1, b'tsc-uncorrected') + eio, 1),  # not a timing reason
+                (fail(1, b'ipi-timeout') + eio, 1),
+                (fail(1, b'park-timeout', want=b'0') + eio, 1),  # a stop
+                (fail(1, errno=b'16') + eio, 1),
+                (fail(1, cpu=b'2') + eio, 1),  # no such secondary
+                (eio, 0),  # an EIO the kernel did not report
+                (fail(1) + eio + eio, 1),  # more EIO than failures
+                (fail(2) + eio, 2),  # failure 1 lost
+                (fail(1) + eio, 2),  # a counted failure without its line
+                (fail(1) + eio + fail(1) + eio, 2),  # reported twice
+                (fail(1) + eio, 0)):
+            with self.subTest(before=before, failures=failures):
+                with self.assertRaisesRegex(RuntimeError, 'user hotplug requirements failed'):
+                    run(before, failures)
+        with self.assertRaisesRegex(RuntimeError, 'wedged=1'):
+            run(b'', 0, wedged=1)
+
     def test_result_line_must_be_complete(self):
         self.assertIsNone(runner.RESULT.search(b'SMP_STRESS_PASS arch=x86_64 workers=6'))
         match = runner.RESULT.search(b'SMP_STRESS_PASS arch=rv64 workers=6 rounds=40\r\n')

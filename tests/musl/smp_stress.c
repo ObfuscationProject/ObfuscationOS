@@ -35,7 +35,8 @@
  * pipe all workers share and exits 0 only if every check held. The parent reaps and checks
  * every worker and prints exactly one line (`smp-stress W R hotplug` also runs
  * the user CPU hotplug controller described above controller() and adds its
- * counts; its pinned children are announced by SMP_STRESS_PINNED lines):
+ * counts; its pinned children are announced by SMP_STRESS_PINNED lines and
+ * online writes that failed with EIO by SMP_STRESS_ONLINE_EIO lines):
  *
  *   SMP_STRESS_PASS arch=<arch> workers=W rounds=R files=<n> messages=<n> forks=<n> seconds=<s>
  *                   metadata=<n> pipes=<n> ptys=<n> udp=<n> udp_nolink=<n>
@@ -727,7 +728,8 @@ static __attribute__((noreturn)) void worker(const char *self, const char *base,
  *   running elsewhere with its affinity reset (the kernel names it in an
  *   OK_SMP_AFFINITY_BROKEN line; the controller prints SMP_STRESS_PINNED);
  * - racing: two children write the same value to cpuN/online at once; each
- *   write succeeds or is EBUSY, never anything else, and one succeeds;
+ *   write succeeds or is EBUSY (or, writing "1", EIO as below), never
+ *   anything else, and one succeeds or failed with EIO;
  * - killed: children writing "0" get SIGKILL (kill_writer), possibly while
  *   they wait in the uninterruptible hotplug wait, until one died after its
  *   request was filed; with three or more CPUs also writers of "0" and of
@@ -741,6 +743,15 @@ static __attribute__((noreturn)) void worker(const char *self, const char *base,
  * writev() (digit and newline in two vectors) and pwrite(), each of which
  * waits for the service; the controller stops only after every one took a
  * CPU offline and back.
+ *
+ * Writing "1" may fail with EIO, as on Linux when a CPU does not come up:
+ * under host load an x86 restart's clock handshake can find no round tight
+ * enough, or the CPU misses its start timeout. The CPU then reads offline;
+ * the controller announces each such write (SMP_STRESS_ONLINE_EIO) and
+ * writes "1" again, at most ONLINE_RETRIES times in a row. Any other error,
+ * an EIO that left the CPU online and an EIO writing "0" fail the probe; the
+ * runner accepts each announced EIO only against a kernel OK_SMP_HOTPLUG_FAIL
+ * line that names a timing reason for that CPU.
  *
  * Before the first cycle it checks the refusals: cpu0/online is ENOENT
  * (O_WRONLY) and EACCES (O_CREAT), `online` opened for writing is EACCES,
@@ -840,6 +851,33 @@ static int cpu_state(unsigned cpu)
     return got == 2 && text[1] == '\n' && (text[0] == '0' || text[0] == '1') ? text[0] - '0' : -1;
 }
 
+/* Consecutive EIO online failures accepted at one site before the probe fails. */
+#define ONLINE_RETRIES 8
+
+/* An online write of `cpu` failed with EIO and left it offline. */
+static void say_online_eio(unsigned cpu, const char *site)
+{
+    struct line out = {{0}, 0};
+    put(&out, "SMP_STRESS_ONLINE_EIO cpu=");
+    put_number(&out, cpu);
+    put(&out, " site=");
+    put(&out, site);
+    emit(&out);
+}
+
+/* Writes "1" through `method` (set_cpu_via); an EIO that left the CPU
+   offline is announced and written again. Returns 0 or the last error. */
+static int online_via(unsigned cpu, unsigned method, const char *site)
+{
+    for (int failed = 0;; ++failed)
+    {
+        const int error = set_cpu_via(cpu, '1', method);
+        if (error != EIO || failed == ONLINE_RETRIES || cpu_state(cpu) != 0)
+            return error;
+        say_online_eio(cpu, site);
+    }
+}
+
 static long affinity(void)
 {
     cpu_set_t set;
@@ -866,7 +904,7 @@ static int pin(long mask)
 /* Bring `cpu` online again, retrying while a killed writer's request still runs. */
 static int restore_cpu(unsigned cpu)
 {
-    for (int attempt = 0; attempt < 400; ++attempt)
+    for (int attempt = 0, failed = 0; attempt < 400; ++attempt)
     {
         const int state = cpu_state(cpu);
         if (state == 1)
@@ -874,6 +912,12 @@ static int restore_cpu(unsigned cpu)
         const int error = state == 0 ? set_cpu(cpu, '1') : EBUSY;
         if (!error)
             return 0;
+        if (error == EIO && failed < ONLINE_RETRIES && cpu_state(cpu) == 0)
+        {
+            say_online_eio(cpu, "restore");
+            ++failed;
+            continue;
+        }
         if (error != EBUSY)
             return error;
         const struct timespec pause = {0, 10000000};
@@ -899,11 +943,11 @@ static void check_offline(unsigned cpu)
     }
 }
 
-/* Exit codes of a racing writer: 0 written, 1 EBUSY, 2 anything else. */
+/* Exit codes of a racing writer: 0 written, 1 EBUSY, 3 EIO, 2 anything else. */
 static __attribute__((noreturn)) void racer(unsigned cpu, char value)
 {
     const int error = set_cpu(cpu, value);
-    _exit(error == 0 ? 0 : error == EBUSY ? 1 : 2);
+    _exit(error == 0 ? 0 : error == EBUSY ? 1 : error == EIO ? 3 : 2);
 }
 
 /* A child pinned to `cpu` until its affinity breaks; exits 0 if it kept running. */
@@ -935,25 +979,90 @@ static __attribute__((noreturn)) void pinned_child(unsigned cpu, const char *fla
     _exit(now == online && here >= 0 && here != (int)cpu ? 0 : 6);
 }
 
-/* Runs /bin/chcpu OPTION CPU; its exit status, or -1. */
-static int chcpu(const char *option, unsigned cpu)
+/* Runs /bin/chcpu OPTION CPU; its exit status, or -1. Its standard error
+   goes to `errors` (NUL-terminated) when given, else to the console. */
+static int chcpu_into(const char *option, unsigned cpu, char *errors, size_t size)
 {
     char number[16];
     name_into(number, "", cpu, 0, 0);
+    int pipe_fds[2] = {-1, -1};
+    if (errors && pipe(pipe_fds))
+        return -1;
     const pid_t child = fork();
     if (child < 0)
+    {
+        if (errors)
+            close(pipe_fds[0]), close(pipe_fds[1]);
         return -1;
+    }
     if (child == 0)
     {
+        if (errors && (dup2(pipe_fds[1], 2) != 2 || close(pipe_fds[0]) || close(pipe_fds[1])))
+            _exit(126);
         char *const argv[] = {"/bin/chcpu", (char *)option, number, 0};
         char *const envp[] = {0};
         execve(argv[0], argv, envp);
         _exit(127);
     }
+    if (errors)
+    {
+        close(pipe_fds[1]);
+        size_t got = 0;
+        for (;;)
+        {
+            const ssize_t part = read(pipe_fds[0], errors + got, size - 1 - got);
+            if (part < 0 && errno == EINTR)
+                continue;
+            if (part <= 0)
+                break;
+            got += (size_t)part;
+            if (got == size - 1)
+                break;
+        }
+        errors[got] = 0;
+        close(pipe_fds[0]);
+    }
     int status = 0;
     if (reap(child, &status) != child || !WIFEXITED(status))
         return -1;
     return WEXITSTATUS(status);
+}
+
+static int chcpu(const char *option, unsigned cpu)
+{
+    return chcpu_into(option, cpu, 0, 0);
+}
+
+/* chcpu -e CPU; a failure whose only message is the EIO of a CPU that did
+   not come up (and left it offline) is announced and run again. */
+static int chcpu_enable(unsigned cpu)
+{
+    for (int failed = 0;; ++failed)
+    {
+        char errors[128], number[16];
+        const int status = chcpu_into("-e", cpu, errors, sizeof errors);
+        name_into(number, "", cpu, 0, 0);
+        struct line expected = {{0}, 0};
+        put(&expected, "chcpu: CPU ");
+        put(&expected, number);
+        put(&expected, " enable failed: I/O error\n");
+        expected.text[expected.size] = 0;
+        if (status != 1 || strcmp(errors, expected.text) || failed == ONLINE_RETRIES || cpu_state(cpu) != 0)
+        {
+            if (status && errors[0])
+            {
+                /* What chcpu said, for the console. */
+                struct line out = {{0}, 0};
+                put(&out, "SMP_STRESS_CHCPU ");
+                put(&out, errors);
+                if (out.size && out.text[out.size - 1] == '\n')
+                    --out.size;
+                emit(&out);
+            }
+            return status;
+        }
+        say_online_eio(cpu, "chcpu");
+    }
 }
 
 /* SIGKILL to a child writing "0" to cpuN/online, then N online again.
@@ -1042,7 +1151,7 @@ static int kill_waiting(unsigned cpu, char value, unsigned spins)
         const char text[2] = {value, '\n'};
         *announce = 1;
         const ssize_t wrote = write(fd, text, 2);
-        _exit(wrote == 2 ? 0 : wrote < 0 && errno == EBUSY ? 1 : 2);
+        _exit(wrote == 2 ? 0 : wrote < 0 && errno == EBUSY ? 1 : wrote < 0 && errno == EIO && value == '1' ? 3 : 2);
     }
     /* No system call until the kill: the writer runs on another CPU. */
     for (unsigned long wait = 0; !*announce && wait < 2000000000ul; ++wait)
@@ -1059,6 +1168,12 @@ static int kill_waiting(unsigned cpu, char value, unsigned spins)
         CHECK(WTERMSIG(status) == SIGKILL);
         ++result.forks;
         killed = 1;
+    }
+    else if (WIFEXITED(status) && WEXITSTATUS(status) == 3)
+    {
+        /* Its "1" failed with EIO before the kill: the CPU did not come up. */
+        CHECK(cpu_state(cpu) == 0);
+        say_online_eio(cpu, "waiting");
     }
     else
         CHECK(WIFEXITED(status) && WEXITSTATUS(status) <= 1);
@@ -1171,16 +1286,26 @@ static __attribute__((noreturn)) void controller(const char *base, const char *s
                         if (racers[i] == 0)
                             racer(cpu, value);
                     }
-                    int written = 0;
+                    int written = 0, failed = 0;
                     for (int i = 0; i < 2; ++i)
                     {
                         int status = 0;
                         CHECK(reap(racers[i], &status) == racers[i] && WIFEXITED(status));
                         errno = (int)WEXITSTATUS(status);
-                        CHECK(WEXITSTATUS(status) <= 1);
+                        CHECK(WEXITSTATUS(status) <= 1 || (value == '1' && WEXITSTATUS(status) == 3));
                         written += WEXITSTATUS(status) == 0;
+                        failed += WEXITSTATUS(status) == 3;
                     }
-                    CHECK(written >= 1 && cpu_state(cpu) == value - '0');
+                    for (int i = 0; i < failed; ++i)
+                        say_online_eio(cpu, "racer");
+                    if (failed && !written)
+                    {
+                        /* Nothing brought it up: it still reads offline. */
+                        CHECK(cpu_state(cpu) == 0);
+                        errno = online_via(cpu, 0, "racer");
+                        CHECK(errno == 0);
+                    }
+                    CHECK((written >= 1 || failed >= 1) && cpu_state(cpu) == value - '0');
                     if (value == '0')
                         check_offline(cpu);
                 }
@@ -1209,7 +1334,7 @@ static __attribute__((noreturn)) void controller(const char *base, const char *s
                 /* The distribution's chcpu, as an administrator runs it. */
                 CHECK(chcpu("-d", cpu) == 0);
                 check_offline(cpu);
-                CHECK(chcpu("-e", cpu) == 0 && cpu_state(cpu) == 1);
+                CHECK(chcpu_enable(cpu) == 0 && cpu_state(cpu) == 1);
                 CHECK(cpu_list("online") & (1L << cpu));
                 ++chcpu_runs;
                 continue;
@@ -1219,7 +1344,7 @@ static __attribute__((noreturn)) void controller(const char *base, const char *s
                 CHECK(set_cpu_via(cpu, '0', method % 3) == 0);
                 check_offline(cpu);
             }
-            CHECK(set_cpu_via(cpu, '1', method % 3) == 0 && cpu_state(cpu) == 1);
+            CHECK(online_via(cpu, method % 3, "plain") == 0 && cpu_state(cpu) == 1);
             CHECK(cpu_list("online") & (1L << cpu));
             methods |= 1u << (method++ % 3);
         }

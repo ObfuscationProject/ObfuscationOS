@@ -51,7 +51,14 @@ it announced (SMP_STRESS_PINNED) must be named by the kernel's
 OK_SMP_AFFINITY_BROKEN line, and the OK_SMP_HOTPLUG_USER line of the probe's
 exit report must show as many CPUs brought online as taken offline, every
 secondary taken offline once per cycle (less writers killed before they
-filed), no failure and no wedged CPU. The OK_SMP_HOTPLUG_RECORDS line after
+filed) and no wedged CPU. Its failures must each have one OK_SMP_HOTPLUG_FAIL
+line (numbered 1 to failures, none lost) for an online write that got EIO
+with a timing reason (TIMING_REASONS: an x86 restart's clock handshake that
+host load kept from a tight round, or a CPU that missed its start timeout);
+every SMP_STRESS_ONLINE_EIO line of the probe (an online write it saw fail
+with EIO, the CPU left offline, and wrote again) needs one of those for its
+CPU, and only writers killed in their wait may leave one unannounced. Any
+other failure fails the run. The OK_SMP_HOTPLUG_RECORDS line after
 it may count no more abandoned, dropped and orphaned requests than kills, and
 with three or more vCPUs at least one abandoned request: a writer killed in
 its uninterruptible wait while CPU 0 ran its request. The controller's direct writes rotate
@@ -108,6 +115,12 @@ HOTPLUG_USER_FIELDS = ('requests', 'offline', 'online', 'noop', 'failures', 'bus
 HOTPLUG_RECORDS = re.compile(rb'OK_SMP_HOTPLUG_RECORDS scope=hardware abandoned=(\d+) dropped_waiting=(\d+) '
                              rb'dropped_done=(\d+)\r?\n')
 PINNED = re.compile(rb'SMP_STRESS_PINNED pid=(\d+) cpu=(\d+)\r?\n')
+ONLINE_EIO = re.compile(rb'SMP_STRESS_ONLINE_EIO cpu=(\d+) site=([a-z]+)\r?\n')
+HOTPLUG_FAIL = re.compile(rb'OK_SMP_HOTPLUG_FAIL scope=hardware failure=(\d+) cpu=(\d+) want=([01]) errno=(\d+) '
+                          rb'reason=([a-z-]+) us=(\d+)\r?\n')
+# The documented online failures of a loaded host: EIO, the CPU left offline.
+TIMING_REASONS = ('tsc-absent', 'tsc-silent', 'tsc-loose', 'start-timeout')
+EIO = 5
 BROKEN = re.compile(rb'OK_SMP_AFFINITY_BROKEN pid=(\d+) tid=(\d+) cpu=(\d+)\r?\n')
 HOTPLUG_BOOT = re.compile(rb'OK_SMP_HOTPLUG_BOOT scope=hardware cpu=1 stop=(\w+) parked_ipi=(\w+) '
                           rb'restart=(\w+) ipi=(\w+)\r?\n')
@@ -309,8 +322,30 @@ def user_hotplug(serial, result, counts, online):
     if tuple(fields) != HOTPLUG_USER_FIELDS:
         raise RuntimeError('OK_SMP_HOTPLUG_USER fields differ from the report format')
     problems = []
-    if fields['failures'] or fields['wedged']:
-        problems.append('failures=%d wedged=%d' % (fields['failures'], fields['wedged']))
+    if fields['wedged']:
+        problems.append('wedged=%d' % fields['wedged'])
+    # Each failure once, none lost, each an online write's EIO for a timing reason.
+    failed = [dict(number=int(number), cpu=int(cpu), want=int(want), errno=int(error), reason=reason.decode(),
+                   us=int(us)) for number, cpu, want, error, reason, us in HOTPLUG_FAIL.findall(serial)]
+    if serial.count(b'OK_SMP_HOTPLUG_FAIL ') != len(failed):
+        problems.append('incomplete OK_SMP_HOTPLUG_FAIL line')
+    if [failure['number'] for failure in failed] != list(range(1, fields['failures'] + 1)):
+        problems.append('failures=%d but OK_SMP_HOTPLUG_FAIL numbers %r' % (
+            fields['failures'], [failure['number'] for failure in failed]))
+    for failure in failed:
+        if (failure['want'] != 1 or failure['errno'] != EIO or failure['reason'] not in TIMING_REASONS or
+                not 1 <= failure['cpu'] < online):
+            problems.append('hotplug failure %r is not an online timing failure' % failure)
+    announced = [(int(cpu), site.decode()) for cpu, site in ONLINE_EIO.findall(serial)]
+    if serial.count(b'SMP_STRESS_ONLINE_EIO ') != len(announced):
+        problems.append('incomplete SMP_STRESS_ONLINE_EIO line')
+    for cpu in sorted({cpu for cpu, _ in announced}):
+        seen = sum(1 for each, _ in announced if each == cpu)
+        reported = sum(1 for failure in failed if failure['cpu'] == cpu)
+        if seen > reported:
+            problems.append('%d online EIO on CPU %d, kernel reported %d failures' % (seen, cpu, reported))
+    if len(failed) > len(announced) + probe['killed']:
+        problems.append('%d failures, %d announced and %d kills' % (len(failed), len(announced), probe['killed']))
     # Every cycle takes each secondary offline once; a writer killed before
     # its request was filed takes nothing offline.
     floor = probe['hotplug_cycles'] * (online - 1) - probe['killed']
@@ -339,6 +374,7 @@ def user_hotplug(serial, result, counts, online):
     if problems:
         raise RuntimeError('user hotplug requirements failed: ' + '; '.join(problems))
     return dict(probe=probe, kernel=fields, records=dict(abandoned=abandoned, dropped_waiting=waiting, dropped_done=done), pinned=pinned,
+                failures=failed, online_eio=announced,
                 line=reports[-1].group(0).decode().strip() + ' ' + records[-1].group(0).decode().strip())
 
 
