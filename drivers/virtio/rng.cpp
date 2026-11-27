@@ -2,6 +2,7 @@
 #include "poll.hpp"
 
 #include <ok/arch/clock.hpp>
+#include <ok/smp/gate.hpp>
 #include <ok/interrupt/platform.hpp>
 #include <utility>
 
@@ -463,6 +464,11 @@ class VirtioRng final : public driver::EntropySource
     }
     Status fill(std::span<std::byte> out) override
     {
+        // One request in flight (kernel rank block_request, a serving gate):
+        // another CPU waits serving its interrupts; a re-entry on the holding
+        // CPU would block.
+        const RequestGate::Guard gate(request_gate_);
+        if (!gate.status()) return Status::would_block("Virtio RNG request is already active");
         if (shutdown_started_) return Status::would_block("Virtio RNG shutdown closed admission");
         if (!ready_) return Status::would_block("Virtio RNG is unavailable");
         if (out.size() > request_bytes)
@@ -491,8 +497,9 @@ class VirtioRng final : public driver::EntropySource
             };
             const auto clock = [] { return arch::monotonic_nanoseconds(); };
             const auto signalled = [&] { return signalled_.take(); };
+            const auto wait = [&] { return detail::wait_for_device_line(line_); };
             auto waited = interrupt_bound_ ? detail::wait_until(ready, signalled, clock, started.value(), io_timeout_ns,
-                                                                detail::wait_for_device_interrupt)
+                                                                wait)
                                            : detail::poll_until(ready, clock, started.value(), io_timeout_ns);
             barrier();
             if (!waited) { busy_ = false; return fail(waited.message()); }
@@ -569,6 +576,7 @@ class VirtioRng final : public driver::EntropySource
         if (!line) return;
         if (!interrupt::bind_platform_irq(line.value().line, line.value().trigger, &VirtioRng::serve_interrupt, this))
             return;
+        line_ = line.value().line;
         transport_.enable_interrupts();
         queue_.available.flags = 0;
         barrier();
@@ -583,7 +591,10 @@ class VirtioRng final : public driver::EntropySource
     Queue &queue_;
     u16 available_{}, used_{};
     bool interrupt_attempted_{}, interrupt_bound_{};
+    interrupt::IrqLine line_{};
     detail::DeviceSignal signalled_{};
+    using RequestGate = smp::ServingGate<smp::LockRank::block_request>;
+    RequestGate request_gate_{};
     bool ready_{}, busy_{}, shutdown_started_{}, shutdown_finished_{};
     Status shutdown_status_{};
 };

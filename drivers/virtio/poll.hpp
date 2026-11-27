@@ -77,28 +77,37 @@ ok::Status wait_until(Ready ready, Signalled signalled, Clock clock, ok::u64 sta
             return poll_until(ready, clock, start, timeout);
     }
 }
-// A bottom half's "the device's line fired" flag for a waiter. Bottom halves
-// run under the kernel lock today, like the waiter; the flag is atomic so that
-// it stays correct where a bottom half runs on another CPU. A load and a
-// store, no read-modify-write: not every profile has a byte exchange.
+// A bottom half's "the device's line fired" flag for a waiter. A bottom half
+// may run on another CPU than its waiter (kernel spec 4.13): on the profiles
+// that start secondary CPUs take() is one word exchange, so a raise() between
+// a load and a clearing store cannot be lost. Every profile has a word
+// exchange, not every one a byte exchange; the one-CPU profiles keep a load
+// and a store.
+#if defined(__x86_64__) || defined(__aarch64__) || (defined(__riscv) && __riscv_xlen == 64)
+inline constexpr bool device_signal_exchange = true;
+#else
+inline constexpr bool device_signal_exchange = false;
+#endif
 class DeviceSignal final
 {
   public:
     void raise() noexcept
     {
-        raised_.store(true, std::memory_order_release);
+        raised_.store(1, std::memory_order_release);
     }
     // Whether the line fired since the last take(); clears it.
     [[nodiscard]] bool take() noexcept
     {
+        if constexpr (device_signal_exchange)
+            return raised_.exchange(0, std::memory_order_acq_rel) != 0;
         if (!raised_.load(std::memory_order_acquire))
             return false;
-        raised_.store(false, std::memory_order_relaxed);
+        raised_.store(0, std::memory_order_relaxed);
         return true;
     }
 
   private:
-    std::atomic<bool> raised_{false};
+    std::atomic<ok::u32> raised_{0};
 };
 
 // The kernel's interrupt wait followed by the bottom halves it made pending.
@@ -107,6 +116,15 @@ class DeviceSignal final
 inline bool wait_for_device_interrupt()
 {
     if (!ok::interrupt::wait_for_interrupt())
+        return false;
+    static_cast<void>(ok::interrupt::drain_platform_irqs());
+    return true;
+}
+// The same for a driver waiting on its own bound line: top halves of other
+// lines on other CPUs do not end the halt (the kernel's waiting_line).
+inline bool wait_for_device_line(ok::interrupt::IrqLine line)
+{
+    if (!ok::interrupt::wait_for_line(line))
         return false;
     static_cast<void>(ok::interrupt::drain_platform_irqs());
     return true;

@@ -2,7 +2,11 @@
 """Run the static-musl SMP stress probe (tests/musl/smp_stress.c) on scratch ext4 with N vCPUs.
 
 The probe forks its workers together and each races file, AF_UNIX socketpair
-and fork/exec rounds; it prints one SMP_STRESS_PASS line. With several vCPUs
+and fork/exec rounds, RAM filesystem metadata (open, lookup, rename,
+O_APPEND, unlink), pipe ping-pong, PTY echo and datagram socket rounds; it prints one
+SMP_STRESS_PASS line whose metadata, pipes and ptys counts must equal
+workers * rounds, as must udp + udp_nolink (udp_nolink: a boot without a
+NIC refuses the socket). With several vCPUs
 the kernel's boot OK_SMP line must show every vCPU online on the profiles that
 start secondaries (x86_64, aarch64, rv64), and the OK_SMP_CPUS report the
 probe's exit prints must show user code entered on every online CPU during the
@@ -475,8 +479,12 @@ def main():
         total = args.workers * args.rounds
         expected = dict(workers=args.workers, rounds=args.rounds, files=2 * total, messages=MESSAGES * total,
                         forks=2 * total)
+        expected.update(metadata=total, pipes=total, ptys=total)
         if any(int(counts.get(name, -1)) != value for name, value in expected.items()):
             raise RuntimeError('stress probe counts differ from the requested run: ' + record['result'])
+        if int(counts.get('udp', -1)) + int(counts.get('udp_nolink', -1)) != total:
+            raise RuntimeError('stress probe datagram rounds differ from the requested run: ' + record['result'])
+        record['udp_rounds'] = dict(sent=int(counts['udp']), no_link=int(counts['udp_nolink']))
         record['guest_seconds'] = float(counts['seconds'])
 
         # The report the probe's own exit prints; its workers' exits print earlier ones.

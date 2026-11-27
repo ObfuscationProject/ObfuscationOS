@@ -10,11 +10,26 @@
  * - ping-pongs MESSAGES messages of varying size with a forked child over an
  *   AF_UNIX stream socketpair, the child answering each with a transform the
  *   worker checks, then reaps the child;
- * - forks a child that execs this program (even rounds) or exits directly (odd
- *   rounds) with a status computed from the worker and round, and checks it;
+ * - forks a child that starts a thread spinning in user mode, preferably on
+ *   another CPU, and then execs this program (rounds 0 and 2 mod 4), exits
+ *   directly (round 1 mod 4) with a status computed from the worker and
+ *   round, or is killed by the worker with SIGKILL (round 3 mod 4), and
+ *   checks the status; the exec, the exit and the kill each end a thread
+ *   group whose other thread may run on another CPU (the kernel's group
+ *   quiesce, OK_SMP_WAKE group_waits and frozen_skips);
  * - starts a thread that keeps writing and checking its own pages while the
  *   worker maps, write-protects and unmaps others, so the address space the
- *   thread runs in on another CPU changes under it (TLB shootdown).
+ *   thread runs in on another CPU changes under it (TLB shootdown);
+ * - on the RAM filesystem (/run): creates a file, looks it up, renames it
+ *   into a directory every worker shares, looks up both names, appends to it
+ *   with O_APPEND, checks its size and unlinks it (metadata);
+ * - ping-pongs PINGS bytes with a forked child over two pipes (pipes);
+ * - opens a PTY pair through /dev/ptmx, sets the slave raw and echoes a
+ *   message from the master to the slave and an answer back (ptys);
+ * - opens an AF_INET datagram socket, binds it to an ephemeral port, sends a
+ *   few datagrams to the static link peer (each is sent, or queued, or
+ *   ENOBUFS when the kernel's transmit backlog is full) and closes it (udp);
+ *   a boot without a NIC refuses the socket, counted as udp_nolink.
  *
  * Each worker sends its counts, or where its first check failed, through one
  * pipe all workers share and exits 0 only if every check held. The parent reaps and checks
@@ -23,6 +38,7 @@
  * counts; its pinned children are announced by SMP_STRESS_PINNED lines):
  *
  *   SMP_STRESS_PASS arch=<arch> workers=W rounds=R files=<n> messages=<n> forks=<n> seconds=<s>
+ *                   metadata=<n> pipes=<n> ptys=<n> udp=<n> udp_nolink=<n>
  *                   [hotplug_cycles=<n> pinned=<n> racing=<n> killed=<n> killed_filed=<n> refusals=<n>]
  *   SMP_STRESS_FAIL arch=<arch> reason=<token>
  *
@@ -41,11 +57,14 @@
 #include <stdint.h>
 #include <stdio.h>
 #include <string.h>
+#include <arpa/inet.h>
+#include <netinet/in.h>
 #include <sys/mman.h>
 #include <sys/socket.h>
 #include <sys/stat.h>
 #include <sys/uio.h>
 #include <sys/wait.h>
+#include <termios.h>
 #include <time.h>
 #include <unistd.h>
 
@@ -82,6 +101,8 @@
 #define DEFAULT_ROUNDS 40
 #define MAX_ROUNDS 10000
 #define MESSAGES 4
+#define PINGS 16
+#define RAM_ROOT "/run"
 #define MAX_FILE 6144
 #define MAX_MESSAGE 768
 #define SELF "/bin/smp-stress"
@@ -91,11 +112,12 @@ struct record
 {
     uint32_t worker, rounds, files, messages, forks;
     uint32_t failed, round, line, error;
+    uint32_t metadata, pipes, ptys, udp, udp_nolink;
 };
 
 struct line
 {
-    char text[256];
+    char text[512];
     size_t size;
 };
 
@@ -354,24 +376,71 @@ static void socket_cycle(unsigned seed)
     ++result.forks;
 }
 
+/* The fork cycle's child: a second thread that spins in user mode, placed
+   away from the child's own CPU when the affinity allows. `ready` (shared
+   with the worker) is set once it ran. */
+static volatile uint32_t *ready;
+static unsigned long spun;
+
+static void *spin(void *opaque)
+{
+    (void)opaque;
+    for (;;)
+        __atomic_add_fetch(&spun, 1, __ATOMIC_RELAXED);
+    return 0;
+}
+
+static void start_spinner(void)
+{
+    pthread_t thread;
+    cpu_set_t away;
+    CPU_ZERO(&away);
+    const int self = sched_getcpu();
+    if (!sched_getaffinity(0, sizeof away, &away) && self >= 0 && CPU_COUNT(&away) > 1)
+        CPU_CLR(self, &away);
+    if (pthread_create(&thread, 0, spin, 0))
+        _exit(249);
+    /* Best effort: the thread stays wherever the kernel put it otherwise. */
+    (void)pthread_setaffinity_np(thread, sizeof away, &away);
+    /* A bounded wait for the first spin: the group then has a thread that
+       may be in user mode on another CPU when it execs, exits or dies. */
+    for (unsigned wait = 0; wait < 100000 && !__atomic_load_n(&spun, __ATOMIC_RELAXED); ++wait)
+        sched_yield();
+    __atomic_store_n(ready, 1, __ATOMIC_RELEASE);
+}
+
 static void fork_cycle(const char *self, unsigned worker, unsigned round)
 {
     const unsigned expected = 1 + (worker * 7u + round * 3u) % 200u;
     char code[12];
     name_into(code, "", expected, 0, 0);
+    __atomic_store_n(ready, 0, __ATOMIC_RELEASE);
     const pid_t child = fork();
     CHECK(child >= 0);
     if (child == 0)
     {
         close(record_fd);
-        if (round % 2)
+        start_spinner();
+        if (round % 4 == 3)
+            for (;;)
+                __atomic_add_fetch(&spun, 1, __ATOMIC_RELAXED);
+        if (round % 4 == 1)
             _exit((int)expected);
         execl(self, self, "--exit", code, (char *)0);
         _exit(250);
     }
     int status = 0;
+    if (round % 4 == 3)
+    {
+        while (!__atomic_load_n(ready, __ATOMIC_ACQUIRE))
+            sched_yield();
+        CHECK(kill(child, SIGKILL) == 0);
+    }
     CHECK(reap(child, &status) == child);
-    CHECK(WIFEXITED(status) && WEXITSTATUS(status) == expected);
+    if (round % 4 == 3)
+        CHECK(WIFSIGNALED(status) && WTERMSIG(status) == SIGKILL);
+    else
+        CHECK(WIFEXITED(status) && WEXITSTATUS(status) == expected);
     ++result.forks;
 }
 
@@ -434,15 +503,183 @@ static void vm_cycle(unsigned seed)
     CHECK(munmap(own, SIZE) == 0);
 }
 
+/* The size of `path` from its end-of-file offset; -1 when it cannot be opened. */
+static off_t file_size(const char *path)
+{
+    const int fd = open(path, O_RDONLY);
+    if (fd < 0)
+        return -1;
+    const off_t size = lseek(fd, 0, SEEK_END);
+    close(fd);
+    return size;
+}
+
+/* RAM filesystem metadata: create, look up, rename into the shared
+   directory, look up both names, O_APPEND, unlink (kernel WP5:
+   ram_topology, the namespace gate shared, Node::append). */
+static void metadata_cycle(const char *own, const char *shared, unsigned index, unsigned round, unsigned seed)
+{
+    char name[32], from[96], to[96];
+    name_into(name, "m", round, 0, 0);
+    join(from, own, name);
+    name_into(name, "m", index, '-', round);
+    join(to, shared, name);
+    const size_t size = 1 + seed % 3000;
+    for (size_t i = 0; i < size; ++i)
+        buffer[i] = pattern(seed + 7, i);
+    int fd = open(from, O_WRONLY | O_CREAT | O_EXCL, 0640);
+    CHECK(fd >= 0);
+    CHECK(write_all(fd, buffer, size) == 0);
+    CHECK(close(fd) == 0);
+    /* stat is refused here too (no qualified stat policy on the RAM mount):
+       lookups are opens, sizes are end-of-file offsets. */
+    CHECK(file_size(from) == (off_t)size);
+    CHECK(rename(from, to) == 0);
+    errno = 0;
+    CHECK(open(from, O_RDONLY) < 0 && errno == ENOENT);
+    CHECK(file_size(to) == (off_t)size);
+    fd = open(to, O_WRONLY | O_APPEND);
+    CHECK(fd >= 0);
+    CHECK(write_all(fd, buffer, 16) == 0);
+    CHECK(close(fd) == 0);
+    CHECK(file_size(to) == (off_t)(size + 16));
+    CHECK(unlink(to) == 0);
+    errno = 0;
+    CHECK(open(to, O_RDONLY) < 0 && errno == ENOENT);
+    ++result.metadata;
+}
+
+/* Pipe ping-pong: PINGS bytes down to a forked child, each answered + 1 up. */
+static void pipe_cycle(unsigned seed)
+{
+    int down[2], up[2];
+    CHECK(pipe(down) == 0);
+    CHECK(pipe(up) == 0);
+    const pid_t child = fork();
+    CHECK(child >= 0);
+    if (child == 0)
+    {
+        close(record_fd);
+        close(down[1]);
+        close(up[0]);
+        unsigned char byte;
+        for (unsigned i = 0; i < PINGS; ++i)
+        {
+            if (read_all(down[0], &byte, 1))
+                _exit(50);
+            byte = (unsigned char)(byte + 1);
+            if (write_all(up[1], &byte, 1))
+                _exit(51);
+        }
+        if (read_all(down[0], &byte, 1) != 1)
+            _exit(52);
+        _exit(0);
+    }
+    CHECK(close(down[0]) == 0 && close(up[1]) == 0);
+    for (unsigned i = 0; i < PINGS; ++i)
+    {
+        const unsigned char sent = pattern(seed, i);
+        unsigned char back = 0;
+        CHECK(write_all(down[1], &sent, 1) == 0);
+        CHECK(read_all(up[0], &back, 1) == 0 && back == (unsigned char)(sent + 1));
+    }
+    CHECK(close(down[1]) == 0);
+    int status = 0;
+    CHECK(reap(child, &status) == child);
+    CHECK(WIFEXITED(status) && WEXITSTATUS(status) == 0);
+    CHECK(close(up[0]) == 0);
+    ++result.pipes;
+}
+
+/* PTY echo: master to raw slave and an answer back (kernel WP5: the tty
+   lock, prepare/copy/commit reads). A full pair table is retried. */
+static void pty_cycle(unsigned seed)
+{
+    int master = -1;
+    for (unsigned attempt = 0; attempt < 1000 && master < 0; ++attempt)
+    {
+        master = posix_openpt(O_RDWR | O_NOCTTY);
+        if (master < 0)
+        {
+            CHECK(errno == ENOSPC || errno == EAGAIN);
+            sched_yield();
+        }
+    }
+    CHECK(master >= 0);
+    CHECK(grantpt(master) == 0 && unlockpt(master) == 0);
+    const char *path = ptsname(master);
+    CHECK(path != 0);
+    const int slave = open(path, O_RDWR | O_NOCTTY);
+    CHECK(slave >= 0);
+    struct termios mode;
+    CHECK(tcgetattr(slave, &mode) == 0);
+    cfmakeraw(&mode);
+    CHECK(tcsetattr(slave, TCSANOW, &mode) == 0);
+    unsigned char out[32], in[32];
+    const size_t size = 1 + seed % sizeof out;
+    for (size_t i = 0; i < size; ++i)
+        out[i] = pattern(seed + 3, i);
+    CHECK(write_all(master, out, size) == 0);
+    CHECK(read_all(slave, in, size) == 0 && memcmp(in, out, size) == 0);
+    for (size_t i = 0; i < size; ++i)
+        out[i] = answer(in[i], 1);
+    CHECK(write_all(slave, out, size) == 0);
+    CHECK(read_all(master, in, size) == 0 && memcmp(in, out, size) == 0);
+    CHECK(close(slave) == 0 && close(master) == 0);
+    ++result.ptys;
+}
+
+/* A datagram socket's admission, ephemeral bind, sends to the static link
+   peer and close (kernel WP5: try-transmit under net_stack, ENOBUFS). */
+static void udp_cycle(unsigned seed)
+{
+    const int fd = socket(AF_INET, SOCK_DGRAM | SOCK_CLOEXEC, 0);
+    if (fd < 0)
+    {
+        /* No NIC in this boot: the link cannot start. */
+        CHECK(errno == ENODEV || errno == ENXIO || errno == EIO || errno == ENETDOWN || errno == ENOENT);
+        ++result.udp_nolink;
+        return;
+    }
+    struct sockaddr_in local = {0};
+    local.sin_family = AF_INET;
+    local.sin_addr.s_addr = htonl(INADDR_ANY);
+    CHECK(bind(fd, (const struct sockaddr *)&local, sizeof local) == 0);
+    socklen_t length = sizeof local;
+    CHECK(getsockname(fd, (struct sockaddr *)&local, &length) == 0 && local.sin_port != 0);
+    struct sockaddr_in peer = {0};
+    peer.sin_family = AF_INET;
+    peer.sin_port = htons(9);
+    peer.sin_addr.s_addr = htonl(0xc0000201u);
+    unsigned char payload[64];
+    const size_t size = 1 + seed % sizeof payload;
+    for (size_t i = 0; i < size; ++i)
+        payload[i] = pattern(seed, i);
+    for (unsigned i = 0; i < 4; ++i)
+    {
+        const ssize_t sent = sendto(fd, payload, size, 0, (const struct sockaddr *)&peer, sizeof peer);
+        CHECK(sent == (ssize_t)size || (sent < 0 && errno == ENOBUFS));
+    }
+    CHECK(close(fd) == 0);
+    ++result.udp;
+}
+
 static __attribute__((noreturn)) void worker(const char *self, const char *base, unsigned index,
                                              unsigned rounds, int gate)
 {
     result.worker = index;
-    char own[64], shared[64], name[32], from[96], to[96];
+    char own[64], shared[64], name[32], from[96], to[96], ram_base[64], ram_own[64], ram_shared[64];
     join(shared, base, "shared");
     name_into(name, "w", index, 0, 0);
     join(own, base, name);
     CHECK(mkdir(own, 0755) == 0);
+    ready = mmap(0, 4096, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_ANONYMOUS, -1, 0);
+    CHECK(ready != MAP_FAILED);
+    /* The parent made /run/<base name> and its shared directory. */
+    join(ram_base, RAM_ROOT, base + 5);
+    join(ram_shared, ram_base, "shared");
+    join(ram_own, ram_base, name);
+    CHECK(mkdir(ram_own, 0755) == 0);
     /* Every worker leaves the gate together, once the parent closes it. */
     unsigned char byte;
     CHECK(read_all(gate, &byte, 1) == 1);
@@ -466,9 +703,14 @@ static __attribute__((noreturn)) void worker(const char *self, const char *base,
         socket_cycle(seed);
         fork_cycle(self, index, round);
         vm_cycle(seed);
+        metadata_cycle(ram_own, ram_shared, index, round, seed);
+        pipe_cycle(seed);
+        pty_cycle(seed);
+        udp_cycle(seed);
         result.rounds = round + 1;
     }
     CHECK(rmdir(own) == 0);
+    CHECK(rmdir(ram_own) == 0);
     finish();
 }
 
@@ -1006,12 +1248,17 @@ int main(int argc, char **argv)
     }
     const char *self = argc > 0 && argv[0][0] == '/' ? argv[0] : SELF;
 
-    char base[64], shared[64], name[32];
+    char base[64], shared[64], name[32], ram_base[64], ram_shared[64];
     name_into(name, "/tmp/smp-stress-", (unsigned)getpid(), 0, 0);
     memcpy(base, name, strlen(name) + 1);
     join(shared, base, "shared");
     if (mkdir(base, 0755) || mkdir(shared, 0755))
         fail("mkdir", 0);
+    /* The same names on the RAM filesystem for the metadata cycles. */
+    join(ram_base, RAM_ROOT, base + 5);
+    join(ram_shared, ram_base, "shared");
+    if (mkdir(ram_base, 0755) || mkdir(ram_shared, 0755))
+        fail("mkdir-run", 0);
 
     /* The gate releases the workers together; every worker writes its one
        record to the shared channel, in whatever order they finish. */
@@ -1101,7 +1348,7 @@ int main(int argc, char **argv)
             fail("unlink-stop", 0);
     }
 
-    uint64_t files = 0, messages = 0, forks = 0;
+    uint64_t files = 0, messages = 0, forks = 0, metadata = 0, pipes = 0, ptys = 0, udp = 0, udp_nolink = 0;
     long failed = -1;
     struct record first = {0};
     for (long i = 0; i < workers; ++i)
@@ -1111,11 +1358,13 @@ int main(int argc, char **argv)
         const int good = reaped[i] && WIFEXITED(status) && WEXITSTATUS(status) == 0 && received[i] &&
                          !report.failed && report.rounds == (uint32_t)rounds &&
                          report.files == 2 * (uint32_t)rounds && report.messages == MESSAGES * (uint32_t)rounds &&
-                         report.forks == 2 * (uint32_t)rounds;
+                         report.forks == 2 * (uint32_t)rounds && report.metadata == (uint32_t)rounds &&
+                         report.pipes == (uint32_t)rounds && report.ptys == (uint32_t)rounds &&
+                         report.udp + report.udp_nolink == (uint32_t)rounds;
         if (!good && failed < 0)
         {
             failed = i;
-            first = received[i] ? report : (struct record){(uint32_t)i, 0, 0, 0, 0, 1, 0, 0, 0};
+            first = received[i] ? report : (struct record){(uint32_t)i, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0};
             if (!reaped[i])
                 first.line = 30000u;
             else if (!WIFEXITED(status) || WEXITSTATUS(status) != 0)
@@ -1127,6 +1376,11 @@ int main(int argc, char **argv)
             files += report.files;
             messages += report.messages;
             forks += report.forks;
+            metadata += report.metadata;
+            pipes += report.pipes;
+            ptys += report.ptys;
+            udp += report.udp;
+            udp_nolink += report.udp_nolink;
         }
     }
     const int64_t ended = monotonic();
@@ -1144,7 +1398,7 @@ int main(int argc, char **argv)
         emit(&out);
         return 1;
     }
-    if (rmdir(shared) || rmdir(base))
+    if (rmdir(shared) || rmdir(base) || rmdir(ram_shared) || rmdir(ram_base))
         fail("rmdir", 0);
     if (began < 0 || ended < began)
         fail("clock", 0);
@@ -1166,6 +1420,16 @@ int main(int argc, char **argv)
     put_number(&out, milliseconds / 100u % 10u);
     put_number(&out, milliseconds / 10u % 10u);
     put_number(&out, milliseconds % 10u);
+    put(&out, " metadata=");
+    put_number(&out, metadata);
+    put(&out, " pipes=");
+    put_number(&out, pipes);
+    put(&out, " ptys=");
+    put_number(&out, ptys);
+    put(&out, " udp=");
+    put_number(&out, udp);
+    put(&out, " udp_nolink=");
+    put_number(&out, udp_nolink);
     if (hotplug)
     {
         const struct record control_report = reports[workers];

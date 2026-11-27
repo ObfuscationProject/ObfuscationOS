@@ -6,6 +6,7 @@ import argparse
 import hashlib
 import json
 import os
+import re
 import socket
 import struct
 import subprocess
@@ -81,7 +82,7 @@ def wait_line(serial: Path, process: subprocess.Popen, expected: str,
                        data[-4000:].decode("ascii", errors="replace"))
 
 
-def qemu_argv(arch: str, image: Path, backend: socket.socket, qemu: Path) -> list[str]:
+def qemu_argv(arch: str, image: Path, backend: socket.socket, qemu: Path, smp: int = 1) -> list[str]:
     if arch in ("i386", "x86_64"):
         argv = [str(qemu), "-m", "128M", "-drive",
                 f"file={image},format=raw,if=ide,snapshot=on", "-boot", "c"]
@@ -101,6 +102,8 @@ def qemu_argv(arch: str, image: Path, backend: socket.socket, qemu: Path) -> lis
             argv += ["-cpu", "cortex-a57" if arch == "aarch64" else "cortex-a15"]
         if arch in ("rv64", "rv32"):
             argv += ["-bios", "none"]
+    if smp > 1:
+        argv += ["-smp", str(smp)]
     argv += ["-display", "none", "-serial", "stdio", "-monitor", "none", "-no-reboot", "-nic", "none"]
     if arch in MMIO:
         argv += ["-global", "virtio-mmio.force-legacy=false"]
@@ -125,7 +128,12 @@ def main() -> int:
     parser.add_argument("--image", type=Path, required=True)
     parser.add_argument("--qemu", type=Path)
     parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument("--smp", type=int, default=1,
+                        help="vCPUs (x86_64, aarch64, rv64); above 1 the kernel's OK_NET_TX line must show "
+                             "the user sends reaching the NIC through its try-transmit")
     args = parser.parse_args()
+    if args.smp < 1 or (args.smp > 1 and args.arch not in ("x86_64", "aarch64", "rv64")):
+        raise RuntimeError("--smp above 1 needs a profile that starts secondaries")
     qemu = args.qemu or Path("/usr/bin") / QEMU[args.arch]
     manifest = validate_sdk(args.kernel_sdk, args.arch, args.mode)
     if not args.image.is_file() or not qemu.is_file():
@@ -139,7 +147,7 @@ def main() -> int:
     peer_rx, peer_tx = bytearray(), bytearray()
     host, backend = socket.socketpair()
     host.settimeout(25)
-    command = qemu_argv(args.arch, args.image, backend, qemu)
+    command = qemu_argv(args.arch, args.image, backend, qemu, args.smp)
     profile = f"OK_NATIVE_UDP profile={args.mode} arch={args.arch}"
     try:
         with serial.open("wb") as output:
@@ -196,7 +204,15 @@ def main() -> int:
              "observer": digest(ROOT / "tools" / "native_udp_observer.py")}
     if before != after:
         raise RuntimeError("native UDP execution inputs changed during QEMU run")
-    receipt = {"schema": 2, "status": "passed-native-user-udp", "architecture": args.arch,
+    # The kernel's datagram transmit counters (kernel smp-scaling WP5, OK_NET_TX).
+    transmit = re.search(rb"OK_NET_TX scope=hardware direct=(\d+) queued=(\d+) flushed=(\d+) refused=(\d+) "
+                         rb"dropped=(\d+) pending=(\d+)", serial.read_bytes())
+    transmit_counts = dict(zip(("direct", "queued", "flushed", "refused", "dropped", "pending"),
+                               map(int, transmit.groups()))) if transmit else None
+    if args.smp > 1 and (not transmit_counts or transmit_counts["direct"] + transmit_counts["flushed"] == 0):
+        raise RuntimeError("SMP run has no OK_NET_TX evidence of a user send reaching the NIC")
+    receipt = {"schema": 2, "status": "passed-native-user-udp", "architecture": args.arch, "smp": args.smp,
+               "transmit": transmit_counts,
                "mode": args.mode, "guest_profile": profile,
                "transport": "mmio" if args.arch in MMIO else "pci",
                "sdk_abi": manifest["abi_version"], "sdk_manifest_sha256": before["sdk_manifest"],

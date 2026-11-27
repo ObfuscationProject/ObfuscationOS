@@ -48,6 +48,10 @@ class VirtioNetDevice final
     VirtioNetDevice() = default;
     ~VirtioNetDevice() = default;
     ok::Result<ok::u16> submit_transmit(std::span<const std::byte> frame);
+    // The bodies of poll_receive and submit_transmit; the caller holds the
+    // device lock.
+    ok::Result<ok::usize> poll_receive_locked(ok::usize budget);
+    ok::Result<ok::u16> submit_transmit_locked(std::span<const std::byte> frame);
     void attach_interrupt();
     std::array<ok::u8, 6> mac_{};
     bool active_{}, retired_{};

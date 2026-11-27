@@ -2,6 +2,7 @@
 #include "poll.hpp"
 #include "ok/arch/clock.hpp"
 #include "ok/interrupt/platform.hpp"
+#include "ok/smp/gate.hpp"
 #include <utility>
 
 #include <array>
@@ -668,6 +669,12 @@ template <typename Transport> class VirtioBlock final : public driver::BlockDevi
     }
     Status request(u32 type, u64 sector, usize size)
     {
+        // One request in flight (kernel rank block_request, a serving gate): a
+        // second CPU waits serving its interrupts, since the holder may wait
+        // for a line routed to it; a re-entry on the holding CPU is busy.
+        const RequestGate::Guard gate(request_gate_);
+        if (!gate.status())
+            return Status::busy("Virtio block request is already active");
         if (shutdown_started_)
             return Status::would_block("Virtio block shutdown closed admission");
         if (!ready_)
@@ -700,8 +707,9 @@ template <typename Transport> class VirtioBlock final : public driver::BlockDevi
         };
         const auto clock = [] { return arch::monotonic_nanoseconds(); };
         const auto signalled = [&] { return signalled_.take(); };
+        const auto wait = [&] { return detail::wait_for_device_line(line_); };
         const auto completed = interrupt_bound_ ? detail::wait_until(ready, signalled, clock, started.value(),
-                                                                     io_timeout_ns, detail::wait_for_device_interrupt)
+                                                                     io_timeout_ns, wait)
                                                 : detail::poll_until(ready, clock, started.value(), io_timeout_ns);
         barrier();
         busy_ = false;
@@ -747,6 +755,7 @@ template <typename Transport> class VirtioBlock final : public driver::BlockDevi
             return;
         if (!interrupt::bind_platform_irq(line.value().line, line.value().trigger, &VirtioBlock::serve_interrupt, this))
             return;
+        line_ = line.value().line;
         transport_.enable_interrupts();
         queue_.available.flags = 0;
         barrier();
@@ -761,7 +770,10 @@ template <typename Transport> class VirtioBlock final : public driver::BlockDevi
     Transport transport_{};
     Queue &queue_;
     bool interrupt_attempted_{}, interrupt_bound_{};
+    interrupt::IrqLine line_{};
     detail::DeviceSignal signalled_{};
+    using RequestGate = smp::ServingGate<smp::LockRank::block_request>;
+    RequestGate request_gate_{};
     u16 available_{}, used_{};
     u64 capacity_{};
     bool writable_{}, flush_{}, ready_{}, busy_{}, shutdown_started_{}, shutdown_finished_{};
