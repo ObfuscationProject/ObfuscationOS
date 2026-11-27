@@ -193,6 +193,19 @@ class MuslSourceTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'lacks audited'):
             admit_musl_build(self.root, 'ppc')
 
+    def test_static_ppc_requires_frontend_before_staging(self):
+        args = SimpleNamespace(archive=self.archive, arch='ppc', mode='debug', jobs=1,
+                               out=self.root / 'built', toolchain=self.root / 'toolchain', ppc_clang=None)
+        with patch('musl_source.inspect_archive', return_value={'schema_version': 1}), \
+                patch('musl_source.subprocess.run') as execute, \
+                patch('musl_source.subprocess.check_output') as query, \
+                self.assertRaisesRegex(ValueError, 'requires explicit --ppc-clang'):
+            build_static(args)
+        execute.assert_not_called()
+        query.assert_not_called()
+        self.assertFalse(args.out.exists())
+        self.assertEqual(sorted(path.name for path in self.root.iterdir()), [])
+
     def test_static_ppc_uses_clang_application_object_with_gcc_libc_and_linker(self):
         compiler, _ = self.frontend_fixture()
         bindir = self.root / 'toolchain/bin'

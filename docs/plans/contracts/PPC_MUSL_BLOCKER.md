@@ -69,7 +69,12 @@ valid evidence of the retained bare-metal frontend's behavior.
 `tools/musl_source.py build-static --arch=ppc --ppc-clang=PATH` now uses the same
 validated frontend for its ordinary C `main` probe, compiles an object separately,
 then links it with the retained GCC driver and newly built musl startup/libc.
-`xmake musl-static-spike` forwards this option. The musl source itself still uses
+`xmake musl-static-spike` forwards this option. Without it, `build-static` refuses
+PowerPC before staging anything: the EABI GCC probe would fail its link on
+`libgcc.a(eabi.o)` (`__init` and the `__SDATA_START__`/`__SBSS_END__`/
+`__SDATA2_START__`/`__SBSS2_END__` bounds). Defining those symbols is not a fix:
+`__eabi` loads `r13`/`r2` small-data bases, and `r2` is musl's PowerPC thread
+pointer. The musl source itself still uses
 the explicit GCC compiler. All new musl builds use `-O2`, with additional `-g` in
 debug mode; no optimization is removed to retain debug information.
 

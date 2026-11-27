@@ -170,7 +170,9 @@ def build_static(args) -> dict:
     inspection = inspect_archive(args.archive)
     if args.jobs < 1 or args.jobs > 64:
         raise ValueError("jobs must be between 1 and 64")
-    frontend = ppc_frontend(args.arch, getattr(args, "ppc_clang", None))
+    # The admission probe has an ordinary main, which EABI GCC cannot link for
+    # Linux musl; refuse before staging rather than record a failed tree.
+    frontend = ppc_frontend(args.arch, getattr(args, "ppc_clang", None), required=True)
     project = Path(__file__).resolve().parents[1]
     output = (args.out or project / "build/ports/musl" / VERSION / args.arch / args.mode).resolve()
     if output.exists():
